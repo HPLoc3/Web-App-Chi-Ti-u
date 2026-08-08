@@ -163,11 +163,11 @@ export default function GoalsTab({
                   value={tempIncome}
                   onChange={(e) => setTempIncome(e.target.value)}
                   placeholder="Nhập thu nhập..."
-                  className="w-full bg-white border border-[#E6DEC9] rounded px-2.5 py-1 text-sm font-mono focus:outline-none focus:border-emerald-700"
+                  className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-2.5 sm:py-1 text-sm font-mono focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
                 />
                 <button
                   onClick={handleSaveIncome}
-                  className="bg-emerald-900 text-white px-2 py-1 rounded hover:bg-emerald-850 cursor-pointer text-xs"
+                  className="bg-emerald-900 text-white px-3 py-2.5 sm:py-1 rounded hover:bg-emerald-850 cursor-pointer text-sm sm:text-xs min-h-[44px] sm:min-h-0 flex items-center justify-center"
                 >
                   Lưu
                 </button>
@@ -248,7 +248,7 @@ export default function GoalsTab({
                   value={newGoalName}
                   onChange={(e) => setNewGoalName(e.target.value)}
                   placeholder="Ví dụ: Đổi xe mới, Quỹ khẩn cấp..."
-                  className="w-full bg-stone-50/50 border border-[#E6DEC9] rounded px-3 py-1.5 text-sm focus:outline-none focus:border-emerald-700"
+                  className="w-full bg-stone-50/50 border border-[#E6DEC9] rounded px-3 py-3 sm:py-1.5 text-sm focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
                 />
               </div>
               <div>
@@ -262,7 +262,7 @@ export default function GoalsTab({
                     setNewGoalTarget(digits ? parseInt(digits, 10).toLocaleString('vi-VN') : '');
                   }}
                   placeholder="Ví dụ: 15.000.000"
-                  className="w-full bg-stone-50/50 border border-[#E6DEC9] rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-emerald-700"
+                  className="w-full bg-stone-50/50 border border-[#E6DEC9] rounded px-3 py-3 sm:py-1.5 text-sm font-mono focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
                 />
               </div>
               <div>
@@ -275,7 +275,7 @@ export default function GoalsTab({
                     setNewGoalCurrent(digits ? parseInt(digits, 10).toLocaleString('vi-VN') : '');
                   }}
                   placeholder="Ví dụ: 3.000.000"
-                  className="w-full bg-stone-50/50 border border-[#E6DEC9] rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-emerald-700"
+                  className="w-full bg-stone-50/50 border border-[#E6DEC9] rounded px-3 py-3 sm:py-1.5 text-sm font-mono focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
                 />
               </div>
             </div>
@@ -288,13 +288,13 @@ export default function GoalsTab({
                   setNewGoalCurrent('');
                   setIsAddingGoal(false);
                 }}
-                className="px-3 py-1.5 border border-stone-200 hover:bg-stone-50 text-stone-600 rounded font-medium cursor-pointer"
+                className="px-4 py-3 sm:py-1.5 border border-stone-200 hover:bg-stone-50 text-stone-600 rounded font-medium cursor-pointer min-h-[44px] sm:min-h-0 flex items-center justify-center"
               >
                 Hủy
               </button>
               <button
                 type="submit"
-                className="px-4 py-1.5 bg-emerald-900 hover:bg-emerald-850 text-white font-semibold rounded cursor-pointer"
+                className="px-4 py-3 sm:py-1.5 bg-emerald-900 hover:bg-emerald-850 text-white font-semibold rounded cursor-pointer min-h-[44px] sm:min-h-0 flex items-center justify-center"
               >
                 Lưu mục tiêu
               </button>
@@ -378,27 +378,27 @@ export default function GoalsTab({
 
                   {/* Add Money quick actions buttons */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-stone-100">
-                    <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">
+                    <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider shrink-0">
                       NẠP TIỀN NHANH VÀO MỤC TIÊU:
                     </span>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full sm:w-auto">
                       <button
                         onClick={() => handleQuickAdd(goal.id, goal.current, 100000)}
-                        className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-xs font-bold rounded cursor-pointer transition shadow-sm"
+                        className="flex-1 sm:flex-none px-3 py-2.5 sm:py-1 bg-amber-55 hover:bg-amber-100 border border-amber-200 text-amber-900 text-xs font-bold rounded cursor-pointer transition shadow-sm min-h-[44px] sm:min-h-0 flex items-center justify-center whitespace-nowrap"
                       >
                         +100.000₫
                       </button>
                       <button
                         onClick={() => handleQuickAdd(goal.id, goal.current, 500000)}
-                        className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-xs font-bold rounded cursor-pointer transition shadow-sm"
+                        className="flex-1 sm:flex-none px-3 py-2.5 sm:py-1 bg-amber-55 hover:bg-amber-100 border border-amber-200 text-amber-900 text-xs font-bold rounded cursor-pointer transition shadow-sm min-h-[44px] sm:min-h-0 flex items-center justify-center whitespace-nowrap"
                       >
                         +500.000₫
                       </button>
                       <button
                         onClick={() => handleQuickAdd(goal.id, goal.current, 1000000)}
-                        className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-xs font-bold rounded cursor-pointer transition shadow-sm"
+                        className="flex-1 sm:flex-none px-3 py-2.5 sm:py-1 bg-amber-55 hover:bg-amber-100 border border-amber-200 text-amber-900 text-xs font-bold rounded cursor-pointer transition shadow-sm min-h-[44px] sm:min-h-0 flex items-center justify-center whitespace-nowrap"
                       >
-                        +1.000.000₫
+                        +1M ₫
                       </button>
                       <div className="h-6 w-[1px] bg-stone-200 mx-1 hidden sm:block"></div>
                       
@@ -428,7 +428,7 @@ export default function GoalsTab({
                             }
                           }
                         }}
-                        className="px-2 py-1 border border-stone-200 bg-[#FAF9F6] rounded text-xs font-mono text-stone-700 w-32 focus:outline-none focus:border-emerald-700"
+                        className="w-full sm:w-32 px-3 py-2.5 sm:py-1 border border-stone-200 bg-[#FAF9F6] rounded text-sm sm:text-xs font-mono text-stone-700 focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
                       />
                     </div>
                   </div>

@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Sparkles, BookOpen, User, HelpCircle } from 'lucide-react';
+import { Send, Sparkles, BookOpen, User, HelpCircle, LogIn, Lock } from 'lucide-react';
 import { parseTransactionText } from '../utils/parser';
 import { Expense } from '../types';
 import { formatCurrency } from '../utils/format';
 import { CATEGORIES } from '../constants/categories';
+import { User as FirebaseUser } from '../firebase';
 
 interface Message {
   id: string;
@@ -24,17 +25,44 @@ interface ChatbotTabProps {
   expenses: Expense[];
   categoryLimits: Record<string, number>;
   onAddExpense: (expense: Omit<Expense, 'id'>) => void;
+  currentUser: FirebaseUser | null;
+  onOpenAuthModal: () => void;
 }
 
-export default function ChatbotTab({ expenses, categoryLimits, onAddExpense }: ChatbotTabProps) {
+export default function ChatbotTab({ expenses, categoryLimits, onAddExpense, currentUser, onOpenAuthModal }: ChatbotTabProps) {
+  // If user is not authenticated, display protected route message
+  if (!currentUser) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 sm:p-12 text-center bg-[#FAF7F0] border-2 border-dashed border-[#E6DEC9] rounded-2xl min-h-[420px] shadow-sm my-auto">
+        <div className="w-16 h-16 bg-amber-100 text-amber-800 rounded-full flex items-center justify-center mb-4 shadow-xs border border-amber-200 animate-pulse">
+          <Sparkles size={32} />
+        </div>
+        <h3 className="font-serif text-xl font-bold text-stone-800 mb-2">
+          Trợ lý AI Sổ tay Chi tiêu
+        </h3>
+        <p className="text-stone-600 text-sm max-w-md mb-6 leading-relaxed font-sans">
+          Vui lòng đăng nhập để bắt đầu trải nghiệm AI Assistant của Hồ Phú Lộc
+        </p>
+        <button
+          onClick={onOpenAuthModal}
+          className="px-6 py-3 bg-emerald-900 hover:bg-emerald-850 text-white font-semibold rounded-xl transition cursor-pointer shadow-md flex items-center gap-2 text-sm min-h-[44px]"
+        >
+          <LogIn size={18} />
+          <span>Đăng nhập ngay</span>
+        </button>
+      </div>
+    );
+  }
+
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
       sender: 'bot',
-      text: 'Chào mừng bạn đến với mục Ghi nhanh! 📔 Mình là Trợ lý Sổ tay chi tiêu. Bạn chỉ cần gõ nội dung chi tiêu hằng ngày bằng ngôn ngữ tự nhiên, mình sẽ tự động phân tích và ghi vào sổ cho bạn ngay.',
+      text: `Xin chào ${currentUser.displayName || currentUser.email || 'bạn'}! 📔 Mình là Trợ lý Sổ tay chi tiêu. Bạn chỉ cần gõ nội dung chi tiêu hằng ngày bằng ngôn ngữ tự nhiên, mình sẽ tự động phân tích và ghi vào sổ cho bạn ngay.`,
       timestamp: new Date()
     }
   ]);
+
   const [input, setInput] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -265,11 +293,11 @@ export default function ChatbotTab({ expenses, categoryLimits, onAddExpense }: C
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ví dụ: 'ăn sáng 30k', 'đổ xăng xe 50k hôm qua'..."
-          className="flex-1 bg-white border border-[#E6DEC9] rounded px-3 py-2 text-sm text-stone-800 focus:outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700"
+          className="flex-1 bg-white border border-[#E6DEC9] rounded px-3 py-3 sm:py-2 text-sm text-stone-800 focus:outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700 min-h-[44px] sm:min-h-0"
         />
         <button
           type="submit"
-          className="bg-emerald-900 hover:bg-emerald-850 text-white px-4 py-2 rounded flex items-center justify-center gap-1 text-sm font-semibold cursor-pointer transition shadow-sm shrink-0"
+          className="bg-emerald-900 hover:bg-emerald-850 text-white px-4 py-3 sm:py-2 rounded flex items-center justify-center gap-1.5 text-sm font-semibold cursor-pointer transition shadow-sm shrink-0 min-h-[44px] sm:min-h-0"
         >
           <Send size={15} />
           Ghi

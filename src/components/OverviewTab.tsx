@@ -192,12 +192,12 @@ export default function OverviewTab({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#E6DEC9] pb-4">
         <div>
           <h2 className="text-sm font-semibold text-stone-500 uppercase tracking-wider font-sans">Bảng quản lý</h2>
-          <div className="flex items-center gap-2 mt-1">
-            <span className="font-serif text-2xl font-bold text-emerald-950">Tháng quan sát:</span>
+          <div className="flex flex-wrap items-center gap-2 mt-1">
+            <span className="font-serif text-xl sm:text-2xl font-bold text-emerald-950">Tháng quan sát:</span>
             <select
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
-              className="bg-white border border-[#E6DEC9] rounded px-2 py-1 text-sm font-serif font-bold text-emerald-900 focus:outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700"
+              className="bg-white border border-[#E6DEC9] rounded px-3 py-2.5 sm:py-1 text-sm font-serif font-bold text-emerald-900 focus:outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700 min-h-[44px] sm:min-h-0"
             >
               {availableMonths.map(m => {
                 const [y, mm] = m.split('-');
@@ -224,7 +224,7 @@ export default function OverviewTab({
                   setTempIncome(income.toString());
                   setIsEditingIncome(true);
                 }}
-                className="text-emerald-800 hover:text-emerald-900 flex items-center gap-0.5 text-xs font-medium cursor-pointer"
+                className="text-emerald-800 hover:text-emerald-900 flex items-center gap-1 p-2 -m-2 text-xs font-medium cursor-pointer min-h-[44px] sm:min-h-0"
               >
                 <Edit3 size={12} /> Sửa
               </button>
@@ -237,11 +237,11 @@ export default function OverviewTab({
                 value={tempIncome}
                 onChange={(e) => setTempIncome(e.target.value)}
                 placeholder="Nhập số tiền..."
-                className="w-full bg-white border border-[#E6DEC9] rounded px-2 py-1 text-sm font-mono text-stone-800 focus:outline-none focus:border-emerald-700"
+                className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-2 text-sm font-mono text-stone-800 focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
               />
               <button
                 onClick={handleSaveIncome}
-                className="bg-emerald-900 text-white p-1 rounded hover:bg-emerald-850 flex items-center justify-center cursor-pointer"
+                className="bg-emerald-900 text-white p-2 rounded hover:bg-emerald-850 flex items-center justify-center cursor-pointer min-w-[44px] sm:min-w-0 min-h-[44px] sm:min-h-0 shrink-0"
               >
                 <Check size={16} />
               </button>
@@ -318,16 +318,16 @@ export default function OverviewTab({
           </h3>
           
           {pieData.length > 0 ? (
-            <div className="h-64 flex flex-col sm:flex-row items-center justify-center gap-4">
-              <div className="w-full sm:w-1/2 h-full">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+              <div className="w-full sm:w-1/2 h-48 sm:h-64 shrink-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
                       data={pieData}
                       cx="50%"
                       cy="50%"
-                      innerRadius={50}
-                      outerRadius={80}
+                      innerRadius={45}
+                      outerRadius={75}
                       paddingAngle={2}
                       dataKey="value"
                     >
@@ -361,7 +361,7 @@ export default function OverviewTab({
               </div>
             </div>
           ) : (
-            <div className="h-64 flex flex-col items-center justify-center text-stone-400 font-sans text-sm gap-2">
+            <div className="h-48 sm:h-64 flex flex-col items-center justify-center text-stone-400 font-sans text-sm gap-2">
               <div className="p-3 rounded-full bg-stone-100 border border-stone-200">
                 <Coins size={24} className="text-stone-300" />
               </div>
@@ -376,11 +376,11 @@ export default function OverviewTab({
             <span className="w-1.5 h-4 bg-emerald-900 rounded-full inline-block"></span>
             Chi tiêu 7 ngày gần nhất
           </h3>
-          <div className="h-64">
+          <div className="h-48 sm:h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={last7DaysData}
-                margin={{ top: 10, right: 10, left: 10, bottom: 5 }}
+                margin={{ top: 10, right: 5, left: -25, bottom: 5 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#E6DEC9" vertical={false} />
                 <XAxis 
@@ -443,7 +443,7 @@ export default function OverviewTab({
                   value={newGoalName}
                   onChange={(e) => setNewGoalName(e.target.value)}
                   placeholder="Ví dụ: Mua Macbook, Đi du lịch..."
-                  className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-1.5 text-sm focus:outline-none focus:border-emerald-700"
+                  className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-3 sm:py-1.5 text-sm focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
                 />
               </div>
               <div>
@@ -454,7 +454,7 @@ export default function OverviewTab({
                   value={newGoalTarget}
                   onChange={(e) => setNewGoalTarget(e.target.value)}
                   placeholder="Ví dụ: 25.000.000"
-                  className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-emerald-700"
+                  className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-3 sm:py-1.5 text-sm font-mono focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
                 />
               </div>
               <div>
@@ -464,7 +464,7 @@ export default function OverviewTab({
                   value={newGoalCurrent}
                   onChange={(e) => setNewGoalCurrent(e.target.value)}
                   placeholder="Ví dụ: 5.000.000"
-                  className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-emerald-700"
+                  className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-3 sm:py-1.5 text-sm font-mono focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
                 />
               </div>
             </div>
@@ -477,13 +477,13 @@ export default function OverviewTab({
                   setNewGoalCurrent('');
                   setIsAddingGoal(false);
                 }}
-                className="px-3 py-1.5 border border-stone-200 hover:bg-stone-50 text-stone-600 rounded font-medium cursor-pointer"
+                className="px-4 py-3 sm:py-1.5 border border-stone-200 hover:bg-stone-50 text-stone-600 rounded font-medium cursor-pointer min-h-[44px] sm:min-h-0 flex items-center justify-center"
               >
                 Hủy
               </button>
               <button
                 type="submit"
-                className="px-3 py-1.5 bg-emerald-900 hover:bg-emerald-850 text-white font-semibold rounded cursor-pointer"
+                className="px-4 py-3 sm:py-1.5 bg-emerald-900 hover:bg-emerald-850 text-white font-semibold rounded cursor-pointer min-h-[44px] sm:min-h-0 flex items-center justify-center"
               >
                 Lưu mục tiêu
               </button>
@@ -505,7 +505,7 @@ export default function OverviewTab({
                     </div>
                     <button
                       onClick={() => onDeleteGoal(goal.id)}
-                      className="p-1 text-stone-400 hover:text-red-700 hover:bg-red-50 rounded transition cursor-pointer"
+                      className="p-2 text-stone-400 hover:text-red-700 hover:bg-red-50 rounded transition cursor-pointer min-w-[36px] min-h-[36px] flex items-center justify-center"
                       title="Xóa mục tiêu"
                     >
                       <Trash2 size={14} />
@@ -534,7 +534,7 @@ export default function OverviewTab({
                   </div>
 
                   {/* Quick progress update inline form */}
-                  <div className="flex items-center gap-1.5 pt-2 border-t border-stone-100">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 pt-2 border-t border-stone-100">
                     <span className="text-[10px] font-bold text-stone-400 uppercase shrink-0">CẬP NHẬT NHANH:</span>
                     <input
                       type="text"
@@ -566,7 +566,7 @@ export default function OverviewTab({
                           }
                         }
                       }}
-                      className="w-full bg-[#FAF9F6] border border-[#E6DEC9] rounded px-2 py-1 text-xs font-mono text-stone-700 focus:outline-none focus:border-emerald-700"
+                      className="w-full bg-[#FAF9F6] border border-[#E6DEC9] rounded px-3 py-2.5 sm:py-1 text-xs font-mono text-stone-700 focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
                     />
                   </div>
                 </div>

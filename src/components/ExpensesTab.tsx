@@ -168,16 +168,16 @@ export default function ExpensesTab({
                   }
                 }}
                 placeholder="Ví dụ: 50.000"
-                className="w-full bg-white border border-[#E6DEC9] rounded pl-3 pr-10 py-1.5 text-sm font-mono focus:outline-none focus:border-emerald-700"
+                className="w-full bg-white border border-[#E6DEC9] rounded pl-3 pr-10 py-3 sm:py-1.5 text-sm font-mono focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
               />
-              <span className="absolute right-3 top-2.5 text-xs text-stone-400 font-serif font-bold">₫</span>
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-stone-400 font-serif font-bold">₫</span>
             </div>
           </div>
 
           {/* Category */}
           <div>
             <label className="block text-xs font-semibold text-stone-500 mb-1">DANH MỤC *</label>
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
               {CATEGORIES.map(cat => {
                 const isSelected = categoryId === cat.id;
                 return (
@@ -185,7 +185,7 @@ export default function ExpensesTab({
                     key={cat.id}
                     type="button"
                     onClick={() => setCategoryId(cat.id)}
-                    className={`flex items-center gap-1.5 p-2 rounded text-left border text-xs cursor-pointer transition ${
+                    className={`flex items-center gap-1.5 p-3 sm:p-2 rounded text-left border text-xs cursor-pointer transition min-h-[44px] sm:min-h-0 ${
                       isSelected 
                         ? 'bg-emerald-900 text-white border-emerald-950' 
                         : 'bg-white text-stone-700 border-stone-200 hover:border-stone-400'
@@ -213,7 +213,7 @@ export default function ExpensesTab({
                 required
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-1.5 text-sm focus:outline-none focus:border-emerald-700 font-mono"
+                className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-3 sm:py-1.5 text-sm focus:outline-none focus:border-emerald-700 font-mono min-h-[44px] sm:min-h-0"
               />
             </div>
           </div>
@@ -226,14 +226,14 @@ export default function ExpensesTab({
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Ví dụ: Ăn bún chả, đổ xăng xăng..."
-              className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-1.5 text-sm focus:outline-none focus:border-emerald-700"
+              className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-3 sm:py-1.5 text-sm focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
             />
           </div>
 
           {/* Save button */}
           <button
             type="submit"
-            className="w-full bg-emerald-900 hover:bg-emerald-850 text-white py-2 px-4 rounded text-sm font-semibold cursor-pointer transition shadow-sm flex items-center justify-center gap-1.5"
+            className="w-full bg-emerald-900 hover:bg-emerald-850 text-white py-3 sm:py-2 px-4 rounded text-sm font-semibold cursor-pointer transition shadow-sm flex items-center justify-center gap-1.5 min-h-[44px]"
           >
             <Plus size={16} />
             Lưu giao dịch

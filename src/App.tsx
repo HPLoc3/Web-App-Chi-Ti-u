@@ -5,6 +5,8 @@ import ChatbotTab from './components/ChatbotTab';
 import ExpensesTab from './components/ExpensesTab';
 import BudgetTab from './components/BudgetTab';
 import GoalsTab from './components/GoalsTab';
+import AuthModal from './components/AuthModal';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { 
   BookOpen, 
   MessageSquare, 
@@ -15,7 +17,10 @@ import {
   SlidersHorizontal,
   PiggyBank,
   Download,
-  Upload
+  Upload,
+  LogIn,
+  LogOut,
+  User as UserIcon
 } from 'lucide-react';
 
 const LOCAL_STORAGE_KEY = 'so_tay_ledger_data';
@@ -50,13 +55,16 @@ const DEFAULT_STATE: AppState = {
   generatedRecurringMonths: []
 };
 
-export default function App() {
+function LedgerApp() {
+  const { currentUser, logout } = useAuth();
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalTab, setAuthModalTab] = useState<'login' | 'register'>('login');
+
   const [state, setState] = useState<AppState>(() => {
     try {
       const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        // Basic schema verification
         if (parsed && Array.isArray(parsed.expenses) && Array.isArray(parsed.goals) && typeof parsed.income === 'number') {
           return {
             ...DEFAULT_STATE,
@@ -326,7 +334,7 @@ export default function App() {
     <div className="min-h-screen bg-[#FAF9F6] text-stone-800 flex flex-col antialiased">
       {/* Top Header styled like a heavy leather-notebook top band */}
       <header className="bg-emerald-950 text-white border-b-4 border-amber-500 shadow-md">
-        <div className="max-w-6xl mx-auto px-4 py-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="max-w-6xl mx-auto px-4 py-4 sm:py-5 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 bg-amber-500 rounded flex items-center justify-center text-2xl shadow font-serif font-black shrink-0">
               📔
@@ -341,23 +349,82 @@ export default function App() {
             </div>
           </div>
 
-          {/* Action buttons for Data Backup, Restore and Reset */}
+          {/* Action buttons & Authentication Status */}
           <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2.5">
+            {/* User Auth Widget */}
+            {currentUser ? (
+              <div className="flex items-center gap-2 bg-emerald-900/80 border border-emerald-700/80 px-3 py-1.5 rounded-xl text-xs text-emerald-100 shadow-xs">
+                {currentUser.photoURL ? (
+                  <img 
+                    src={currentUser.photoURL} 
+                    alt="Avatar" 
+                    className="w-7 h-7 rounded-full object-cover border border-amber-400 shrink-0" 
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="w-7 h-7 rounded-full bg-amber-500 text-emerald-950 font-bold flex items-center justify-center text-xs shrink-0 shadow-xs">
+                    {(currentUser.displayName || currentUser.email || 'U').charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div className="flex flex-col text-left max-w-[100px] sm:max-w-[150px]">
+                  <span className="font-semibold text-white truncate text-xs">
+                    {currentUser.displayName || 'Người dùng'}
+                  </span>
+                  <span className="text-[10px] text-emerald-300 truncate">
+                    {currentUser.email}
+                  </span>
+                </div>
+                <button
+                  onClick={logout}
+                  className="ml-1 px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 rounded-lg transition cursor-pointer flex items-center gap-1 shrink-0"
+                  title="Đăng xuất khỏi hệ thống"
+                >
+                  <LogOut size={13} />
+                  <span className="hidden sm:inline text-[11px] font-semibold">Đăng xuất</span>
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setAuthModalTab('login');
+                    setIsAuthModalOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold text-xs rounded-xl transition cursor-pointer shadow-sm min-h-[36px]"
+                >
+                  <LogIn size={15} />
+                  <span>Đăng nhập</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setAuthModalTab('register');
+                    setIsAuthModalOpen(true);
+                  }}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 border border-emerald-700 hover:border-emerald-600 bg-emerald-900/60 hover:bg-emerald-900/90 text-emerald-100 font-semibold text-xs rounded-xl transition cursor-pointer min-h-[36px]"
+                >
+                  <UserIcon size={14} />
+                  <span>Đăng ký</span>
+                </button>
+              </div>
+            )}
+
+            <div className="h-6 w-[1px] bg-emerald-800 hidden sm:block mx-0.5"></div>
+
             <button
               onClick={handleBackupData}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-amber-500/80 hover:border-amber-400 bg-amber-600/30 hover:bg-amber-600/60 text-amber-100 text-xs rounded transition font-medium cursor-pointer shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-amber-500/80 hover:border-amber-400 bg-amber-600/30 hover:bg-amber-600/60 text-amber-100 text-xs rounded-xl transition font-medium cursor-pointer shadow-sm min-h-[36px]"
               title="Tải tệp sao lưu dữ liệu (.json) về máy"
             >
               <Download size={13} className="text-amber-300" />
-              Sao lưu dữ liệu
+              <span className="hidden md:inline">Sao lưu</span>
             </button>
 
             <label
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-700/80 hover:border-emerald-600 bg-emerald-900/30 hover:bg-emerald-900/60 text-emerald-100 text-xs rounded transition font-medium cursor-pointer shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-700/80 hover:border-emerald-600 bg-emerald-900/30 hover:bg-emerald-900/60 text-emerald-100 text-xs rounded-xl transition font-medium cursor-pointer shadow-sm min-h-[36px]"
               title="Khôi phục dữ liệu từ tệp sao lưu .json"
             >
               <Upload size={13} className="text-emerald-300" />
-              Khôi phục dữ liệu
+              <span className="hidden md:inline">Khôi phục</span>
               <input 
                 type="file" 
                 accept=".json" 
@@ -368,11 +435,11 @@ export default function App() {
 
             <button
               onClick={handleResetToDefault}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-red-900/60 hover:border-red-800 bg-red-950/30 hover:bg-red-950/60 text-red-100 text-xs rounded transition font-medium cursor-pointer shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-red-900/60 hover:border-red-800 bg-red-950/30 hover:bg-red-950/60 text-red-100 text-xs rounded-xl transition font-medium cursor-pointer shadow-sm min-h-[36px]"
               title="Đặt lại dữ liệu mẫu ban đầu"
             >
               <RefreshCw size={12} className="text-red-300" />
-              Đặt lại sổ tay
+              <span className="hidden md:inline">Đặt lại</span>
             </button>
           </div>
         </div>
@@ -481,6 +548,11 @@ export default function App() {
                 expenses={state.expenses}
                 categoryLimits={state.categoryLimits}
                 onAddExpense={handleAddExpense}
+                currentUser={currentUser}
+                onOpenAuthModal={() => {
+                  setAuthModalTab('login');
+                  setIsAuthModalOpen(true);
+                }}
               />
             )}
 
@@ -522,6 +594,13 @@ export default function App() {
         </div>
       </main>
 
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        defaultTab={authModalTab}
+      />
+
       {/* Humble footer */}
       <footer className="border-t border-[#E6DEC9] bg-[#FAF7F0] py-4 text-center text-[11px] text-stone-400 font-sans tracking-wide shrink-0">
         <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
@@ -532,3 +611,12 @@ export default function App() {
     </div>
   );
 }
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <LedgerApp />
+    </AuthProvider>
+  );
+}
+

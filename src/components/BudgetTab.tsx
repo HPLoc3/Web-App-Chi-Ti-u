@@ -286,15 +286,15 @@ export default function BudgetTab({
                           }
                         }}
                         placeholder="Không hạn mức"
-                        className="w-24 bg-stone-50 border border-stone-300 rounded px-1.5 py-0.5 text-xs font-mono text-stone-800 focus:outline-none focus:border-emerald-700"
+                        className="w-28 bg-stone-50 border border-stone-300 rounded px-2.5 py-2 sm:py-0.5 text-sm sm:text-xs font-mono text-stone-800 focus:outline-none focus:border-emerald-700 min-h-[40px] sm:min-h-0"
                         autoFocus
                       />
                       <button
                         onClick={() => handleSaveLimit(cat.id)}
-                        className="p-1 bg-emerald-900 text-white rounded hover:bg-emerald-850 cursor-pointer"
+                        className="p-2.5 sm:p-1 bg-emerald-900 text-white rounded hover:bg-emerald-850 cursor-pointer min-w-[40px] sm:min-w-0 min-h-[40px] sm:min-h-0 flex items-center justify-center shrink-0"
                         title="Lưu"
                       >
-                        <Check size={12} />
+                        <Check size={14} />
                       </button>
                     </div>
                   ) : (
@@ -382,7 +382,7 @@ export default function BudgetTab({
                   }
                 }}
                 placeholder="Ví dụ: 3.500.000"
-                className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-emerald-700"
+                className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-3 sm:py-1.5 text-sm sm:text-xs font-mono focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
               />
             </div>
 
@@ -395,7 +395,7 @@ export default function BudgetTab({
                 value={recNote}
                 onChange={(e) => setRecNote(e.target.value)}
                 placeholder="Ví dụ: Tiền phòng trọ, hóa đơn điện sinh hoạt..."
-                className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-emerald-700"
+                className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-3 sm:py-1.5 text-sm sm:text-xs focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
               />
             </div>
 
@@ -406,7 +406,7 @@ export default function BudgetTab({
                 <select
                   value={recCategory}
                   onChange={(e) => setRecCategory(e.target.value)}
-                  className="w-full bg-white border border-[#E6DEC9] rounded px-2.5 py-1.5 text-xs focus:outline-none focus:border-emerald-700"
+                  className="w-full bg-white border border-[#E6DEC9] rounded px-2.5 py-3 sm:py-1.5 text-sm sm:text-xs focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
                 >
                   {CATEGORIES.map(cat => (
                     <option key={cat.id} value={cat.id}>{cat.name}</option>
@@ -424,14 +424,14 @@ export default function BudgetTab({
                   required
                   value={recDay}
                   onChange={(e) => setRecDay(e.target.value)}
-                  className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-emerald-700"
+                  className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-3 sm:py-1.5 text-sm sm:text-xs font-mono focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
                 />
               </div>
             </div>
 
             <button
               type="submit"
-              className="w-full bg-emerald-900 hover:bg-emerald-850 text-white py-2 px-3 rounded text-xs font-semibold cursor-pointer transition shadow-sm"
+              className="w-full bg-emerald-900 hover:bg-emerald-850 text-white py-3 sm:py-2 px-3 rounded text-sm sm:text-xs font-semibold cursor-pointer transition shadow-sm min-h-[44px] flex items-center justify-center"
             >
               Lưu thiết lập định kỳ
             </button>
