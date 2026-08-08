@@ -1,0 +1,82 @@
+{
+  "entities": {
+    "Expense": {
+      "title": "Expense",
+      "description": "User expense transaction record",
+      "type": "object",
+      "properties": {
+        "amount": { "type": "number" },
+        "categoryId": { "type": "string", "maxLength": 64 },
+        "note": { "type": "string", "maxLength": 500 },
+        "date": { "type": "string", "maxLength": 10 }
+      },
+      "required": ["amount", "categoryId", "note", "date"]
+    },
+    "Goal": {
+      "title": "Goal",
+      "description": "User savings goal",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 200 },
+        "target": { "type": "number" },
+        "current": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 10 }
+      },
+      "required": ["name", "target", "current", "createdAt"]
+    },
+    "RecurringExpense": {
+      "title": "RecurringExpense",
+      "description": "User monthly recurring expense template",
+      "type": "object",
+      "properties": {
+        "amount": { "type": "number" },
+        "categoryId": { "type": "string", "maxLength": 64 },
+        "dayOfMonth": { "type": "number" },
+        "note": { "type": "string", "maxLength": 500 }
+      },
+      "required": ["amount", "categoryId", "dayOfMonth", "note"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 100 }
+      }
+    },
+    "BudgetSettings": {
+      "title": "BudgetSettings",
+      "description": "User budget settings and limits",
+      "type": "object",
+      "properties": {
+        "income": { "type": "number" },
+        "budgetTemplate": { "type": "string", "maxLength": 50 },
+        "categoryLimits": { "type": "object" },
+        "generatedRecurringMonths": { "type": "array" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "User expenses subcollection"
+    },
+    "/users/{userId}/goals/{goalId}": {
+      "schema": "Goal",
+      "description": "User goals subcollection"
+    },
+    "/users/{userId}/recurringExpenses/{recurringExpenseId}": {
+      "schema": "RecurringExpense",
+      "description": "User recurring expenses subcollection"
+    },
+    "/users/{userId}/settings/profile": {
+      "schema": "UserProfile",
+      "description": "User profile document"
+    },
+    "/users/{userId}/settings/budget": {
+      "schema": "BudgetSettings",
+      "description": "User budget settings document"
+    }
+  }
+}

@@ -20,6 +20,10 @@ export interface RecurringExpense {
   categoryId: string;
   dayOfMonth: number; // 1 - 31
   note: string;
+  frequency?: 'monthly' | 'yearly' | 'weekly';
+  billingCycleMonth?: number; // 1-12 for yearly
+  nextPaymentDate?: string;
+  isActive?: boolean;
 }
 
 export interface AppState {
@@ -42,4 +46,40 @@ export interface Category {
   bgColor: string;
   keywords: string[];
 }
+
+export type SeverityType = 'positive' | 'warning' | 'critical' | 'recommendation';
+
+export interface FinancialInsight {
+  id: string;
+  title: string;
+  message: string;
+  severity: SeverityType;
+  metricLabel?: string;
+  metricValue?: string;
+  actionableStep?: string;
+  category?: string;
+}
+
+export interface HealthScoreBreakdown {
+  savingsRateScore: number; // max 30
+  budgetAdherenceScore: number; // max 25
+  spendingStabilityScore: number; // max 20
+  goalsProgressScore: number; // max 15
+  recurringRatioScore: number; // max 10
+  totalScore: number; // 0 - 100
+  savingsRatePercent: number;
+  overspendingCount: number;
+  recurringIncomeRatioPercent: number;
+}
+
+export interface ImportPreviewItem {
+  id: string;
+  date: string;
+  note: string;
+  amount: number;
+  categoryId: string;
+  selected: boolean;
+  confidence: number;
+}
+
 

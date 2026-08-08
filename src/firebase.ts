@@ -35,7 +35,9 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 // Khởi tạo Firebase Auth và Firestore Database
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = (appletConfig as any).firestoreDatabaseId
+  ? getFirestore(app, (appletConfig as any).firestoreDatabaseId)
+  : getFirestore(app);
 
 // Khởi tạo Provider Đăng nhập bằng Google
 export const googleProvider = new GoogleAuthProvider();
