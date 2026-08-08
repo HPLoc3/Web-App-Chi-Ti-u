@@ -30,6 +30,7 @@ export interface AppState {
   categoryLimits: Record<string, number>; // categoryId -> limit amount (0 means no limit)
   recurringExpenses: RecurringExpense[];
   generatedRecurringMonths: string[]; // Keep track of which months we already auto-generated e.g. ["2026-07"]
+  isSampleData?: boolean;
 }
 
 export interface Category {

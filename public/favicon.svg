@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#022c22"/>
+      <stop offset="100%" stop-color="#064e3b"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a"/>
+      <stop offset="50%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#b45309"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background Card -->
+  <rect x="32" y="32" width="448" height="448" rx="96" fill="url(#bgGrad)" stroke="url(#goldGrad)" stroke-width="12"/>
+
+  <!-- Leather Notebook Cover -->
+  <rect x="112" y="96" width="288" height="320" rx="24" fill="#043a2d" stroke="#f59e0b" stroke-width="8"/>
+  
+  <!-- Notebook Spine -->
+  <rect x="112" y="96" width="48" height="320" rx="8" fill="#f59e0b"/>
+  <circle cx="136" cy="144" r="8" fill="#022c22"/>
+  <circle cx="136" cy="256" r="8" fill="#022c22"/>
+  <circle cx="136" cy="368" r="8" fill="#022c22"/>
+
+  <!-- Gold Bookmark Ribbon -->
+  <path d="M280 96 v120 l24 -16 l24 16 v-120 z" fill="url(#goldGrad)"/>
+
+  <!-- Smart AI Sparkle -->
+  <path d="M240 280 Q 240 240 280 240 Q 240 240 240 200 Q 240 240 200 240 Q 240 240 240 280 Z" fill="#fbbf24"/>
+  <path d="M320 340 Q 320 315 345 315 Q 320 315 320 290 Q 320 315 295 315 Q 320 315 320 340 Z" fill="#fbbf24"/>
+
+  <!-- Financial Chart Bars -->
+  <rect x="192" y="336" width="20" height="40" rx="4" fill="#10b981"/>
+  <rect x="224" y="312" width="20" height="64" rx="4" fill="#fbbf24"/>
+  <rect x="256" y="288" width="20" height="88" rx="4" fill="#34d399"/>
+</svg>

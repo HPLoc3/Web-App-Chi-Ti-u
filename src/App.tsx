@@ -5,9 +5,12 @@ import ChatbotTab from './components/ChatbotTab';
 import ExpensesTab from './components/ExpensesTab';
 import BudgetTab from './components/BudgetTab';
 import GoalsTab from './components/GoalsTab';
+import AboutTab from './components/AboutTab';
+import OnboardingModal from './components/OnboardingModal';
 import AuthModal from './components/AuthModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LandingPage from './components/LandingPage';
+import { generateSampleState, EMPTY_STATE } from './data/sampleData';
 import { 
   BookOpen, 
   MessageSquare, 
@@ -22,46 +25,24 @@ import {
   LogIn,
   LogOut,
   User as UserIcon,
-  Home
+  Home,
+  Sparkles,
+  Trash2
 } from 'lucide-react';
 
 const LOCAL_STORAGE_KEY = 'so_tay_ledger_data';
-
-const DEFAULT_STATE: AppState = {
-  expenses: [
-    { id: 'initial-1', amount: 45000, categoryId: 'an_uong', note: 'Phở bò ăn sáng', date: '2026-07-15' },
-    { id: 'initial-2', amount: 50000, categoryId: 'di_chuyen', note: 'Đổ xăng xe máy', date: '2026-07-14' },
-    { id: 'initial-3', amount: 350000, categoryId: 'mua_sam', note: 'Mua áo thun mới', date: '2026-07-13' },
-    { id: 'initial-4', amount: 120000, categoryId: 'giai_tri', note: 'Xem phim rạp CGV', date: '2026-07-12' },
-    { id: 'initial-5', amount: 650000, categoryId: 'hoa_don', note: 'Tiền điện sinh hoạt', date: '2026-07-10' },
-    { id: 'initial-6', amount: 150000, categoryId: 'suc_khoe', note: 'Mua thuốc cảm & vitamin', date: '2026-07-09' },
-    { id: 'initial-7', amount: 250000, categoryId: 'giao_duc', note: 'Mua sách kỹ năng', date: '2026-07-08' },
-    { id: 'initial-8', amount: 30000, categoryId: 'an_uong', note: 'Cà phê sữa đá', date: '2026-07-15' },
-  ],
-  goals: [
-    { id: 'goal-1', name: 'Quỹ dự phòng khẩn cấp', target: 10000000, current: 3500000, createdAt: '2026-07-01' },
-    { id: 'goal-2', name: 'Mua máy tính làm việc', target: 20000000, current: 8000000, createdAt: '2026-07-05' }
-  ],
-  income: 18000000, // default 18 million VNĐ
-  budgetTemplate: '50_30_20',
-  categoryLimits: {
-    'an_uong': 4500000,
-    'di_chuyen': 1000000,
-    'mua_sam': 2500000,
-    'giai_tri': 1500000
-  },
-  recurringExpenses: [
-    { id: 'rec-1', amount: 3500000, categoryId: 'hoa_don', dayOfMonth: 5, note: 'Tiền phòng trọ cố định' },
-    { id: 'rec-2', amount: 250000, categoryId: 'hoa_don', dayOfMonth: 10, note: 'Tiền mạng Internet hằng tháng' }
-  ],
-  generatedRecurringMonths: []
-};
 
 function LedgerApp() {
   const { currentUser, logout } = useAuth();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState<'login' | 'register'>('login');
   const [viewState, setViewState] = useState<'landing' | 'app'>('landing');
+
+  // Onboarding tour state - opens automatically if not completed
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(() => {
+    const completed = localStorage.getItem('so_tay_onboarding_completed');
+    return !completed;
+  });
 
   // Auto switch to 'app' view when logged in
   useEffect(() => {
@@ -77,10 +58,9 @@ function LedgerApp() {
         const parsed = JSON.parse(saved);
         if (parsed && Array.isArray(parsed.expenses) && Array.isArray(parsed.goals) && typeof parsed.income === 'number') {
           return {
-            ...DEFAULT_STATE,
             ...parsed,
-            categoryLimits: parsed.categoryLimits || DEFAULT_STATE.categoryLimits,
-            recurringExpenses: parsed.recurringExpenses || DEFAULT_STATE.recurringExpenses,
+            categoryLimits: parsed.categoryLimits || {},
+            recurringExpenses: parsed.recurringExpenses || [],
             generatedRecurringMonths: parsed.generatedRecurringMonths || [],
             budgetTemplate: parsed.budgetTemplate || 'none'
           };
@@ -89,10 +69,11 @@ function LedgerApp() {
     } catch (e) {
       console.error('Error loading ledger data from localStorage:', e);
     }
-    return DEFAULT_STATE;
+    // Return dynamically generated sample state for 2-3 weeks if no saved data exists
+    return generateSampleState();
   });
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'chatbot' | 'budget' | 'expenses' | 'goals'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'chatbot' | 'budget' | 'expenses' | 'goals' | 'about'>('overview');
 
   // Auto-generation of recurring expenses on mount exactly once (safely)
   useEffect(() => {
@@ -312,11 +293,12 @@ function LedgerApp() {
           const restoredState: AppState = {
             expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
             goals: Array.isArray(parsed.goals) ? parsed.goals : [],
-            income: typeof parsed.income === 'number' ? parsed.income : DEFAULT_STATE.income,
+            income: typeof parsed.income === 'number' ? parsed.income : 0,
             budgetTemplate: parsed.budgetTemplate || 'none',
             categoryLimits: parsed.categoryLimits && typeof parsed.categoryLimits === 'object' ? parsed.categoryLimits : {},
             recurringExpenses: Array.isArray(parsed.recurringExpenses) ? parsed.recurringExpenses : [],
-            generatedRecurringMonths: Array.isArray(parsed.generatedRecurringMonths) ? parsed.generatedRecurringMonths : []
+            generatedRecurringMonths: Array.isArray(parsed.generatedRecurringMonths) ? parsed.generatedRecurringMonths : [],
+            isSampleData: !!parsed.isSampleData
           };
 
           setState(restoredState);
@@ -333,10 +315,17 @@ function LedgerApp() {
     event.target.value = '';
   };
 
-  const handleResetToDefault = () => {
-    if (confirm('Bạn có chắc chắn muốn đặt lại toàn bộ dữ liệu về trạng thái ban đầu? Thao tác này sẽ xóa tất cả các giao dịch bạn đã thêm.')) {
-      setState(DEFAULT_STATE);
-      alert('Đã đặt lại dữ liệu thành công!');
+  const handleLoadSampleData = () => {
+    const sampleState = generateSampleState();
+    setState(sampleState);
+    alert('Đã nạp 3 tuần dữ liệu chi tiêu mẫu thực tế thành công!');
+  };
+
+  const handleClearSampleData = () => {
+    if (confirm('Bạn có chắc chắn muốn xóa toàn bộ dữ liệu mẫu và bắt đầu từ đầu với sổ tay trống?')) {
+      setState(EMPTY_STATE);
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(EMPTY_STATE));
+      alert('Đã xóa dữ liệu mẫu! Sổ tay của bạn hiện sẵn sàng để ghi chép dữ liệu thực tế.');
     }
   };
 
@@ -465,12 +454,21 @@ function LedgerApp() {
             <div className="h-6 w-[1px] bg-emerald-800 hidden sm:block mx-0.5"></div>
 
             <button
-              onClick={handleBackupData}
+              onClick={() => setIsOnboardingOpen(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 border border-amber-500/80 hover:border-amber-400 bg-amber-600/30 hover:bg-amber-600/60 text-amber-100 text-xs rounded-xl transition font-medium cursor-pointer shadow-sm min-h-[36px]"
-              title="Tải tệp sao lưu dữ liệu (.json) về máy"
+              title="Xem lại hướng dẫn nhanh sử dụng ứng dụng"
             >
-              <Download size={13} className="text-amber-300" />
-              <span className="hidden md:inline">Sao lưu</span>
+              <HelpCircle size={13} className="text-amber-300" />
+              <span className="hidden md:inline">Hướng dẫn</span>
+            </button>
+
+            <button
+              onClick={handleLoadSampleData}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-amber-500/80 hover:border-amber-400 bg-amber-600/30 hover:bg-amber-600/60 text-amber-100 text-xs rounded-xl transition font-medium cursor-pointer shadow-sm min-h-[36px]"
+              title="Xem / Nạp 3 tuần dữ liệu chi tiêu mẫu thực tế"
+            >
+              <Sparkles size={13} className="text-amber-300" />
+              <span className="hidden md:inline">Xem dữ liệu mẫu</span>
             </button>
 
             <label
@@ -488,12 +486,21 @@ function LedgerApp() {
             </label>
 
             <button
-              onClick={handleResetToDefault}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-red-900/60 hover:border-red-800 bg-red-950/30 hover:bg-red-950/60 text-red-100 text-xs rounded-xl transition font-medium cursor-pointer shadow-sm min-h-[36px]"
-              title="Đặt lại dữ liệu mẫu ban đầu"
+              onClick={handleBackupData}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-700/80 hover:border-emerald-600 bg-emerald-900/30 hover:bg-emerald-900/60 text-emerald-100 text-xs rounded-xl transition font-medium cursor-pointer shadow-sm min-h-[36px]"
+              title="Tải tệp sao lưu dữ liệu (.json) về máy"
             >
-              <RefreshCw size={12} className="text-red-300" />
-              <span className="hidden md:inline">Đặt lại</span>
+              <Download size={13} className="text-emerald-300" />
+              <span className="hidden md:inline">Sao lưu</span>
+            </button>
+
+            <button
+              onClick={handleClearSampleData}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-red-900/60 hover:border-red-800 bg-red-950/40 hover:bg-red-950/70 text-red-100 text-xs rounded-xl transition font-medium cursor-pointer shadow-sm min-h-[36px]"
+              title="Xóa dữ liệu mẫu, bắt đầu từ đầu"
+            >
+              <Trash2 size={13} className="text-red-300" />
+              <span className="hidden md:inline">Xóa dữ liệu mẫu</span>
             </button>
           </div>
         </div>
@@ -507,7 +514,59 @@ function LedgerApp() {
       </div>
 
       {/* Main Container mimicking book pages with double-line borders */}
-      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6">
+      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 space-y-4">
+        {/* Sample Data Mode Banner */}
+        {state.isSampleData ? (
+          <div className="bg-amber-50 border-2 border-amber-300/80 rounded-xl p-3.5 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs font-sans">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-amber-500 text-emerald-950 font-bold flex items-center justify-center text-lg shrink-0 shadow-xs">
+                📌
+              </div>
+              <div>
+                <h4 className="font-bold text-amber-950 text-xs sm:text-sm flex items-center gap-2">
+                  ĐANG HIỂN THỊ DỮ LIỆU MẪU (3 TUẦN CHI TIÊU THỰC TẾ)
+                </h4>
+                <p className="text-stone-600 text-xs mt-0.5">
+                  Tự động nạp sẵn giao dịch, mục tiêu & ngân sách mẫu để bạn trải nghiệm trọn vẹn biểu đồ và phân tích AI.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-end shrink-0">
+              <button
+                onClick={handleClearSampleData}
+                className="px-3.5 py-2 bg-red-800 hover:bg-red-700 text-white font-bold text-xs rounded-xl transition cursor-pointer shadow-xs flex items-center gap-1.5"
+                title="Xóa toàn bộ dữ liệu mẫu để bắt đầu sổ tay riêng của bạn"
+              >
+                <Trash2 size={14} />
+                <span>Xóa dữ liệu mẫu, bắt đầu từ đầu</span>
+              </button>
+            </div>
+          </div>
+        ) : state.expenses.length === 0 ? (
+          <div className="bg-emerald-50 border-2 border-emerald-200/80 rounded-xl p-3.5 sm:p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 font-sans">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-emerald-800 text-amber-300 font-bold flex items-center justify-center text-lg shrink-0">
+                📔
+              </div>
+              <div>
+                <h4 className="font-bold text-emerald-950 text-xs sm:text-sm">
+                  SỔ TAY THỰC TẾ ĐANG TRỐNG
+                </h4>
+                <p className="text-stone-600 text-xs mt-0.5">
+                  Bạn chưa có giao dịch nào trong sổ. Hãy thêm mới ở tab Ghi Nhanh hoặc nạp dữ liệu mẫu để thử nghiệm!
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleLoadSampleData}
+              className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold text-xs rounded-xl transition cursor-pointer shadow-xs flex items-center gap-1.5 shrink-0"
+            >
+              <Sparkles size={14} />
+              <span>Xem / Nạp dữ liệu mẫu</span>
+            </button>
+          </div>
+        ) : null}
+
         <div className="bg-[#FCFAF4] border-4 border-double border-[#E6DEC9] rounded-xl p-5 sm:p-7 shadow-sm min-h-[500px] flex flex-col gap-6">
           
           {/* Flat, ledger-ruled tabs navigation */}
@@ -581,6 +640,20 @@ function LedgerApp() {
               <PiggyBank size={16} className={activeTab === 'goals' ? 'text-amber-600' : ''} />
               Mục tiêu
             </button>
+
+            {/* GIỚI THIỆU Tab */}
+            <button
+              id="tab-about"
+              onClick={() => setActiveTab('about')}
+              className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-serif font-bold uppercase tracking-wider border-t-2 border-x-2 transition cursor-pointer ${
+                activeTab === 'about'
+                  ? 'bg-[#FCFAF4] border-emerald-900 border-b-transparent text-emerald-950 -mb-[2px] relative z-10'
+                  : 'bg-stone-100/50 border-transparent text-stone-500 hover:text-emerald-900 hover:bg-stone-100'
+              }`}
+            >
+              <BookOpen size={16} className={activeTab === 'about' ? 'text-amber-600' : ''} />
+              Giới thiệu
+            </button>
           </div>
 
           {/* Active Tab Component Render */}
@@ -644,6 +717,13 @@ function LedgerApp() {
                 onDeleteGoal={handleDeleteGoal}
               />
             )}
+
+            {activeTab === 'about' && (
+              <AboutTab
+                onGoToApp={() => setActiveTab('overview')}
+                onGoToChatbot={() => setActiveTab('chatbot')}
+              />
+            )}
           </div>
         </div>
       </main>
@@ -653,6 +733,13 @@ function LedgerApp() {
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
         defaultTab={authModalTab}
+      />
+
+      {/* Interactive Onboarding Tour Modal */}
+      <OnboardingModal
+        isOpen={isOnboardingOpen}
+        onClose={() => setIsOnboardingOpen(false)}
+        onNavigateTab={(tab) => setActiveTab(tab)}
       />
 
       {/* Humble footer */}

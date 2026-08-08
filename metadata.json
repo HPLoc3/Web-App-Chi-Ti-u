@@ -1,6 +1,6 @@
 {
-  "name": "Sổ tay chi tiêu",
-  "description": "Ứng dụng quản lý chi tiêu cá nhân giao diện tiếng Việt phong cách sổ tay ledger tối giản và tinh tế.",
+  "name": "Quản Lý Chi Tiêu Thông Minh | Sổ Chi Tiêu Cá Nhân",
+  "description": "Ứng dụng Sổ Tay Chi Tiêu Thông Minh kết hợp trợ lý AI Tiếng Việt giúp bạn tự động bóc tách giao dịch, quản lý ngân sách 50/30/20 và tích lũy tài chính cá nhân hiệu quả.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
