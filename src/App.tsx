@@ -7,6 +7,7 @@ import BudgetTab from './components/BudgetTab';
 import GoalsTab from './components/GoalsTab';
 import AuthModal from './components/AuthModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import LandingPage from './components/LandingPage';
 import { 
   BookOpen, 
   MessageSquare, 
@@ -20,7 +21,8 @@ import {
   Upload,
   LogIn,
   LogOut,
-  User as UserIcon
+  User as UserIcon,
+  Home
 } from 'lucide-react';
 
 const LOCAL_STORAGE_KEY = 'so_tay_ledger_data';
@@ -59,6 +61,14 @@ function LedgerApp() {
   const { currentUser, logout } = useAuth();
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState<'login' | 'register'>('login');
+  const [viewState, setViewState] = useState<'landing' | 'app'>('landing');
+
+  // Auto switch to 'app' view when logged in
+  useEffect(() => {
+    if (currentUser) {
+      setViewState('app');
+    }
+  }, [currentUser]);
 
   const [state, setState] = useState<AppState>(() => {
     try {
@@ -330,27 +340,71 @@ function LedgerApp() {
     }
   };
 
+  const handleLogout = async () => {
+    await logout();
+    setViewState('landing');
+  };
+
+  if (viewState === 'landing') {
+    return (
+      <>
+        <LandingPage
+          onOpenLogin={() => {
+            setAuthModalTab('login');
+            setIsAuthModalOpen(true);
+          }}
+          onOpenRegister={() => {
+            setAuthModalTab('register');
+            setIsAuthModalOpen(true);
+          }}
+          onStartDemo={() => setViewState('app')}
+          isLoggedIn={!!currentUser}
+          userName={currentUser?.displayName || currentUser?.email}
+        />
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          defaultTab={authModalTab}
+        />
+      </>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#FAF9F6] text-stone-800 flex flex-col antialiased">
       {/* Top Header styled like a heavy leather-notebook top band */}
       <header className="bg-emerald-950 text-white border-b-4 border-amber-500 shadow-md">
-        <div className="max-w-6xl mx-auto px-4 py-4 sm:py-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="max-w-6xl mx-auto px-4 py-3.5 sm:py-4 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 bg-amber-500 rounded flex items-center justify-center text-2xl shadow font-serif font-black shrink-0">
+            <button 
+              onClick={() => setViewState('landing')}
+              className="w-10 h-10 bg-amber-500 hover:bg-amber-400 rounded-lg flex items-center justify-center text-xl shadow font-serif font-black shrink-0 transition cursor-pointer"
+              title="Quay lại trang Giới thiệu"
+            >
               📔
-            </div>
+            </button>
             <div className="text-center sm:text-left">
-              <h1 className="font-serif text-2xl font-black tracking-wide text-amber-50 flex items-center gap-2">
-                SỔ TAY CHI TIÊU
+              <h1 className="font-serif text-xl sm:text-2xl font-black tracking-wide text-amber-50 flex items-center gap-2">
+                SỔ TAY CHI TIÊU THÔNG MINH
               </h1>
-              <p className="text-[11px] text-emerald-200/90 font-sans tracking-widest uppercase font-semibold mt-0.5">
-                Nhật ký tài chính cá nhân giản đơn
+              <p className="text-[10px] sm:text-[11px] text-emerald-200/90 font-mono tracking-widest uppercase font-semibold">
+                Bảng điều khiển tương tác AI
               </p>
             </div>
           </div>
 
           {/* Action buttons & Authentication Status */}
           <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2.5">
+            {/* Back to Home Landing button */}
+            <button
+              onClick={() => setViewState('landing')}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-700/80 hover:border-emerald-600 bg-emerald-900/60 hover:bg-emerald-900/90 text-emerald-100 font-semibold text-xs rounded-xl transition cursor-pointer min-h-[36px]"
+              title="Quay lại Màn hình Giới thiệu"
+            >
+              <Home size={14} className="text-amber-400" />
+              <span className="hidden sm:inline">Giới thiệu</span>
+            </button>
+
             {/* User Auth Widget */}
             {currentUser ? (
               <div className="flex items-center gap-2 bg-emerald-900/80 border border-emerald-700/80 px-3 py-1.5 rounded-xl text-xs text-emerald-100 shadow-xs">
@@ -375,7 +429,7 @@ function LedgerApp() {
                   </span>
                 </div>
                 <button
-                  onClick={logout}
+                  onClick={handleLogout}
                   className="ml-1 px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 rounded-lg transition cursor-pointer flex items-center gap-1 shrink-0"
                   title="Đăng xuất khỏi hệ thống"
                 >
