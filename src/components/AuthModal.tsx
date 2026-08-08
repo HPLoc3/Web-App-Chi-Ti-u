@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { X, Mail, Lock, User as UserIcon, AlertCircle, CheckCircle2, ArrowRight, KeyRound } from 'lucide-react';
+import { X, Mail, Lock, User as UserIcon, AlertCircle, CheckCircle2, ArrowRight, KeyRound, Eye, EyeOff } from 'lucide-react';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -12,6 +12,16 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Aut
   const { loginWithEmail, registerWithEmail, loginWithGoogle, resetPassword } = useAuth();
   
   const [activeTab, setActiveTab] = useState<'login' | 'register' | 'forgot'>(defaultTab);
+
+  // Sync activeTab and clear state when modal opens or defaultTab changes
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(defaultTab);
+      setErrorMsg(null);
+      setSuccessMsg(null);
+      setIsSubmitting(false);
+    }
+  }, [isOpen, defaultTab]);
   
   // Login Form States
   const [loginEmail, setLoginEmail] = useState('');
@@ -22,6 +32,11 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Aut
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+
+  // Password Visibility Toggle
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Forgot Password State
   const [forgotEmail, setForgotEmail] = useState('');
@@ -139,7 +154,10 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Aut
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in duration-200">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in duration-200"
+      onClick={onClose}
+    >
       {/* Modal Card */}
       <div 
         className="relative w-full max-w-md bg-[#FCFAF4] border-2 border-[#E6DEC9] rounded-2xl shadow-2xl overflow-hidden flex flex-col my-auto"
@@ -288,13 +306,21 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Aut
                 <div className="relative">
                   <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
                   <input
-                    type="password"
+                    type={showLoginPassword ? 'text' : 'password'}
                     required
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full bg-white border border-[#E6DEC9] rounded-xl pl-9 pr-3 py-2.5 text-sm text-stone-800 focus:outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700 min-h-[44px]"
+                    className="w-full bg-white border border-[#E6DEC9] rounded-xl pl-9 pr-10 py-2.5 text-sm text-stone-800 focus:outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700 min-h-[44px]"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword(!showLoginPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 cursor-pointer p-1"
+                    title={showLoginPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  >
+                    {showLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
                 </div>
               </div>
 
@@ -359,13 +385,21 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Aut
                 <div className="relative">
                   <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
                   <input
-                    type="password"
+                    type={showRegisterPassword ? 'text' : 'password'}
                     required
                     value={registerPassword}
                     onChange={(e) => setRegisterPassword(e.target.value)}
                     placeholder="Tối thiểu 6 ký tự"
-                    className="w-full bg-white border border-[#E6DEC9] rounded-xl pl-9 pr-3 py-2.5 text-sm text-stone-800 focus:outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700 min-h-[44px]"
+                    className="w-full bg-white border border-[#E6DEC9] rounded-xl pl-9 pr-10 py-2.5 text-sm text-stone-800 focus:outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700 min-h-[44px]"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowRegisterPassword(!showRegisterPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 cursor-pointer p-1"
+                    title={showRegisterPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  >
+                    {showRegisterPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
                 </div>
               </div>
 
@@ -376,13 +410,21 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Aut
                 <div className="relative">
                   <KeyRound size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
                   <input
-                    type="password"
+                    type={showConfirmPassword ? 'text' : 'password'}
                     required
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Nhập lại chính xác mật khẩu"
-                    className="w-full bg-white border border-[#E6DEC9] rounded-xl pl-9 pr-3 py-2.5 text-sm text-stone-800 focus:outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700 min-h-[44px]"
+                    className="w-full bg-white border border-[#E6DEC9] rounded-xl pl-9 pr-10 py-2.5 text-sm text-stone-800 focus:outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700 min-h-[44px]"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 cursor-pointer p-1"
+                    title={showConfirmPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  >
+                    {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
                 </div>
               </div>
 

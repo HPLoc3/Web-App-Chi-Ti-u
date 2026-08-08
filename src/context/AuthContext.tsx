@@ -39,12 +39,20 @@ export function formatAuthError(errorCode: string): string {
       return 'Mật khẩu quá yếu! Mật khẩu cần có tối thiểu 6 ký tự.';
     case 'auth/popup-closed-by-user':
       return 'Bạn đã đóng cửa sổ đăng nhập Google trước khi hoàn tất.';
+    case 'auth/popup-blocked':
+      return 'Trình duyệt đã chặn cửa sổ đăng nhập Google. Vui lòng bật popup hoặc dùng Email.';
+    case 'auth/cancelled-popup-request':
+      return 'Yêu cầu mở cửa sổ đăng nhập bằng Google đã bị hủy.';
+    case 'auth/account-exists-with-different-credential':
+      return 'Tài khoản với email này đã tồn tại bằng phương thức đăng nhập khác.';
+    case 'auth/user-disabled':
+      return 'Tài khoản này đã bị tạm khóa. Vui lòng liên hệ quản trị viên.';
     case 'auth/network-request-failed':
-      return 'Lỗi kết nối mạng. Vui lòng kiểm tra đường truyền đường internet của bạn.';
+      return 'Lỗi kết nối mạng. Vui lòng kiểm tra lại kết nối internet của bạn.';
     case 'auth/too-many-requests':
       return 'Tài khoản tạm thời bị khóa do thử sai quá nhiều lần. Vui lòng thử lại sau.';
     default:
-      return 'Đã có lỗi xảy ra. Vui lòng thử lại sau.';
+      return 'Đã có lỗi xảy ra khi xác thực. Vui lòng thử lại sau.';
   }
 }
 
@@ -65,7 +73,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Đăng nhập bằng Email & Mật khẩu
   const loginWithEmail = async (email: string, pass: string) => {
     try {
-      await signInWithEmailAndPassword(auth, email, pass);
+      await signInWithEmailAndPassword(auth, email.trim(), pass);
     } catch (error: any) {
       throw new Error(formatAuthError(error?.code || ''));
     }
@@ -74,14 +82,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Đăng ký bằng Email & Mật khẩu
   const registerWithEmail = async (name: string, email: string, pass: string) => {
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
+      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), pass);
       // Cập nhật tên hiển thị người dùng
       if (userCredential.user) {
         await updateProfile(userCredential.user, {
           displayName: name.trim()
         });
-        // Cập nhật lại state currentUser với thông tin tên mới
-        setCurrentUser({ ...userCredential.user, displayName: name.trim() });
+        await userCredential.user.reload();
+        if (auth.currentUser) {
+          setCurrentUser(auth.currentUser);
+        }
       }
     } catch (error: any) {
       throw new Error(formatAuthError(error?.code || ''));
@@ -100,7 +110,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Quên mật khẩu
   const resetPassword = async (email: string) => {
     try {
-      await sendPasswordResetEmail(auth, email);
+      await sendPasswordResetEmail(auth, email.trim());
     } catch (error: any) {
       throw new Error(formatAuthError(error?.code || ''));
     }

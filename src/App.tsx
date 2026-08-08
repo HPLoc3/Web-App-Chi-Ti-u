@@ -379,19 +379,26 @@ function LedgerApp() {
 
   if (viewState === 'landing' && !currentUser) {
     return (
-      <LandingPage
-        onOpenLogin={() => {
-          setAuthModalTab('login');
-          setIsAuthModalOpen(true);
-        }}
-        onOpenRegister={() => {
-          setAuthModalTab('register');
-          setIsAuthModalOpen(true);
-        }}
-        onStartDemo={() => setViewState('app')}
-        isLoggedIn={!!currentUser}
-        userName={currentUser?.displayName}
-      />
+      <>
+        <LandingPage
+          onOpenLogin={() => {
+            setAuthModalTab('login');
+            setIsAuthModalOpen(true);
+          }}
+          onOpenRegister={() => {
+            setAuthModalTab('register');
+            setIsAuthModalOpen(true);
+          }}
+          onStartDemo={() => setViewState('app')}
+          isLoggedIn={!!currentUser}
+          userName={currentUser?.displayName}
+        />
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          defaultTab={authModalTab}
+        />
+      </>
     );
   }
 
