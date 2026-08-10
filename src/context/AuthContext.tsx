@@ -40,7 +40,11 @@ export function formatAuthError(errorCode: string): string {
     case 'auth/popup-closed-by-user':
       return 'Bạn đã đóng cửa sổ đăng nhập Google trước khi hoàn tất.';
     case 'auth/popup-blocked':
-      return 'Trình duyệt đã chặn cửa sổ đăng nhập Google. Vui lòng bật popup hoặc dùng Email.';
+      return 'Trình duyệt đã chặn cửa sổ đăng nhập Google. Vui lòng cho phép popup cho trang web này.';
+    case 'auth/unauthorized-domain':
+      return 'Tên miền truy cập (domain) này chưa được cấp phép trong Firebase Console. Vui lòng thêm domain vào Authentication > Settings > Authorized domains.';
+    case 'auth/operation-not-allowed':
+      return 'Phương thức đăng nhập bằng Google chưa được bật trong Firebase Console (Authentication > Sign-in method).';
     case 'auth/cancelled-popup-request':
       return 'Yêu cầu mở cửa sổ đăng nhập bằng Google đã bị hủy.';
     case 'auth/account-exists-with-different-credential':
@@ -52,7 +56,7 @@ export function formatAuthError(errorCode: string): string {
     case 'auth/too-many-requests':
       return 'Tài khoản tạm thời bị khóa do thử sai quá nhiều lần. Vui lòng thử lại sau.';
     default:
-      return 'Đã có lỗi xảy ra khi xác thực. Vui lòng thử lại sau.';
+      return `Đã có lỗi xảy ra khi xác thực${errorCode ? ` (${errorCode})` : ''}. Vui lòng thử lại sau.`;
   }
 }
 
@@ -103,6 +107,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (error: any) {
+      console.error('Firebase Auth Error (loginWithGoogle):', error);
       throw new Error(formatAuthError(error?.code || ''));
     }
   };

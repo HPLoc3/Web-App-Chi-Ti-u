@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.ts"
+    },
+    {
+      "source": "/app_chi_tieu/assets/(.*)",
+      "destination": "/assets/$1"
+    },
+    {
+      "source": "/app_chi_tieu/(.*)",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/app_chi_tieu",
+      "destination": "/index.html"
+    }
+  ]
+}

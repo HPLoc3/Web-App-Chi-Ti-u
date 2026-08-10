@@ -181,7 +181,15 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
+
+    // Serve static files under both /app_chi_tieu sub-path and root
+    app.use("/app_chi_tieu", express.static(distPath));
     app.use(express.static(distPath));
+
+    // SPA fallback routes
+    app.get("/app_chi_tieu*", (_req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
+    });
     app.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
@@ -192,4 +200,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;
