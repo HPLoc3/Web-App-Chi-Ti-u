@@ -23,7 +23,7 @@ import {
 import { Expense, Goal } from '../types';
 import { formatCurrency } from '../utils/format';
 import { CATEGORIES } from '../constants/categories';
-import { User as FirebaseUser } from '../firebase';
+import { AppUser } from '../context/AuthContext';
 import { sendToAIAssistant, AIResponseData } from '../utils/aiService';
 
 export interface PendingTransaction {
@@ -57,7 +57,7 @@ interface ChatbotTabProps {
   goals?: Goal[];
   income?: number;
   onAddExpense: (expense: Omit<Expense, 'id'>) => void;
-  currentUser: FirebaseUser | null;
+  currentUser: AppUser | null;
   onOpenAuthModal: () => void;
 }
 

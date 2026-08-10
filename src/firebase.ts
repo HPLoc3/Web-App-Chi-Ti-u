@@ -1,16 +1,4 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { 
-  getAuth, 
-  GoogleAuthProvider, 
-  signInWithPopup, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut, 
-  sendPasswordResetEmail,
-  updateProfile,
-  onAuthStateChanged,
-  User
-} from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 // Static import configuration file created by Firebase setup
@@ -18,8 +6,7 @@ import appletConfig from '../firebase-applet-config.json';
 
 // ---------------------------------------------------------------------------
 // CẤU HÌNH FIREBASE CONFIG (Firebase Configuration)
-// Lấy tự động từ firebase-applet-config.json hoặc điền thủ công nếu triển khai riêng:
-// Firebase Console -> Project Settings -> General -> Your apps -> Web app
+// Lấy tự động từ firebase-applet-config.json hoặc điền thủ công nếu triển khai riêng
 // ---------------------------------------------------------------------------
 export const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || appletConfig.apiKey || "AIzaSyCHtidIwyReAGhcZNWmvPk_y8DQa4EXfuY",
@@ -33,23 +20,10 @@ export const firebaseConfig = {
 // Khởi tạo Firebase App (Đảm bảo chỉ khởi tạo một lần duy nhất)
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// Khởi tạo Firebase Auth và Firestore Database
-export const auth = getAuth(app);
+// Khởi tạo Firestore Database
 export const db = (appletConfig as any).firestoreDatabaseId
   ? getFirestore(app, (appletConfig as any).firestoreDatabaseId)
   : getFirestore(app);
 
-// Khởi tạo Provider Đăng nhập bằng Google
-export const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
+export default app;
 
-export { 
-  signInWithPopup, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut, 
-  sendPasswordResetEmail,
-  updateProfile,
-  onAuthStateChanged 
-};
-export type { User };

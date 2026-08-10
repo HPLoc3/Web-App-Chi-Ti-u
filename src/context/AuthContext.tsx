@@ -1,21 +1,19 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { doc, setDoc } from 'firebase/firestore';
-import { 
-  auth, 
-  db,
-  googleProvider, 
-  signInWithPopup, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut, 
-  sendPasswordResetEmail,
-  updateProfile,
-  onAuthStateChanged,
-  User 
-} from '../firebase';
+import { db } from '../firebase';
+import { supabase } from '../lib/supabase';
+import { Session, User as SupabaseUser } from '@supabase/supabase-js';
+
+export interface AppUser {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+}
 
 interface AuthContextType {
-  currentUser: User | null;
+  currentUser: AppUser | null;
+  session: Session | null;
   loading: boolean;
   loginWithEmail: (email: string, pass: string) => Promise<void>;
   registerWithEmail: (name: string, email: string, pass: string) => Promise<void>;
@@ -26,144 +24,199 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Helper sync user document to Firestore
-async function syncUserProfile(user: User, customDisplayName?: string) {
+// Helper chuyển Supabase user sang AppUser dạng phẳng
+function mapSupabaseUser(user: SupabaseUser | null): AppUser | null {
+  if (!user) return null;
+  const metadata = user.user_metadata || {};
+  return {
+    uid: user.id,
+    email: user.email || null,
+    displayName: metadata.full_name || metadata.name || metadata.displayName || (user.email ? user.email.split('@')[0] : 'Người dùng'),
+    photoURL: metadata.avatar_url || metadata.picture || null,
+  };
+}
+
+// Helper sync user document sang Firestore
+async function syncUserProfile(user: AppUser) {
   try {
     const userRef = doc(db, 'users', user.uid);
-    await setDoc(userRef, {
-      uid: user.uid,
-      displayName: customDisplayName || user.displayName || 'Người dùng',
-      email: user.email,
-      photoURL: user.photoURL || null,
-      lastLoginAt: new Date().toISOString()
-    }, { merge: true });
+    await setDoc(
+      userRef,
+      {
+        uid: user.uid,
+        displayName: user.displayName || 'Người dùng',
+        email: user.email,
+        photoURL: user.photoURL || null,
+        lastLoginAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
   } catch (e) {
     console.error('Lỗi lưu thông tin user profile vào Firestore:', e);
   }
 }
 
-// Helper chuyển mã lỗi Firebase sang Tiếng Việt thân thiện
-export function formatAuthError(errorCode: string): string {
-  switch (errorCode) {
-    case 'auth/invalid-credential':
-    case 'auth/user-not-found':
-    case 'auth/wrong-password':
-      return 'Email hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại.';
-    case 'auth/email-already-in-use':
-      return 'Địa chỉ email này đã được sử dụng cho một tài khoản khác.';
-    case 'auth/invalid-email':
-      return 'Định dạng email không hợp lệ. Vui lòng nhập đúng email (vd: name@example.com).';
-    case 'auth/weak-password':
-      return 'Mật khẩu quá yếu! Mật khẩu cần có tối thiểu 6 ký tự.';
-    case 'auth/popup-closed-by-user':
-      return 'Bạn đã đóng cửa sổ đăng nhập Google trước khi hoàn tất.';
-    case 'auth/popup-blocked':
-      return 'Trình duyệt đã chặn cửa sổ đăng nhập Google. Vui lòng cho phép popup cho trang web này.';
-    case 'auth/unauthorized-domain':
-      return 'Tên miền hophuloc.online chưa được thêm vào Authorized Domains trong Firebase Console. Vui lòng vào Firebase Console > Authentication > Settings > Authorized domains và thêm "hophuloc.online".';
-    case 'auth/operation-not-allowed':
-      return 'Phương thức đăng nhập này chưa được bật trong Firebase Console (Authentication > Sign-in method).';
-    case 'auth/cancelled-popup-request':
-      return 'Yêu cầu mở cửa sổ đăng nhập bằng Google đã bị hủy.';
-    case 'auth/account-exists-with-different-credential':
-      return 'Tài khoản với email này đã tồn tại bằng phương thức đăng nhập khác.';
-    case 'auth/user-disabled':
-      return 'Tài khoản này đã bị tạm khóa. Vui lòng liên hệ quản trị viên.';
-    case 'auth/network-request-failed':
-      return 'Lỗi kết nối mạng. Vui lòng kiểm tra lại kết nối internet của bạn.';
-    case 'auth/too-many-requests':
-      return 'Tài khoản tạm thời bị khóa do thử sai quá nhiều lần. Vui lòng thử lại sau.';
-    default:
-      return `Đã có lỗi xảy ra khi xác thực${errorCode ? ` (${errorCode})` : ''}. Vui lòng thử lại sau.`;
+// Helper định dạng lỗi Supabase Auth sang Tiếng Việt thân thiện
+export function formatSupabaseAuthError(error: any): string {
+  if (!error) return 'Đã có lỗi xảy ra. Vui lòng thử lại sau.';
+  
+  const msg = typeof error === 'string' ? error : error.message || error.error_description || '';
+  const status = error.status;
+
+  if (msg.includes('Invalid login credentials') || msg.includes('invalid_credentials')) {
+    return 'Email hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại.';
   }
+  if (msg.includes('User already registered') || msg.includes('already_exists')) {
+    return 'Địa chỉ email này đã được đăng ký cho một tài khoản khác.';
+  }
+  if (msg.includes('Password should be at least') || msg.includes('weak_password')) {
+    return 'Mật khẩu quá yếu! Mật khẩu cần có tối thiểu 6 ký tự.';
+  }
+  if (msg.includes('Email not confirmed')) {
+    return 'Tài khoản chưa được xác nhận email. Vui lòng kiểm tra hộp thư email của bạn.';
+  }
+  if (msg.includes('rate limit') || msg.includes('Too many requests') || status === 429) {
+    return 'Tài khoản tạm thời bị giới hạn do gửi quá nhiều yêu cầu. Vui lòng thử lại sau ít phút.';
+  }
+  if (msg.includes('Unable to validate email address') || msg.includes('invalid email')) {
+    return 'Định dạng email không hợp lệ. Vui lòng nhập đúng email (ví dụ: user@example.com).';
+  }
+
+  return msg || 'Đã có lỗi xảy ra khi xác thực. Vui lòng thử lại sau.';
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Listener lắng nghe trạng thái đăng nhập
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
-      setLoading(false);
-      if (user) {
-        syncUserProfile(user);
+    // 1. Kiểm tra session hiện tại khi ứng dụng khởi chạy
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      const appUser = mapSupabaseUser(session?.user || null);
+      setCurrentUser(appUser);
+      if (appUser) {
+        syncUserProfile(appUser);
       }
+      setLoading(false);
+    }).catch((err) => {
+      console.error('Lỗi lấy session Supabase:', err);
+      setLoading(false);
     });
 
-    return unsubscribe;
+    // 2. Lắng nghe thay đổi auth state tự động
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      const appUser = mapSupabaseUser(session?.user || null);
+      setCurrentUser(appUser);
+      if (appUser) {
+        syncUserProfile(appUser);
+      }
+      setLoading(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   // Đăng nhập bằng Email & Mật khẩu
   const loginWithEmail = async (email: string, pass: string) => {
-    try {
-      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), pass);
-      if (userCredential.user) {
-        await syncUserProfile(userCredential.user);
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password: pass,
+    });
+
+    if (error) {
+      throw new Error(formatSupabaseAuthError(error));
+    }
+
+    if (data.user) {
+      const appUser = mapSupabaseUser(data.user);
+      if (appUser) {
+        setCurrentUser(appUser);
+        await syncUserProfile(appUser);
       }
-    } catch (error: any) {
-      throw new Error(formatAuthError(error?.code || ''));
     }
   };
 
   // Đăng ký bằng Email & Mật khẩu
   const registerWithEmail = async (name: string, email: string, pass: string) => {
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), pass);
-      if (userCredential.user) {
-        const cleanName = name.trim();
-        await updateProfile(userCredential.user, {
-          displayName: cleanName
-        });
-        await userCredential.user.reload();
-        if (auth.currentUser) {
-          setCurrentUser(auth.currentUser);
-          await syncUserProfile(auth.currentUser, cleanName);
-        }
+    const cleanName = name.trim();
+    const cleanEmail = email.trim();
+
+    const { data, error } = await supabase.auth.signUp({
+      email: cleanEmail,
+      password: pass,
+      options: {
+        data: {
+          full_name: cleanName,
+        },
+      },
+    });
+
+    if (error) {
+      throw new Error(formatSupabaseAuthError(error));
+    }
+
+    if (data.user) {
+      const appUser = mapSupabaseUser(data.user);
+      if (appUser) {
+        setCurrentUser(appUser);
+        await syncUserProfile(appUser);
       }
-    } catch (error: any) {
-      throw new Error(formatAuthError(error?.code || ''));
     }
   };
 
-  // Đăng nhập bằng Google
+  // Đăng nhập bằng Google (Supabase OAuth)
   const loginWithGoogle = async () => {
-    try {
-      const userCredential = await signInWithPopup(auth, googleProvider);
-      if (userCredential.user) {
-        await syncUserProfile(userCredential.user);
-      }
-    } catch (error: any) {
-      console.error('Firebase Auth Error (loginWithGoogle):', error);
-      throw new Error(formatAuthError(error?.code || ''));
+    const redirectUrl = `${window.location.origin}/app_chi_tieu`;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: redirectUrl,
+      },
+    });
+
+    if (error) {
+      console.error('Lỗi Supabase Google OAuth:', error);
+      throw new Error(formatSupabaseAuthError(error));
     }
   };
 
-  // Quên mật khẩu
+  // Quên / Khôi phục mật khẩu
   const resetPassword = async (email: string) => {
-    try {
-      await sendPasswordResetEmail(auth, email.trim());
-    } catch (error: any) {
-      throw new Error(formatAuthError(error?.code || ''));
+    const redirectUrl = `${window.location.origin}/app_chi_tieu`;
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: redirectUrl,
+    });
+
+    if (error) {
+      throw new Error(formatSupabaseAuthError(error));
     }
   };
 
   // Đăng xuất
   const logout = async () => {
-    await signOut(auth);
+    await supabase.auth.signOut();
+    setSession(null);
+    setCurrentUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{
-      currentUser,
-      loading,
-      loginWithEmail,
-      registerWithEmail,
-      loginWithGoogle,
-      resetPassword,
-      logout
-    }}>
+    <AuthContext.Provider
+      value={{
+        currentUser,
+        session,
+        loading,
+        loginWithEmail,
+        registerWithEmail,
+        loginWithGoogle,
+        resetPassword,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
