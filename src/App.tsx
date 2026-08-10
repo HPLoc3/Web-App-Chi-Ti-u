@@ -41,7 +41,7 @@ import {
 const LOCAL_STORAGE_KEY = 'so_tay_ledger_data';
 
 function LedgerApp() {
-  const { currentUser, logout } = useAuth();
+  const { currentUser, loading: authLoading, logout } = useAuth();
   const { showToast } = useToast();
   const userId = currentUser?.uid || null;
 
@@ -376,6 +376,21 @@ function LedgerApp() {
       showToast('Lỗi khi đăng xuất.', 'error');
     }
   };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#FAF9F6] flex flex-col items-center justify-center p-4 font-serif">
+        <div className="flex flex-col items-center gap-3 bg-[#FCFAF4] border-2 border-[#E6DEC9] p-8 rounded-2xl shadow-lg text-center max-w-xs w-full">
+          <span className="text-4xl animate-bounce">📔</span>
+          <h2 className="text-lg font-bold text-emerald-950">SỔ TAY CHI TIÊU</h2>
+          <div className="flex items-center gap-2 text-xs text-stone-500 font-sans mt-2">
+            <div className="w-4 h-4 border-2 border-emerald-800 border-t-transparent rounded-full animate-spin"></div>
+            <span>Đang xác thực tài khoản...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (viewState === 'landing' && !currentUser) {
     return (

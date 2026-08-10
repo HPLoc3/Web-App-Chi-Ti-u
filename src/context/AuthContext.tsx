@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { doc, setDoc } from 'firebase/firestore';
 import { 
   auth, 
+  db,
   googleProvider, 
   signInWithPopup, 
   signInWithEmailAndPassword, 
@@ -24,6 +26,22 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Helper sync user document to Firestore
+async function syncUserProfile(user: User, customDisplayName?: string) {
+  try {
+    const userRef = doc(db, 'users', user.uid);
+    await setDoc(userRef, {
+      uid: user.uid,
+      displayName: customDisplayName || user.displayName || 'Người dùng',
+      email: user.email,
+      photoURL: user.photoURL || null,
+      lastLoginAt: new Date().toISOString()
+    }, { merge: true });
+  } catch (e) {
+    console.error('Lỗi lưu thông tin user profile vào Firestore:', e);
+  }
+}
+
 // Helper chuyển mã lỗi Firebase sang Tiếng Việt thân thiện
 export function formatAuthError(errorCode: string): string {
   switch (errorCode) {
@@ -42,9 +60,9 @@ export function formatAuthError(errorCode: string): string {
     case 'auth/popup-blocked':
       return 'Trình duyệt đã chặn cửa sổ đăng nhập Google. Vui lòng cho phép popup cho trang web này.';
     case 'auth/unauthorized-domain':
-      return 'Tên miền truy cập (domain) này chưa được cấp phép trong Firebase Console. Vui lòng thêm domain vào Authentication > Settings > Authorized domains.';
+      return 'Tên miền hophuloc.online chưa được thêm vào Authorized Domains trong Firebase Console. Vui lòng vào Firebase Console > Authentication > Settings > Authorized domains và thêm "hophuloc.online".';
     case 'auth/operation-not-allowed':
-      return 'Phương thức đăng nhập bằng Google chưa được bật trong Firebase Console (Authentication > Sign-in method).';
+      return 'Phương thức đăng nhập này chưa được bật trong Firebase Console (Authentication > Sign-in method).';
     case 'auth/cancelled-popup-request':
       return 'Yêu cầu mở cửa sổ đăng nhập bằng Google đã bị hủy.';
     case 'auth/account-exists-with-different-credential':
@@ -69,6 +87,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       setLoading(false);
+      if (user) {
+        syncUserProfile(user);
+      }
     });
 
     return unsubscribe;
@@ -77,7 +98,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Đăng nhập bằng Email & Mật khẩu
   const loginWithEmail = async (email: string, pass: string) => {
     try {
-      await signInWithEmailAndPassword(auth, email.trim(), pass);
+      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), pass);
+      if (userCredential.user) {
+        await syncUserProfile(userCredential.user);
+      }
     } catch (error: any) {
       throw new Error(formatAuthError(error?.code || ''));
     }
@@ -87,14 +111,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const registerWithEmail = async (name: string, email: string, pass: string) => {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), pass);
-      // Cập nhật tên hiển thị người dùng
       if (userCredential.user) {
+        const cleanName = name.trim();
         await updateProfile(userCredential.user, {
-          displayName: name.trim()
+          displayName: cleanName
         });
         await userCredential.user.reload();
         if (auth.currentUser) {
           setCurrentUser(auth.currentUser);
+          await syncUserProfile(auth.currentUser, cleanName);
         }
       }
     } catch (error: any) {
@@ -105,7 +130,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Đăng nhập bằng Google
   const loginWithGoogle = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      const userCredential = await signInWithPopup(auth, googleProvider);
+      if (userCredential.user) {
+        await syncUserProfile(userCredential.user);
+      }
     } catch (error: any) {
       console.error('Firebase Auth Error (loginWithGoogle):', error);
       throw new Error(formatAuthError(error?.code || ''));
