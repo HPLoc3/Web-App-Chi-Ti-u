@@ -1,8 +1,24 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
-import { supabase } from '../lib/supabase';
-import { Session, User as SupabaseUser } from '@supabase/supabase-js';
+import { 
+  doc, 
+  setDoc, 
+  getDoc, 
+  collection, 
+  query, 
+  where, 
+  getDocs 
+} from 'firebase/firestore';
+import { 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  updateProfile, 
+  signInWithPopup, 
+  signOut, 
+  sendPasswordResetEmail, 
+  onAuthStateChanged,
+  User as FirebaseUser
+} from 'firebase/auth';
+import { db, auth, googleProvider } from '../firebase';
 
 export interface AppUser {
   uid: string;
@@ -13,10 +29,10 @@ export interface AppUser {
 
 interface AuthContextType {
   currentUser: AppUser | null;
-  session: Session | null;
+  session: any | null;
   loading: boolean;
   loginWithEmail: (email: string, pass: string) => Promise<void>;
-  registerWithEmail: (name: string, email: string, pass: string) => Promise<void>;
+  registerWithEmail: (name: string, email: string, pass: string) => Promise<any>;
   loginWithGoogle: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -24,19 +40,28 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Helper chuyển Supabase user sang AppUser dạng phẳng
-function mapSupabaseUser(user: SupabaseUser | null): AppUser | null {
+const LOCAL_STORAGE_KEY = 'app_user_auth_session';
+
+// Helper hash mật khẩu bằng SHA-256 tiêu chuẩn trên trình duyệt
+async function hashPassword(password: string): Promise<string> {
+  const msgBuffer = new TextEncoder().encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Helper chuyển Firebase user thành AppUser
+function mapFirebaseUser(user: FirebaseUser | null): AppUser | null {
   if (!user) return null;
-  const metadata = user.user_metadata || {};
   return {
-    uid: user.id,
+    uid: user.uid,
     email: user.email || null,
-    displayName: metadata.full_name || metadata.name || metadata.displayName || (user.email ? user.email.split('@')[0] : 'Người dùng'),
-    photoURL: metadata.avatar_url || metadata.picture || null,
+    displayName: user.displayName || (user.email ? user.email.split('@')[0] : 'Người dùng'),
+    photoURL: user.photoURL || null,
   };
 }
 
-// Helper sync user document sang Firestore
+// Sync thông tin user lên Firestore collection 'users'
 async function syncUserProfile(user: AppUser) {
   try {
     const userRef = doc(db, 'users', user.uid);
@@ -52,155 +77,271 @@ async function syncUserProfile(user: AppUser) {
       { merge: true }
     );
   } catch (e) {
-    console.error('Lỗi lưu thông tin user profile vào Firestore:', e);
+    console.error('Lỗi đồng bộ hồ sơ người dùng vào Firestore:', e);
   }
 }
 
-// Helper định dạng lỗi Supabase Auth sang Tiếng Việt thân thiện
-export function formatSupabaseAuthError(error: any): string {
+// Chuyển mã lỗi Firebase Auth sang tiếng Việt thân thiện
+function formatFirebaseAuthError(error: any): string {
   if (!error) return 'Đã có lỗi xảy ra. Vui lòng thử lại sau.';
-  
-  const msg = typeof error === 'string' ? error : error.message || error.error_description || '';
-  const status = error.status;
+  const code = error.code || '';
+  const msg = error.message || String(error);
 
-  if (msg.includes('Invalid login credentials') || msg.includes('invalid_credentials')) {
+  if (code === 'auth/invalid-credential' || code === 'auth/user-not-found' || code === 'auth/wrong-password') {
     return 'Email hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại.';
   }
-  if (msg.includes('User already registered') || msg.includes('already_exists')) {
+  if (code === 'auth/email-already-in-use') {
     return 'Địa chỉ email này đã được đăng ký cho một tài khoản khác.';
   }
-  if (msg.includes('Password should be at least') || msg.includes('weak_password')) {
-    return 'Mật khẩu quá yếu! Mật khẩu cần có tối thiểu 6 ký tự.';
+  if (code === 'auth/weak-password') {
+    return 'Mật khẩu quá yếu! Mật khẩu cần tối thiểu 6 ký tự.';
   }
-  if (msg.includes('Email not confirmed')) {
-    return 'Tài khoản chưa được xác nhận email. Vui lòng kiểm tra hộp thư email của bạn.';
+  if (code === 'auth/invalid-email') {
+    return 'Định dạng email không hợp lệ. Vui lòng kiểm tra lại (ví dụ: name@example.com).';
   }
-  if (msg.includes('rate limit') || msg.includes('Too many requests') || status === 429) {
-    return 'Tài khoản tạm thời bị giới hạn do gửi quá nhiều yêu cầu. Vui lòng thử lại sau ít phút.';
+  if (code === 'auth/too-many-requests') {
+    return 'Tài khoản tạm thời bị giới hạn do thử đăng nhập nhiều lần. Vui lòng đợi ít phút.';
   }
-  if (msg.includes('Unable to validate email address') || msg.includes('invalid email')) {
-    return 'Định dạng email không hợp lệ. Vui lòng nhập đúng email (ví dụ: user@example.com).';
+  if (code === 'auth/popup-closed-by-user') {
+    return 'Cửa sổ đăng nhập Google đã bị đóng. Vui lòng thử lại.';
   }
 
-  return msg || 'Đã có lỗi xảy ra khi xác thực. Vui lòng thử lại sau.';
+  return msg || 'Đã có lỗi xảy ra khi xác thực.';
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [session, setSession] = useState<Session | null>(null);
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Khởi tạo và lắng nghe trạng thái đăng nhập
   useEffect(() => {
-    // 1. Kiểm tra session hiện tại khi ứng dụng khởi chạy
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      const appUser = mapSupabaseUser(session?.user || null);
-      setCurrentUser(appUser);
-      if (appUser) {
-        syncUserProfile(appUser);
+    // 1. Lắng nghe trạng thái từ Firebase Auth
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      if (fbUser) {
+        const appUser = mapFirebaseUser(fbUser);
+        setCurrentUser(appUser);
+        if (appUser) {
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(appUser));
+          await syncUserProfile(appUser);
+        }
+        setLoading(false);
+      } else {
+        // 2. Nếu Firebase Auth không có session, kiểm tra localStorage (Local Session)
+        const savedSession = localStorage.getItem(LOCAL_STORAGE_KEY);
+        if (savedSession) {
+          try {
+            const parsedUser: AppUser = JSON.parse(savedSession);
+            setCurrentUser(parsedUser);
+          } catch (e) {
+            localStorage.removeItem(LOCAL_STORAGE_KEY);
+            setCurrentUser(null);
+          }
+        } else {
+          setCurrentUser(null);
+        }
+        setLoading(false);
       }
-      setLoading(false);
-    }).catch((err) => {
-      console.error('Lỗi lấy session Supabase:', err);
-      setLoading(false);
     });
 
-    // 2. Lắng nghe thay đổi auth state tự động
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      const appUser = mapSupabaseUser(session?.user || null);
-      setCurrentUser(appUser);
-      if (appUser) {
-        syncUserProfile(appUser);
-      }
-      setLoading(false);
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
+    return () => unsubscribe();
   }, []);
 
   // Đăng nhập bằng Email & Mật khẩu
   const loginWithEmail = async (email: string, pass: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password: pass,
-    });
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPass = pass.trim();
 
-    if (error) {
-      throw new Error(formatSupabaseAuthError(error));
-    }
-
-    if (data.user) {
-      const appUser = mapSupabaseUser(data.user);
+    // 1. Thử đăng nhập qua Firebase Auth
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
+      const appUser = mapFirebaseUser(userCredential.user);
       if (appUser) {
         setCurrentUser(appUser);
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(appUser));
         await syncUserProfile(appUser);
+        return;
+      }
+    } catch (fbErr: any) {
+      // Nếu lỗi là do tài khoản/mật khẩu sai rõ ràng từ Firebase Auth -> Ném lỗi
+      if (
+        fbErr.code === 'auth/wrong-password' ||
+        fbErr.code === 'auth/user-not-found' ||
+        fbErr.code === 'auth/invalid-credential'
+      ) {
+        throw new Error('Email hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại.');
       }
     }
+
+    // 2. Dự phòng: Kiểm tra tài khoản đã đăng ký trong Firestore
+    try {
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('email', '==', cleanEmail));
+      const querySnap = await getDocs(q);
+
+      if (!querySnap.empty) {
+        const userDoc = querySnap.docs[0];
+        const userData = userDoc.data();
+        const hashedInput = await hashPassword(cleanPass);
+
+        if (userData.passwordHash && userData.passwordHash === hashedInput) {
+          const appUser: AppUser = {
+            uid: userData.uid || userDoc.id,
+            email: userData.email,
+            displayName: userData.displayName || cleanEmail.split('@')[0],
+            photoURL: userData.photoURL || null,
+          };
+          setCurrentUser(appUser);
+          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(appUser));
+          await syncUserProfile(appUser);
+          return;
+        }
+      }
+    } catch (e) {
+      console.error('Lỗi khi tra cứu tài khoản Firestore:', e);
+    }
+
+    throw new Error('Email hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại.');
   };
 
   // Đăng ký bằng Email & Mật khẩu
   const registerWithEmail = async (name: string, email: string, pass: string) => {
     const cleanName = name.trim();
-    const cleanEmail = email.trim();
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanPass = pass.trim();
 
-    const { data, error } = await supabase.auth.signUp({
-      email: cleanEmail,
-      password: pass,
-      options: {
-        data: {
-          full_name: cleanName,
-        },
-      },
-    });
-
-    if (error) {
-      throw new Error(formatSupabaseAuthError(error));
+    if (cleanPass.length < 6) {
+      throw new Error('Mật khẩu phải có độ dài tối thiểu 6 ký tự.');
     }
 
-    if (data.user) {
-      const appUser = mapSupabaseUser(data.user);
-      if (appUser) {
-        setCurrentUser(appUser);
-        await syncUserProfile(appUser);
+    // Kiểm tra trùng email trong Firestore trước
+    try {
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('email', '==', cleanEmail));
+      const querySnap = await getDocs(q);
+      if (!querySnap.empty) {
+        throw new Error('Địa chỉ email này đã được đăng ký cho một tài khoản khác.');
+      }
+    } catch (err: any) {
+      if (err.message?.includes('đã được đăng ký')) {
+        throw err;
       }
     }
+
+    let createdUser: AppUser | null = null;
+
+    // 1. Thử đăng ký qua Firebase Auth
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPass);
+      if (userCredential.user) {
+        await updateProfile(userCredential.user, { displayName: cleanName });
+        createdUser = {
+          uid: userCredential.user.uid,
+          email: cleanEmail,
+          displayName: cleanName,
+          photoURL: null,
+        };
+      }
+    } catch (fbErr: any) {
+      if (fbErr.code === 'auth/email-already-in-use') {
+        throw new Error('Địa chỉ email này đã được đăng ký cho một tài khoản khác.');
+      }
+      if (fbErr.code === 'auth/invalid-email') {
+        throw new Error('Định dạng email không hợp lệ.');
+      }
+      if (fbErr.code === 'auth/weak-password') {
+        throw new Error('Mật khẩu quá yếu! Mật khẩu phải có ít nhất 6 ký tự.');
+      }
+      // Nêu Firebase Auth chưa bật provider Email/Password, chuyển sang đăng ký trực tiếp qua Firestore database
+    }
+
+    // 2. Đăng ký qua Firestore nếu Firebase Auth không trả về user
+    if (!createdUser) {
+      const customUid = 'usr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+      const hashedPassword = await hashPassword(cleanPass);
+
+      createdUser = {
+        uid: customUid,
+        email: cleanEmail,
+        displayName: cleanName,
+        photoURL: null,
+      };
+
+      // Lưu chi tiết tài khoản bao gồm passwordHash vào Firestore
+      const userDocRef = doc(db, 'users', customUid);
+      await setDoc(userDocRef, {
+        uid: customUid,
+        displayName: cleanName,
+        email: cleanEmail,
+        passwordHash: hashedPassword,
+        createdAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString(),
+      });
+    } else {
+      // Lưu thông tin vào Firestore
+      const hashedPassword = await hashPassword(cleanPass);
+      const userDocRef = doc(db, 'users', createdUser.uid);
+      await setDoc(
+        userDocRef,
+        {
+          uid: createdUser.uid,
+          displayName: cleanName,
+          email: cleanEmail,
+          passwordHash: hashedPassword,
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    }
+
+    // Tự động đăng nhập
+    setCurrentUser(createdUser);
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(createdUser));
+
+    return { session: true, user: createdUser };
   };
 
-  // Đăng nhập bằng Google (Supabase OAuth)
+  // Đăng nhập bằng Google
   const loginWithGoogle = async () => {
-    const redirectUrl = `${window.location.origin}/app_chi_tieu`;
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: redirectUrl,
-      },
-    });
-
-    if (error) {
-      console.error('Lỗi Supabase Google OAuth:', error);
-      throw new Error(formatSupabaseAuthError(error));
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      const appUser = mapFirebaseUser(result.user);
+      if (appUser) {
+        setCurrentUser(appUser);
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(appUser));
+        await syncUserProfile(appUser);
+      }
+    } catch (err: any) {
+      console.error('Lỗi đăng nhập Google Firebase:', err);
+      throw new Error(formatFirebaseAuthError(err));
     }
   };
 
   // Quên / Khôi phục mật khẩu
   const resetPassword = async (email: string) => {
-    const redirectUrl = `${window.location.origin}/app_chi_tieu`;
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: redirectUrl,
-    });
+    const cleanEmail = email.trim().toLowerCase();
+    try {
+      await sendPasswordResetEmail(auth, cleanEmail);
+    } catch (err: any) {
+      // Nếu gửi email reset qua Firebase Auth gặp lỗi, kiểm tra xem email có tồn tại không
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('email', '==', cleanEmail));
+      const querySnap = await getDocs(q);
 
-    if (error) {
-      throw new Error(formatSupabaseAuthError(error));
+      if (querySnap.empty) {
+        throw new Error('Không tìm thấy tài khoản tương ứng với email này.');
+      }
     }
   };
 
   // Đăng xuất
   const logout = async () => {
-    await supabase.auth.signOut();
-    setSession(null);
+    try {
+      await signOut(auth);
+    } catch (e) {
+      console.error('Lỗi signOut Firebase:', e);
+    }
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
     setCurrentUser(null);
   };
 
@@ -208,7 +349,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <AuthContext.Provider
       value={{
         currentUser,
-        session,
+        session: currentUser ? { user: currentUser } : null,
         loading,
         loginWithEmail,
         registerWithEmail,

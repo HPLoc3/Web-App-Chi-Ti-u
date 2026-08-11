@@ -119,11 +119,15 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login' }: Aut
 
     setIsSubmitting(true);
     try {
-      await registerWithEmail(registerName, registerEmail, registerPassword);
-      setSuccessMsg('Đăng ký tài khoản thành công! Bạn đã được tự động đăng nhập.');
-      setTimeout(() => {
-        onClose();
-      }, 1200);
+      const result: any = await registerWithEmail(registerName, registerEmail, registerPassword);
+      if (result?.session) {
+        setSuccessMsg('Đăng ký tài khoản thành công! Bạn đã được tự động đăng nhập.');
+        setTimeout(() => {
+          onClose();
+        }, 1200);
+      } else {
+        setSuccessMsg('Đăng ký tài khoản thành công! Hộp thư xác minh đã được gửi đến email của bạn. Vui lòng kiểm tra email để kích hoạt tài khoản trước khi đăng nhập.');
+      }
     } catch (err: any) {
       setErrorMsg(err.message);
     } finally {
