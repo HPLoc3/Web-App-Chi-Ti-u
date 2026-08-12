@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  name         String?
+  avatar       String?
+  provider     String        @default("local") // 'google' | 'local'
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  categories   Category[]
+  wallets      Wallet[]
+  transactions Transaction[]
+}
+
+model Category {
+  id           String          @id @default(uuid())
+  name         String
+  type         TransactionType
+  icon         String?
+  color        String?
+  userId       String?         // Nullable nếu là danh mục mặc định của hệ thống
+  user         User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+}
+
+model Wallet {
+  id           String        @id @default(uuid())
+  name         String
+  balance      Decimal       @default(0) @db.Decimal(15, 2)
+  currency     String        @default("VND")
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Transaction {
+  id         String          @id @default(uuid())
+  amount     Decimal         @db.Decimal(15, 2)
+  type       TransactionType
+  note       String?
+  date       DateTime        @default(now())
+  walletId   String
+  wallet     Wallet          @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  userId     String
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([userId, date])
+  @@index([userId, categoryId])
+}
