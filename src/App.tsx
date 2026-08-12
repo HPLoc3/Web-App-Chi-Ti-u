@@ -725,7 +725,14 @@ function LedgerApp() {
       <footer className="border-t border-[#E6DEC9] bg-[#FAF7F0] py-4 text-center text-[11px] text-stone-400 font-sans shrink-0">
         <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>© 2026 Sổ tay chi tiêu thông minh — Fullstack AI Platform</span>
-          <span>Bảo mật dữ liệu trên Cloud Firestore & Trình duyệt</span>
+          <a
+            href="https://hophuloc.online"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-stone-700 transition underline decoration-stone-300"
+          >
+            hophuloc.online
+          </a>
         </div>
       </footer>
     </div>

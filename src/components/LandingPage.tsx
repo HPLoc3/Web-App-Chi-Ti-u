@@ -263,9 +263,14 @@ export default function LandingPage({
           <div className="flex items-center gap-2 font-serif font-bold text-stone-700">
             <span>📔 SỔ TAY CHI TIÊU THÔNG MINH</span>
           </div>
-          <p className="text-[11px] text-stone-400">
-            Phát triển bởi Hồ Phú Lộc • Full-stack AI Finance Platform
-          </p>
+          <a
+            href="https://hophuloc.online"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] text-stone-400 hover:text-stone-700 transition underline decoration-stone-300"
+          >
+            hophuloc.online • Full-stack AI Finance Platform
+          </a>
         </div>
       </footer>
     </div>

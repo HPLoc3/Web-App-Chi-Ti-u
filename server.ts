@@ -1,15 +1,37 @@
 import express from "express";
 import path from "path";
+import cors from "cors";
+import helmet from "helmet";
+import cookieParser from "cookie-parser";
 import { GoogleGenAI, Type } from "@google/genai";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
+
+import authRoutes from "./src/routes/auth.routes";
+import transactionRoutes from "./src/routes/transaction.routes";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
 
+// Security & Parsing Middlewares
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // Để tránh chặn Vite HMR / iframe scripts
+  })
+);
+
+app.use(
+  cors({
+    origin: true, // Cho phép mọi origin động hoặc cấu hình danh sách domain cụ thể
+    credentials: true, // Cho phép nhận & lưu HttpOnly Cookies từ client
+  })
+);
+
+app.use(cookieParser());
 app.use(express.json({ limit: "5mb" }));
+app.use(express.urlencoded({ extended: true }));
 
 // Initialize Gemini Client
 const getGeminiClient = () => {
@@ -26,6 +48,11 @@ const getGeminiClient = () => {
     },
   });
 };
+
+// --- REST API ROUTES ---
+app.use("/api/auth", authRoutes);
+app.use("/api/transactions", transactionRoutes);
+app.use("/api/reports", transactionRoutes); // Kết nối GET /api/reports/summary
 
 // API Health route
 app.get("/api/health", (_req, res) => {
