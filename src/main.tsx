@@ -71,7 +71,12 @@ if (typeof window !== 'undefined') {
   }
 }
 
-const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+import appletConfig from '../firebase-applet-config.json';
+
+const rawEnvClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+const googleClientId = (rawEnvClientId && !rawEnvClientId.includes('your_google_client_id') && !rawEnvClientId.includes('your-google-client-id'))
+  ? rawEnvClientId
+  : (appletConfig.oAuthClientId || '');
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

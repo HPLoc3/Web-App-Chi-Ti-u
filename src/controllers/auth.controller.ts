@@ -5,9 +5,14 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma';
 import { getJwtSecret } from '../middleware/auth.middleware';
 
+import appletConfig from '../../firebase-applet-config.json';
+
 const getGoogleClientId = (): string => {
-  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
-  return clientId.trim();
+  const envId = (process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '').trim();
+  if (envId && !envId.includes('your_google_client_id') && !envId.includes('your-google-client-id')) {
+    return envId;
+  }
+  return (appletConfig as any).oAuthClientId || '';
 };
 
 const getGoogleOAuthClient = (): OAuth2Client => {

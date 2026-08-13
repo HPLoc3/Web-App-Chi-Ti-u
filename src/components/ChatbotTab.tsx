@@ -70,6 +70,24 @@ export default function ChatbotTab({
   currentUser, 
   onOpenAuthModal 
 }: ChatbotTabProps) {
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [
+    {
+      id: 'welcome',
+      sender: 'bot',
+      text: `Xin chào ${currentUser?.displayName || currentUser?.email || 'bạn'}! 🤖 Mình là Trợ lý AI Tài chính Sổ Tay.\n\nBạn có thể nhắn tự nhiên để ghi chi tiêu (ví dụ: "ăn sáng 35k", "đi Grab 85k hôm qua") hoặc hỏi phân tích tài chính (ví dụ: "Tháng này tôi tiêu bao nhiêu?", "Top 3 khoản chi lớn nhất?").`,
+      timestamp: new Date()
+    }
+  ]);
+
+  const [input, setInput] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto scroll
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isProcessing]);
+
   // Unauthenticated Guard
   if (!currentUser) {
     return (
@@ -93,24 +111,6 @@ export default function ChatbotTab({
       </div>
     );
   }
-
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'welcome',
-      sender: 'bot',
-      text: `Xin chào ${currentUser.displayName || currentUser.email || 'bạn'}! 🤖 Mình là Trợ lý AI Tài chính Sổ Tay.\n\nBạn có thể nhắn tự nhiên để ghi chi tiêu (ví dụ: "ăn sáng 35k", "đi Grab 85k hôm qua") hoặc hỏi phân tích tài chính (ví dụ: "Tháng này tôi tiêu bao nhiêu?", "Top 3 khoản chi lớn nhất?").`,
-      timestamp: new Date()
-    }
-  ]);
-
-  const [input, setInput] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
-  const chatEndRef = useRef<HTMLDivElement>(null);
-
-  // Auto scroll
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isProcessing]);
 
   // Handle message submit
   const handleSend = async (e?: React.FormEvent) => {

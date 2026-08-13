@@ -93,7 +93,6 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({
             onSuccess={handleGoogleSuccess}
             onError={() => {
               setShowPopupFallback(true);
-              onError?.('Không thể tải Google Sign-In button. Bạn có thể sử dụng nút Đăng nhập Popup.');
             }}
             text={text}
             shape={shape}

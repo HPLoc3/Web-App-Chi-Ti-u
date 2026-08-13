@@ -474,7 +474,7 @@ function LedgerApp() {
 
             {currentUser ? (
               <div className="flex items-center gap-2 bg-emerald-900/80 border border-emerald-700/80 px-3 py-1.5 rounded-xl text-xs text-emerald-100 shadow-xs">
-                {currentUser.photoURL ? (
+                {currentUser?.photoURL ? (
                   <img 
                     src={currentUser.photoURL} 
                     alt="Avatar" 
@@ -483,12 +483,12 @@ function LedgerApp() {
                   />
                 ) : (
                   <div className="w-7 h-7 rounded-full bg-amber-500 text-emerald-950 font-bold flex items-center justify-center text-xs shrink-0 shadow-xs">
-                    {(currentUser.displayName || currentUser.email || 'U').charAt(0).toUpperCase()}
+                    {(currentUser?.displayName || currentUser?.email || 'U').charAt(0).toUpperCase()}
                   </div>
                 )}
                 <div className="flex flex-col text-left max-w-[100px] sm:max-w-[150px]">
                   <span className="font-semibold text-white truncate text-xs">
-                    {currentUser.displayName || 'Người dùng'}
+                    {currentUser?.displayName || 'Người dùng'}
                   </span>
                 </div>
                 <button

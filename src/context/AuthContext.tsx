@@ -14,17 +14,20 @@ export interface AppUser {
   photoURL?: string | null;
 }
 
+export type AuthState = 'LOADING' | 'AUTHENTICATED' | 'ANONYMOUS';
+
 interface AuthContextType {
   user: AppUser | null;
   currentUser: AppUser | null; // Để tương thích ngược với code cũ
   isAuthenticated: boolean;
   isLoading: boolean;
   loading: boolean; // Để tương thích ngược với code cũ
+  authState: AuthState;
   loginWithGoogleToken: (tokenData: string | { idToken?: string; accessToken?: string }) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
-  loginWithEmail?: (email: string, pass: string) => Promise<void>;
-  registerWithEmail?: (name: string, email: string, pass: string) => Promise<any>;
-  resetPassword?: (email: string) => Promise<void>;
+  loginWithEmail: (email: string, pass: string) => Promise<void>;
+  registerWithEmail: (name: string, email: string, pass: string) => Promise<any>;
+  resetPassword: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuthStatus: () => Promise<void>;
 }
@@ -49,19 +52,26 @@ function normalizeUser(rawUser: any): AppUser | null {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AppUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [authState, setAuthState] = useState<AuthState>('LOADING');
 
   // Kiểm tra trạng thái đăng nhập từ Backend Express (/api/auth/me)
   const checkAuthStatus = useCallback(async () => {
     setIsLoading(true);
+    setAuthState('LOADING');
     try {
       const response = await apiClient.get('/api/auth/me');
-      if (response.data && response.data.success) {
-        setUser(normalizeUser(response.data.user));
+      if (response.data && response.data.success && response.data.user) {
+        const normUser = normalizeUser(response.data.user);
+        setUser(normUser);
+        setAuthState('AUTHENTICATED');
       } else {
         setUser(null);
+        setAuthState('ANONYMOUS');
       }
     } catch (error: any) {
+      // 401 hoặc lỗi kết nối đều được xem là ANONYMOUS
       setUser(null);
+      setAuthState('ANONYMOUS');
     } finally {
       setIsLoading(false);
     }
@@ -77,9 +87,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const payload = typeof tokenData === 'string' ? { idToken: tokenData } : tokenData;
       const response = await apiClient.post('/api/auth/google', payload);
-      if (response.data && response.data.success) {
-        const loggedUser = response.data.user;
-        setUser(normalizeUser(loggedUser));
+      if (response.data && response.data.success && response.data.user) {
+        const loggedUser = normalizeUser(response.data.user);
+        setUser(loggedUser);
+        setAuthState('AUTHENTICATED');
       } else {
         throw new Error(response.data?.message || 'Xác thực Google thất bại.');
       }
@@ -89,6 +100,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         error.message ||
         'Đăng nhập Google thất bại. Vui lòng thử lại.';
       setUser(null);
+      setAuthState('ANONYMOUS');
       throw new Error(errorMsg);
     } finally {
       setIsLoading(false);
@@ -105,11 +117,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     try {
       const response = await apiClient.post('/api/auth/login', { email, password: pass });
-      if (response.data && response.data.success) {
-        const loggedUser = response.data.user;
-        setUser(normalizeUser(loggedUser));
+      if (response.data && response.data.success && response.data.user) {
+        const loggedUser = normalizeUser(response.data.user);
+        setUser(loggedUser);
+        setAuthState('AUTHENTICATED');
       } else {
-        throw new Error(response.data?.message || 'Đăng nhập thất bại.');
+        throw new Error(response.data?.message || 'Email hoặc mật khẩu không chính xác.');
       }
     } catch (error: any) {
       const errorMsg =
@@ -117,6 +130,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         error.message ||
         'Đăng nhập thất bại. Vui lòng kiểm tra lại Email và Mật khẩu.';
       setUser(null);
+      setAuthState('ANONYMOUS');
       throw new Error(errorMsg);
     } finally {
       setIsLoading(false);
@@ -128,9 +142,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     try {
       const response = await apiClient.post('/api/auth/register', { name, email, password: pass });
-      if (response.data && response.data.success) {
-        const loggedUser = response.data.user;
-        setUser(normalizeUser(loggedUser));
+      if (response.data && response.data.success && response.data.user) {
+        const loggedUser = normalizeUser(response.data.user);
+        setUser(loggedUser);
+        setAuthState('AUTHENTICATED');
         return { session: true, user: loggedUser };
       } else {
         throw new Error(response.data?.message || 'Đăng ký thất bại.');
@@ -141,6 +156,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         error.message ||
         'Đăng ký thất bại. Vui lòng thử lại.';
       setUser(null);
+      setAuthState('ANONYMOUS');
       throw new Error(errorMsg);
     } finally {
       setIsLoading(false);
@@ -175,6 +191,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn('Lỗi khi đăng xuất ở server:', error);
     } finally {
       setUser(null);
+      setAuthState('ANONYMOUS');
       setIsLoading(false);
     }
   };
@@ -184,9 +201,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         currentUser: user, // Alias tương thích ngược
-        isAuthenticated: !!user,
+        isAuthenticated: !!user && authState === 'AUTHENTICATED',
         isLoading,
         loading: isLoading, // Alias tương thích ngược
+        authState,
         loginWithGoogleToken,
         loginWithGoogle,
         loginWithEmail,
