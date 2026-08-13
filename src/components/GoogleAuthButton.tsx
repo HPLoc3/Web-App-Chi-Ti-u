@@ -24,12 +24,27 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({
   const [isIframe, setIsIframe] = useState(false);
   const [showPopupFallback, setShowPopupFallback] = useState(false);
 
+  const rawClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID || '').trim();
+  const isGoogleConfigured = Boolean(
+    rawClientId &&
+    !rawClientId.includes('your_google_client_id') &&
+    !rawClientId.includes('your-google-client-id')
+  );
+
   useEffect(() => {
     // Phát hiện ứng dụng đang chạy trong iFrame (AI Studio preview)
     if (typeof window !== 'undefined' && window.self !== window.top) {
       setIsIframe(true);
     }
   }, []);
+
+  if (!isGoogleConfigured) {
+    return (
+      <div className="w-full p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs text-center">
+        Chưa cấu hình biến môi trường <code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-[11px]">VITE_GOOGLE_CLIENT_ID</code>.
+      </div>
+    );
+  }
 
   // Xử lý khi nhận ID Token từ Google Standard Button
   const handleGoogleSuccess = async (credentialResponse: any) => {

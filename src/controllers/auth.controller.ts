@@ -5,14 +5,12 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma';
 import { getJwtSecret } from '../middleware/auth.middleware';
 
-import appletConfig from '../../firebase-applet-config.json';
-
 const getGoogleClientId = (): string => {
-  const envId = (process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '').trim();
+  const envId = (process.env.GOOGLE_CLIENT_ID || '').trim();
   if (envId && !envId.includes('your_google_client_id') && !envId.includes('your-google-client-id')) {
     return envId;
   }
-  return (appletConfig as any).oAuthClientId || '';
+  return '';
 };
 
 const getGoogleOAuthClient = (): OAuth2Client => {
@@ -283,19 +281,9 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
 
     // 1. Nếu có ID Token (Xác thực chữ ký, issuer, audience, exp)
     if (tokenToVerify) {
-      const validAudiences = Array.from(
-        new Set(
-          [
-            clientId,
-            process.env.GOOGLE_CLIENT_ID,
-            process.env.VITE_GOOGLE_CLIENT_ID,
-          ].filter(Boolean) as string[]
-        )
-      );
-
       const ticket = await googleClient.verifyIdToken({
         idToken: tokenToVerify,
-        audience: validAudiences.length === 1 ? validAudiences[0] : validAudiences,
+        audience: clientId,
       });
 
       const payload = ticket.getPayload();
