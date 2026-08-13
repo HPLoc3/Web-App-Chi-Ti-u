@@ -182,7 +182,7 @@ export default function ChatbotTab({
       const botMessage: ChatMessage = {
         id: botMessageId,
         sender: 'bot',
-        text: `✨ AI đã bóc tách thông tin giao dịch của bạn. Vui lòng xác nhận để lưu vào sổ:`,
+        text: `Vui lòng xác nhận thông tin lưu vào sổ`,
         timestamp: new Date(),
         pendingTransaction: pendingTx,
         isFallback: aiResult.isFallback

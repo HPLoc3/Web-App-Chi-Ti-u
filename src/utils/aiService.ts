@@ -1,6 +1,7 @@
 import { Expense, Goal } from '../types';
 import { CATEGORIES } from '../constants/categories';
 import { parseTransactionText } from './parser';
+import { apiClient } from '../lib/apiClient';
 
 export interface AIResponseData {
   intent: 'create_expense' | 'financial_query' | 'general_chat' | 'unknown';
@@ -143,85 +144,75 @@ export async function sendToAIAssistant(
 
   // Try Server-side Gemini AI call first
   try {
-    const response = await fetch('/api/ai/assistant', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        message: trimmedMessage,
-        context,
-      }),
+    const response = await apiClient.post('/api/ai/assistant', {
+      message: trimmedMessage,
+      context,
     });
 
-    if (response.ok) {
-      const result = await response.json();
+    if (response.data && response.data.success && response.data.data) {
+      const aiData = response.data.data as AIResponseData;
 
-      if (result.success && result.data) {
-        const aiData = result.data as AIResponseData;
+      // VALIDATION STEP (Requirement 3: Never trust raw LLM output)
+      const validatedIntent = ['create_expense', 'financial_query', 'general_chat'].includes(
+        aiData.intent
+      )
+        ? aiData.intent
+        : 'create_expense';
 
-        // VALIDATION STEP (Requirement 3: Never trust raw LLM output)
-        const validatedIntent = ['create_expense', 'financial_query', 'general_chat'].includes(
-          aiData.intent
-        )
-          ? aiData.intent
-          : 'create_expense';
+      if (validatedIntent === 'create_expense') {
+        const rawAmount = Number(aiData.amount);
+        const validatedAmount = !isNaN(rawAmount) && rawAmount > 0 ? rawAmount : 0;
 
-        if (validatedIntent === 'create_expense') {
-          const rawAmount = Number(aiData.amount);
-          const validatedAmount = !isNaN(rawAmount) && rawAmount > 0 ? rawAmount : 0;
+        // Check category validity
+        const catObj = CATEGORIES.find(c => c.id === aiData.category);
+        const validatedCategory = catObj ? catObj.id : 'khac';
+        const validatedCategoryName = catObj ? catObj.name : 'Khác';
 
-          // Check category validity
-          const catObj = CATEGORIES.find(c => c.id === aiData.category);
-          const validatedCategory = catObj ? catObj.id : 'khac';
-          const validatedCategoryName = catObj ? catObj.name : 'Khác';
+        // Check date validity (YYYY-MM-DD)
+        let validatedDate = context.currentDate;
+        if (aiData.date && /^\d{4}-\d{2}-\d{2}$/.test(aiData.date)) {
+          validatedDate = aiData.date;
+        }
 
-          // Check date validity (YYYY-MM-DD)
-          let validatedDate = context.currentDate;
-          if (aiData.date && /^\d{4}-\d{2}-\d{2}$/.test(aiData.date)) {
-            validatedDate = aiData.date;
-          }
+        // Check note
+        const validatedNote = aiData.note?.trim() || validatedCategoryName;
 
-          // Check note
-          const validatedNote = aiData.note?.trim() || validatedCategoryName;
+        // Check confidence
+        const confidence = typeof aiData.confidence === 'number' ? aiData.confidence : 0.85;
+        const isLowConfidence = confidence < 0.70 || validatedAmount <= 0;
 
-          // Check confidence
-          const confidence = typeof aiData.confidence === 'number' ? aiData.confidence : 0.85;
-          const isLowConfidence = confidence < 0.70 || validatedAmount <= 0;
-
-          if (validatedAmount > 0) {
-            return {
-              intent: 'create_expense',
-              amount: validatedAmount,
-              currency: 'VND',
-              category: validatedCategory,
-              categoryName: validatedCategoryName,
-              date: validatedDate,
-              note: validatedNote,
-              confidence,
-              explanation:
-                aiData.explanation ||
-                `Đã nhận diện: ${validatedCategoryName} ${validatedAmount.toLocaleString('vi-VN')}₫`,
-              isFallback: false,
-              isLowConfidence,
-              needsConfirmation: true, // Always prompt preview card for transaction confirmation
-            };
-          }
-        } else if (validatedIntent === 'financial_query') {
+        if (validatedAmount > 0) {
           return {
-            intent: 'financial_query',
-            reply: aiData.reply || computeFinancialQueryResponse(trimmedMessage, context),
-            confidence: aiData.confidence || 0.95,
+            intent: 'create_expense',
+            amount: validatedAmount,
+            currency: 'VND',
+            category: validatedCategory,
+            categoryName: validatedCategoryName,
+            date: validatedDate,
+            note: validatedNote,
+            confidence,
+            explanation:
+              aiData.explanation ||
+              `Đã nhận diện: ${validatedCategoryName} ${validatedAmount.toLocaleString('vi-VN')}₫`,
             isFallback: false,
-          };
-        } else if (validatedIntent === 'general_chat') {
-          return {
-            intent: 'general_chat',
-            reply: aiData.reply || 'Xin chào! Mình có thể giúp gì cho tài chính cá nhân của bạn hôm nay?',
-            confidence: aiData.confidence || 0.90,
-            isFallback: false,
+            isLowConfidence,
+            needsConfirmation: true, // Always prompt preview card for transaction confirmation
           };
         }
+      } else if (validatedIntent === 'financial_query') {
+        return {
+          intent: 'financial_query',
+          reply: aiData.reply || computeFinancialQueryResponse(trimmedMessage, context),
+          confidence: aiData.confidence || 0.95,
+          isFallback: false,
+        };
+      } else if (validatedIntent === 'general_chat') {
+        return {
+          intent: 'general_chat',
+          reply: aiData.reply || 'Xin chào! Mình có thể giúp gì cho tài chính cá nhân của bạn hôm nay?',
+          confidence: aiData.confidence || 0.90,
+          isFallback: false,
+        };
       }
     }
   } catch (err) {

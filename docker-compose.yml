@@ -8,13 +8,13 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: hophuloc_admin
-      POSTGRES_PASSWORD: SecurePass_157_66_101_43
-      POSTGRES_DB: hophuloc_expense_db
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_password}
+      POSTGRES_DB: ${POSTGRES_DB:-hophuloc_expense_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U hophuloc_admin -d hophuloc_expense_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-hophuloc_expense_db}"]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -9,8 +9,12 @@ import dotenv from "dotenv";
 
 import authRoutes from "./src/routes/auth.routes";
 import transactionRoutes from "./src/routes/transaction.routes";
+import { getJwtSecret } from "./src/middleware/auth.middleware";
 
 dotenv.config();
+
+// Bắt buộc kiểm tra JWT_SECRET khi server khởi động (Fail-fast nếu thiếu)
+getJwtSecret();
 
 const app = express();
 const PORT = 3000;
@@ -22,10 +26,65 @@ app.use(
   })
 );
 
+// Cấu hình Whitelist Danh sách Origin cho phép kết nối
+const parseAllowedOrigins = (): string[] => {
+  const defaultOrigins = [
+    "https://hophuloc.online",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+  ];
+
+  const envOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
+    : [];
+
+  const appUrl = process.env.APP_URL ? process.env.APP_URL.trim() : "";
+
+  const originsSet = new Set<string>();
+  [...defaultOrigins, ...envOrigins, appUrl].forEach((origin) => {
+    if (origin) {
+      originsSet.add(origin.replace(/\/$/, ""));
+    }
+  });
+
+  return Array.from(originsSet);
+};
+
+const allowedOrigins = parseAllowedOrigins();
+
 app.use(
   cors({
-    origin: true, // Cho phép mọi origin động hoặc cấu hình danh sách domain cụ thể
-    credentials: true, // Cho phép nhận & lưu HttpOnly Cookies từ client
+    origin: (origin, callback) => {
+      // 1. Cho phép các request không có Origin header (Cùng origin, cURL, Postman, server-to-server)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      const normalizedOrigin = origin.replace(/\/$/, "");
+
+      // 2. Kiểm tra trong danh sách Whitelist cho phép
+      if (allowedOrigins.includes(normalizedOrigin)) {
+        return callback(null, true);
+      }
+
+      // 3. Hỗ trợ các origin preview hợp lệ khi ở môi trường dev/preview
+      if (
+        process.env.NODE_ENV !== "production" &&
+        (normalizedOrigin.endsWith(".run.app") ||
+          normalizedOrigin.includes("localhost") ||
+          normalizedOrigin.includes("127.0.0.1"))
+      ) {
+        return callback(null, true);
+      }
+
+      // 4. Từ chối origin không hợp lệ
+      return callback(null, false);
+    },
+    credentials: true, // Bắt buộc để truyền & lưu HttpOnly Cookie
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
   })
 );
 

@@ -1,7 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'hophuloc_expense_jwt_secret_key_2026';
+export const getJwtSecret = (): string => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret.trim() === '') {
+    throw new Error('FATAL SECURITY ERROR: Biến môi trường JWT_SECRET chưa được cấu hình.');
+  }
+  return secret;
+};
 
 export interface AuthenticatedUser {
   id: string;
@@ -19,15 +25,20 @@ declare global {
 
 export const authMiddleware = (req: Request, res: Response, next: NextFunction): void => {
   try {
+    const jwtSecret = getJwtSecret();
+
+    // Ưu tiên đọc JWT Token từ HttpOnly Cookie
+    const cookieToken = req.cookies?.token;
+
+    // Dự phòng đọc từ Authorization Bearer Header
     const headerToken =
       req.headers.authorization && req.headers.authorization.startsWith('Bearer ')
         ? req.headers.authorization.split(' ')[1]
         : undefined;
-    const cookieToken = req.cookies?.token;
 
-    const candidateTokens = [headerToken, cookieToken].filter(Boolean) as string[];
+    const token = cookieToken || headerToken;
 
-    if (candidateTokens.length === 0) {
+    if (!token) {
       res.status(401).json({
         success: false,
         message: 'Không tìm thấy xác thực. Vui lòng đăng nhập.',
@@ -35,22 +46,20 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction):
       return;
     }
 
-    let decoded: AuthenticatedUser | null = null;
-    let lastError: any = null;
-
-    for (const token of candidateTokens) {
-      try {
-        decoded = jwt.verify(token, JWT_SECRET) as AuthenticatedUser;
-        if (decoded) break;
-      } catch (err) {
-        lastError = err;
+    let decoded: AuthenticatedUser;
+    try {
+      decoded = jwt.verify(token, jwtSecret) as AuthenticatedUser;
+    } catch (verifyErr: any) {
+      if (verifyErr.name === 'TokenExpiredError') {
+        res.status(401).json({
+          success: false,
+          message: 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
+        });
+        return;
       }
-    }
-
-    if (!decoded) {
       res.status(401).json({
         success: false,
-        message: 'Token không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.',
+        message: 'Token xác thực không hợp lệ. Vui lòng đăng nhập lại.',
       });
       return;
     }
@@ -62,12 +71,11 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction):
     };
 
     next();
-  } catch (error) {
+  } catch (error: any) {
     res.status(401).json({
       success: false,
-      message: 'Token không hợp lệ hoặc đã hết hạn. Vui lòng đăng nhập lại.',
+      message: error.message || 'Lỗi xác thực người dùng.',
     });
   }
 };
 
-export { JWT_SECRET };

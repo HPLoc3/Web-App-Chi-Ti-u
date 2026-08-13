@@ -71,9 +71,7 @@ if (typeof window !== 'undefined') {
   }
 }
 
-const googleClientId =
-  import.meta.env.VITE_GOOGLE_CLIENT_ID ||
-  '237803982399-aniuklltc9c5r4jkrque04tqdpnepj0l.apps.googleusercontent.com';
+const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

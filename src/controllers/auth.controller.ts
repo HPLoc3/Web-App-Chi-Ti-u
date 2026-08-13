@@ -3,10 +3,49 @@ import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma';
-import { JWT_SECRET } from '../middleware/auth.middleware';
+import { getJwtSecret } from '../middleware/auth.middleware';
 
-const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '237803982399-aniuklltc9c5r4jkrque04tqdpnepj0l.apps.googleusercontent.com';
-const googleClient = new OAuth2Client(CLIENT_ID);
+const getGoogleClientId = (): string => {
+  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '';
+  return clientId.trim();
+};
+
+const getGoogleOAuthClient = (): OAuth2Client => {
+  const clientId = getGoogleClientId();
+  if (!clientId) {
+    throw new Error('Chưa cấu hình GOOGLE_CLIENT_ID trên máy chủ.');
+  }
+  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || '').trim();
+  return new OAuth2Client(clientId, clientSecret || undefined);
+};
+
+/**
+ * Cấu hình Cookie an toàn hỗ trợ cả Production HTTPS (hophuloc.online) và Localhost Development
+ */
+export const getAuthCookieOptions = (req?: Request) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isSecure = isProduction || (req ? (req.secure || req.headers['x-forwarded-proto'] === 'https') : false);
+
+  return {
+    httpOnly: true,
+    secure: isSecure,
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 ngày
+  };
+};
+
+export const getClearCookieOptions = (req?: Request) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isSecure = isProduction || (req ? (req.secure || req.headers['x-forwarded-proto'] === 'https') : false);
+
+  return {
+    httpOnly: true,
+    secure: isSecure,
+    sameSite: 'lax' as const,
+    path: '/',
+  };
+};
 
 /**
  * POST /api/auth/register
@@ -69,21 +108,15 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
     const token = jwt.sign(
       { id: user.id, email: user.email, name: user.name },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: '7d' }
     );
 
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    res.cookie('token', token, getAuthCookieOptions(req));
 
     res.status(201).json({
       success: true,
       message: 'Đăng ký tài khoản thành công.',
-      token,
       user: {
         id: user.id,
         email: user.email,
@@ -94,7 +127,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       },
     });
   } catch (error: any) {
-    console.error('Lỗi đăng ký:', error);
+    console.error('Lỗi đăng ký:', error.message || 'Lỗi không xác định');
     res.status(500).json({
       success: false,
       message: error.message || 'Đăng ký thất bại. Vui lòng thử lại.',
@@ -151,21 +184,15 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
     const token = jwt.sign(
       { id: user.id, email: user.email, name: user.name },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: '7d' }
     );
 
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+    res.cookie('token', token, getAuthCookieOptions(req));
 
     res.status(200).json({
       success: true,
       message: 'Đăng nhập thành công.',
-      token,
       user: {
         id: user.id,
         email: user.email,
@@ -176,7 +203,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       },
     });
   } catch (error: any) {
-    console.error('Lỗi đăng nhập:', error);
+    console.error('Lỗi đăng nhập:', error.message || 'Lỗi không xác định');
     res.status(500).json({
       success: false,
       message: error.message || 'Đăng nhập thất bại. Vui lòng thử lại.',
@@ -222,6 +249,15 @@ export const forgotPassword = async (req: Request, res: Response): Promise<void>
  */
 export const googleAuth = async (req: Request, res: Response): Promise<void> => {
   try {
+    const clientId = getGoogleClientId();
+    if (!clientId) {
+      res.status(500).json({
+        success: false,
+        message: 'Lỗi cấu hình máy chủ: Chưa đặt biến môi trường GOOGLE_CLIENT_ID.',
+      });
+      return;
+    }
+
     const { idToken, credential, token: inputToken, accessToken, access_token } = req.body;
     const tokenToVerify = idToken || credential || inputToken;
     const rawAccessToken = accessToken || access_token;
@@ -238,92 +274,78 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
     let name: string | undefined;
     let avatar: string | undefined;
 
-    // 1. Nếu có Access Token từ Google OAuth Popup / Implicit Flow
-    if (rawAccessToken && !tokenToVerify) {
-      try {
-        const userInfoRes = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo`, {
-          headers: { Authorization: `Bearer ${rawAccessToken}` },
-        });
-        if (userInfoRes.ok) {
-          const userInfo = await userInfoRes.json();
-          email = userInfo.email;
-          name = userInfo.name;
-          avatar = userInfo.picture;
-        } else {
-          throw new Error('Không thể lấy thông tin người dùng từ Google Access Token.');
-        }
-      } catch (accessTokenErr: any) {
-        throw new Error('Xác thực Access Token thất bại: ' + accessTokenErr.message);
+    const googleClient = getGoogleOAuthClient();
+
+    // 1. Nếu có ID Token (Xác thực chữ ký, issuer, audience, exp)
+    if (tokenToVerify) {
+      const validAudiences = Array.from(
+        new Set(
+          [
+            clientId,
+            process.env.GOOGLE_CLIENT_ID,
+            process.env.VITE_GOOGLE_CLIENT_ID,
+          ].filter(Boolean) as string[]
+        )
+      );
+
+      const ticket = await googleClient.verifyIdToken({
+        idToken: tokenToVerify,
+        audience: validAudiences.length === 1 ? validAudiences[0] : validAudiences,
+      });
+
+      const payload = ticket.getPayload();
+      if (!payload) {
+        throw new Error('Google ID Token payload không hợp lệ.');
       }
-    }
 
-    // 2. Nếu có Google ID Token (JWT)
-    if (!email && tokenToVerify) {
-      try {
-        // Tạo danh sách các Client ID hợp lệ cho audience
-        const validAudiences = Array.from(
-          new Set(
-            [
-              process.env.GOOGLE_CLIENT_ID,
-              process.env.VITE_GOOGLE_CLIENT_ID,
-              CLIENT_ID,
-              '237803982399-aniuklltc9c5r4jkrque04tqdpnepj0l.apps.googleusercontent.com',
-            ].filter(Boolean) as string[]
-          )
-        );
-
-        const ticket = await googleClient.verifyIdToken({
-          idToken: tokenToVerify,
-          audience: validAudiences.length === 1 ? validAudiences[0] : validAudiences,
-        });
-        const payload = ticket.getPayload();
-
-        if (payload) {
-          email = payload.email;
-          name = payload.name;
-          avatar = payload.picture;
-        }
-      } catch (verifyError) {
-        // Giải mã JWT payload dự phòng nếu idToken hợp lệ
-        const decoded: any = jwt.decode(tokenToVerify);
-        if (decoded && decoded.email) {
-          email = decoded.email;
-          name = decoded.name || email?.split('@')[0];
-          avatar = decoded.picture;
-        } else if (rawAccessToken) {
-          // Thử lấy thông tin bằng Access Token nếu có
-          try {
-            const userInfoRes = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo`, {
-              headers: { Authorization: `Bearer ${rawAccessToken}` },
-            });
-            if (userInfoRes.ok) {
-              const userInfo = await userInfoRes.json();
-              email = userInfo.email;
-              name = userInfo.name;
-              avatar = userInfo.picture;
-            }
-          } catch (_) {
-            // Ignore
-          }
-        }
-
-        if (!email) {
-          throw new Error('Google ID Token không hợp lệ: ' + (verifyError as Error).message);
-        }
+      // Xác minh Issuer
+      if (payload.iss !== 'accounts.google.com' && payload.iss !== 'https://accounts.google.com') {
+        throw new Error('Google ID Token issuer không hợp lệ.');
       }
+
+      // Xác minh Email Verified Status
+      if (payload.email_verified === false) {
+        throw new Error('Email Google của tài khoản chưa được xác thực.');
+      }
+
+      email = payload.email;
+      name = payload.name;
+      avatar = payload.picture;
+    } else if (rawAccessToken) {
+      // 2. Nếu dùng Access Token (Google Popup OAuth fallback)
+      const userInfoRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${rawAccessToken}` },
+      });
+
+      if (!userInfoRes.ok) {
+        throw new Error('Xác thực Access Token với Google thất bại.');
+      }
+
+      const userInfo = await userInfoRes.json();
+      if (!userInfo.email) {
+        throw new Error('Không thể lấy địa chỉ Email từ Google Access Token.');
+      }
+
+      if (userInfo.email_verified === false) {
+        throw new Error('Email Google của tài khoản chưa được xác thực.');
+      }
+
+      email = userInfo.email;
+      name = userInfo.name;
+      avatar = userInfo.picture;
     }
 
     if (!email) {
       res.status(400).json({
         success: false,
-        message: 'Không thể lấy thông tin Email từ Google Token.',
+        message: 'Không thể xác thực thông tin Email từ Google.',
       });
       return;
     }
 
     const cleanEmail = email.trim().toLowerCase();
 
-    // 1. Tìm hoặc tạo User trong PostgreSQL qua Prisma
+    // 3. Tìm hoặc tạo User trong CSDL
     let user = await prisma.user.findUnique({
       where: { email: cleanEmail },
     });
@@ -348,32 +370,25 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
         },
       });
     } else if (avatar && !user.avatar) {
-      // Cập nhật avatar nếu người dùng chưa có
       user = await prisma.user.update({
         where: { id: user.id },
         data: { avatar, name: name || user.name },
       });
     }
 
-    // 2. Phát hành JWT Token cho Client
+    // 4. Phát hành JWT Token cho Client
     const token = jwt.sign(
       { id: user.id, email: user.email, name: user.name },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: '7d' }
     );
 
-    // 3. Đặt HttpOnly Cookie an toàn
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 ngày
-    });
+    // 5. Đặt HttpOnly Cookie an toàn
+    res.cookie('token', token, getAuthCookieOptions(req));
 
     res.status(200).json({
       success: true,
       message: 'Đăng nhập Google thành công.',
-      token,
       user: {
         id: user.id,
         email: user.email,
@@ -384,7 +399,7 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
       },
     });
   } catch (error: any) {
-    console.error('Lỗi Google Auth:', error);
+    console.error('Lỗi Google Auth:', error.message || 'Lỗi không xác định');
     res.status(500).json({
       success: false,
       message: error.message || 'Xác thực Google thất bại. Vui lòng thử lại.',
@@ -428,7 +443,7 @@ export const getMe = async (req: Request, res: Response): Promise<void> => {
       user,
     });
   } catch (error: any) {
-    console.error('Lỗi lấy thông tin người dùng:', error);
+    console.error('Lỗi lấy thông tin người dùng:', error.message || 'Lỗi không xác định');
     res.status(500).json({ success: false, message: 'Lỗi máy chủ khi lấy hồ sơ người dùng.' });
   }
 };
@@ -437,12 +452,8 @@ export const getMe = async (req: Request, res: Response): Promise<void> => {
  * POST /api/auth/logout
  * Đăng xuất người dùng & xóa Cookie
  */
-export const logout = (_req: Request, res: Response): void => {
-  res.clearCookie('token', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-  });
+export const logout = (req: Request, res: Response): void => {
+  res.clearCookie('token', getClearCookieOptions(req));
 
   res.status(200).json({
     success: true,

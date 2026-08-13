@@ -62,10 +62,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (error: any) {
       setUser(null);
-      // Chỉ xóa token khi server phản hồi HTTP 401 Unauthorized
-      if (error.response && error.response.status === 401) {
-        localStorage.removeItem('auth_token');
-      }
     } finally {
       setIsLoading(false);
     }
@@ -84,11 +80,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (response.data && response.data.success) {
         const loggedUser = response.data.user;
         setUser(normalizeUser(loggedUser));
-
-        // Lưu JWT token vào localStorage làm dự phòng cùng với HttpOnly Cookie
-        if (response.data.token) {
-          localStorage.setItem('auth_token', response.data.token);
-        }
       } else {
         throw new Error(response.data?.message || 'Xác thực Google thất bại.');
       }
@@ -106,8 +97,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Phương thức bổ trợ đăng nhập Google
   const loginWithGoogle = async () => {
-    // Với Google OAuth Web mới, frontend dùng GoogleAuthButton để lấy idToken
-    // Do đó loginWithGoogle chủ yếu được gọi thông qua GoogleAuthButton
     console.info('Vui lòng sử dụng nút Google Login trên giao diện.');
   };
 
@@ -119,9 +108,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (response.data && response.data.success) {
         const loggedUser = response.data.user;
         setUser(normalizeUser(loggedUser));
-        if (response.data.token) {
-          localStorage.setItem('auth_token', response.data.token);
-        }
       } else {
         throw new Error(response.data?.message || 'Đăng nhập thất bại.');
       }
@@ -145,9 +131,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (response.data && response.data.success) {
         const loggedUser = response.data.user;
         setUser(normalizeUser(loggedUser));
-        if (response.data.token) {
-          localStorage.setItem('auth_token', response.data.token);
-        }
         return { session: true, user: loggedUser };
       } else {
         throw new Error(response.data?.message || 'Đăng ký thất bại.');
@@ -191,7 +174,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       console.warn('Lỗi khi đăng xuất ở server:', error);
     } finally {
-      localStorage.removeItem('auth_token');
       setUser(null);
       setIsLoading(false);
     }
