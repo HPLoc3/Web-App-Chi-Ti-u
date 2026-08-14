@@ -11,7 +11,7 @@ import authRoutes from "./src/routes/auth.routes";
 import transactionRoutes from "./src/routes/transaction.routes";
 import { getJwtSecret } from "./src/middleware/auth.middleware";
 
-dotenv.config();
+dotenv.config({ override: true });
 
 // Bắt buộc kiểm tra JWT_SECRET khi server khởi động (Fail-fast nếu thiếu)
 getJwtSecret();

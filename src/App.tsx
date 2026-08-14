@@ -32,8 +32,6 @@ import {
   Home,
   Sparkles,
   Trash2,
-  Cloud,
-  CloudOff,
   Activity,
   Plus
 } from 'lucide-react';
@@ -320,9 +318,41 @@ function LedgerApp() {
     showToast('Đã xóa mục tiêu.', 'info');
   };
 
-  const handleLoadSampleData = () => {
-    setLocalState(generateSampleState());
-    showToast('Đã nạp 3 tuần dữ liệu mẫu thực tế!', 'success');
+  const handleLoadSampleData = async () => {
+    const sample = generateSampleState();
+    if (userId) {
+      showToast('Đang nạp 3 tuần dữ liệu mẫu vào tài khoản...', 'info');
+      try {
+        await fsUpdateBudget({
+          income: sample.income,
+          budgetTemplate: sample.budgetTemplate,
+          categoryLimits: sample.categoryLimits
+        });
+        for (const exp of sample.expenses) {
+          await fsAddExpense({
+            amount: exp.amount,
+            categoryId: exp.categoryId,
+            note: exp.note,
+            date: exp.date
+          });
+        }
+        for (const g of sample.goals) {
+          await fsAddGoal({
+            name: g.name,
+            target: g.target,
+            current: g.current,
+            createdAt: g.createdAt || new Date().toISOString().slice(0, 10)
+          });
+        }
+        showToast('Đã nạp 3 tuần dữ liệu mẫu thực tế thành công!', 'success');
+      } catch (err) {
+        console.error('Error loading sample data to Firestore:', err);
+        showToast('Lỗi khi nạp dữ liệu mẫu vào tài khoản.', 'error');
+      }
+    } else {
+      setLocalState(sample);
+      showToast('Đã nạp 3 tuần dữ liệu mẫu thực tế!', 'success');
+    }
   };
 
   const handleClearSampleData = () => {
@@ -392,7 +422,7 @@ function LedgerApp() {
     );
   }
 
-  if (viewState === 'landing' && !currentUser) {
+  if (viewState === 'landing') {
     return (
       <>
         <LandingPage
@@ -424,31 +454,24 @@ function LedgerApp() {
         <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <button 
-              onClick={() => setActiveTab('overview')}
+              onClick={() => setViewState('landing')}
               className="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center text-xl shadow font-serif font-black shrink-0 cursor-pointer hover:bg-amber-400 transition"
-              title="Về Trang chủ Tổng quan"
+              title="Về Trang chủ giới thiệu Web App"
             >
               📔
             </button>
             <div className="text-center sm:text-left">
-              <h1 className="font-serif text-xl sm:text-2xl font-black tracking-wide text-amber-50 flex items-center gap-2">
+              <h1 
+                onClick={() => setViewState('landing')}
+                className="font-serif text-xl sm:text-2xl font-black tracking-wide text-amber-50 flex items-center gap-2 cursor-pointer hover:text-amber-300 transition"
+                title="Về Trang chủ giới thiệu Web App"
+              >
                 SỔ TAY CHI TIÊU THÔNG MINH
               </h1>
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="text-[10px] sm:text-[11px] text-emerald-200/90 font-mono tracking-widest uppercase font-semibold">
                   Bảng điều khiển tương tác AI
                 </p>
-                {userId ? (
-                  <span className="inline-flex items-center gap-1 text-[10px] bg-emerald-900/90 text-amber-300 border border-emerald-700/80 px-2 py-0.5 rounded-full font-mono">
-                    <Cloud size={10} className="text-amber-400" />
-                    <span>Firestore Realtime</span>
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 text-[10px] bg-amber-900/40 text-amber-200 border border-amber-700/40 px-2 py-0.5 rounded-full font-mono">
-                    <CloudOff size={10} className="text-amber-400" />
-                    <span>Bộ nhớ Cục bộ</span>
-                  </span>
-                )}
               </div>
             </div>
           </div>
@@ -515,10 +538,10 @@ function LedgerApp() {
             <button
               onClick={handleLoadSampleData}
               className="flex items-center gap-1.5 px-3 py-1.5 border border-amber-500/80 hover:border-amber-400 bg-amber-600/30 hover:bg-amber-600/60 text-amber-100 text-xs rounded-xl transition font-medium cursor-pointer shadow-sm min-h-[36px]"
-              title="Nạp dữ liệu mẫu"
+              title="Nạp 3 tuần dữ liệu mẫu thực tế"
             >
               <Sparkles size={13} className="text-amber-300" />
-              <span className="hidden md:inline">Dữ liệu mẫu</span>
+              <span>Dữ liệu mẫu</span>
             </button>
           </div>
         </div>

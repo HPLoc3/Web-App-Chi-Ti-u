@@ -103,7 +103,7 @@ export const QuickAddExpenseModal: React.FC<QuickAddExpenseModalProps> = ({
               placeholder="45000"
               required
               min="1"
-              step="500"
+              step="any"
               className="w-full bg-emerald-900/40 border border-emerald-700/80 rounded-xl px-4 py-2.5 text-amber-300 font-mono text-lg font-bold focus:outline-none focus:border-amber-400"
             />
           </div>

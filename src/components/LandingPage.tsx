@@ -65,6 +65,14 @@ export default function LandingPage({
             ) : (
               <>
                 <button
+                  onClick={onStartDemo}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 rounded-xl transition text-xs sm:text-sm font-semibold cursor-pointer min-h-[40px]"
+                  title="Dùng thử trực tiếp với dữ liệu mẫu không cần tài khoản"
+                >
+                  <Sparkles size={15} className="text-amber-400" />
+                  <span className="hidden sm:inline">Dùng thử Demo</span>
+                </button>
+                <button
                   onClick={onOpenLogin}
                   className="flex items-center gap-1.5 px-3.5 py-2 text-amber-100 hover:text-white hover:bg-emerald-900 border border-emerald-700/80 rounded-xl transition text-xs sm:text-sm font-semibold cursor-pointer min-h-[40px]"
                 >
@@ -107,20 +115,20 @@ export default function LandingPage({
         </p>
 
         {/* CTA Buttons */}
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 w-full max-w-md mb-12">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5 w-full max-w-lg mb-12">
           <button
-            onClick={isLoggedIn ? onStartDemo : onOpenRegister}
-            className="w-full sm:w-auto flex-1 flex items-center justify-center gap-2.5 bg-emerald-900 hover:bg-emerald-850 text-white font-bold py-3.5 px-7 rounded-2xl shadow-lg hover:shadow-xl transition-all cursor-pointer min-h-[50px] text-base"
+            onClick={onStartDemo}
+            className="w-full sm:w-auto flex-1 flex items-center justify-center gap-2.5 bg-emerald-900 hover:bg-emerald-850 text-white font-bold py-3.5 px-6 rounded-2xl shadow-lg hover:shadow-xl transition-all cursor-pointer min-h-[50px] text-base"
           >
-            <Zap size={18} className="text-amber-400 fill-amber-400" />
-            <span>Trải nghiệm ngay</span>
+            <Sparkles size={18} className="text-amber-400 fill-amber-400" />
+            <span>Trải nghiệm Demo (Dữ liệu mẫu)</span>
             <ArrowRight size={18} />
           </button>
 
           {!isLoggedIn && (
             <button
               onClick={onOpenLogin}
-              className="w-full sm:w-auto flex-1 flex items-center justify-center gap-2 bg-white hover:bg-stone-50 border-2 border-[#E6DEC9] text-stone-800 font-semibold py-3.5 px-6 rounded-2xl shadow-sm transition-all cursor-pointer min-h-[50px] text-base"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 bg-white hover:bg-stone-50 border-2 border-[#E6DEC9] text-stone-800 font-semibold py-3.5 px-6 rounded-2xl shadow-sm transition-all cursor-pointer min-h-[50px] text-base"
             >
               <LogIn size={18} className="text-emerald-800" />
               <span>Đăng nhập</span>

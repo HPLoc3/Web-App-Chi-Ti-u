@@ -6,8 +6,13 @@ import { prisma } from '../lib/prisma';
 import { getJwtSecret } from '../middleware/auth.middleware';
 
 const getGoogleClientId = (): string => {
-  const envId = (process.env.GOOGLE_CLIENT_ID || '').trim();
-  if (envId && !envId.includes('your_google_client_id') && !envId.includes('your-google-client-id')) {
+  const envId = (process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '').replace(/^["']|["']$/g, '').trim();
+  if (
+    envId &&
+    !envId.includes('your_google_client_id') &&
+    !envId.includes('your-google-client-id') &&
+    !envId.includes('YOUR_GOOGLE_CLIENT_ID')
+  ) {
     return envId;
   }
   return '';
@@ -18,7 +23,7 @@ const getGoogleOAuthClient = (): OAuth2Client => {
   if (!clientId) {
     throw new Error('Chưa cấu hình GOOGLE_CLIENT_ID trên máy chủ.');
   }
-  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || '').trim();
+  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || '').replace(/^["']|["']$/g, '').trim();
   return new OAuth2Client(clientId, clientSecret || undefined);
 };
 
