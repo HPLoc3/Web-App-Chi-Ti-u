@@ -4,6 +4,14 @@ dist/
 coverage/
 .DS_Store
 *.log
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+prisma/*.db
+prisma/*.db-journal
+dev.db
+dev.db-journal
 .env
 .env.local
 .env.development

@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 enum TransactionType {
@@ -12,54 +12,134 @@ enum TransactionType {
   EXPENSE
 }
 
-model User {
-  id           String        @id @default(uuid())
-  email        String        @unique
-  name         String?
-  avatar       String?
-  password     String?
-  provider     String        @default("local") // 'google' | 'local'
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+enum BudgetTemplate {
+  FIFTY_THIRTY_TWENTY // 50/30/20
+  SIX_JARS            // 6 Hũ tài chính
+  CUSTOM              // Tùy chỉnh cá nhân
+}
 
-  categories   Category[]
-  wallets      Wallet[]
-  transactions Transaction[]
+enum AuthProvider {
+  LOCAL
+  GOOGLE
+}
+
+model User {
+  id                    String                 @id @default(uuid())
+  email                 String                 @unique
+  name                  String?
+  avatar                String?
+  password              String?
+  provider              String                 @default("local") // 'local' | 'google'
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  sessions              Session[]
+  wallets               Wallet[]
+  categories            Category[]
+  transactions          Transaction[]
+  budgets               Budget[]
+  goals                 Goal[]
+  recurringTransactions RecurringTransaction[]
+  passwordResetTokens   PasswordResetToken[]
+  refreshTokens         RefreshToken[]
+  aiUsages              AIUsage[]
+
+  @@index([email])
+  @@index([createdAt])
+}
+
+model Session {
+  id           String    @id @default(uuid())
+  sessionToken String    @unique
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAgent    String?
+  ipAddress    String?
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([sessionToken])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  token     String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  token     String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
 }
 
 model Category {
-  id           String          @id @default(uuid())
-  name         String
-  type         TransactionType
-  icon         String?
-  color        String?
-  userId       String?         // Nullable nếu là danh mục mặc định của hệ thống
-  user         User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactions Transaction[]
+  id                    String                 @id @default(uuid())
+  name                  String
+  type                  String                 @default("EXPENSE") // 'INCOME' | 'EXPENSE'
+  icon                  String?
+  color                 String?
+  isSystem              Boolean                @default(false)
+  userId                String?                // NULL = System Category (Global), NOT NULL = User Custom Category
+  user                  User?                  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  transactions          Transaction[]
+  recurringTransactions RecurringTransaction[]
+  budgetLimits          BudgetLimit[]
+
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  @@unique([userId, name, type])
+  @@index([userId])
+  @@index([userId, type])
+  @@index([isSystem])
 }
 
 model Wallet {
   id           String        @id @default(uuid())
   name         String
-  balance      Decimal       @default(0)
+  balance      Decimal       @default(0) @db.Decimal(15, 2)
   currency     String        @default("VND")
+  isDefault    Boolean       @default(false)
   userId       String
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   transactions Transaction[]
 
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([userId, isDefault])
 }
 
 model Transaction {
   id         String          @id @default(uuid())
-  amount     Decimal
-  type       TransactionType
+  amount     Decimal         @db.Decimal(15, 2)
+  type       String          @default("EXPENSE") // 'INCOME' | 'EXPENSE'
   note       String?
-  date       DateTime        @default(now())
+  date       DateTime        @default(now()) // Stored as UTC ISO DateTime
   walletId   String
   wallet     Wallet          @relation(fields: [walletId], references: [id], onDelete: Cascade)
   categoryId String
@@ -72,4 +152,94 @@ model Transaction {
 
   @@index([userId, date])
   @@index([userId, categoryId])
+  @@index([userId, type])
+  @@index([walletId])
+  @@index([categoryId])
+}
+
+model Budget {
+  id             String        @id @default(uuid())
+  income         Decimal       @default(0) @db.Decimal(15, 2)
+  budgetTemplate String        @default("50_30_20") // '50_30_20' | '6_jars' | 'custom'
+  needsPercent   Int           @default(50)
+  wantsPercent   Int           @default(30)
+  savingsPercent Int           @default(20)
+  categoryLimits String?       // Legacy / cached JSON string if needed
+  userId         String        @unique
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  budgetLimits   BudgetLimit[]
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([userId])
+}
+
+model BudgetLimit {
+  id         String   @id @default(uuid())
+  budgetId   String
+  budget     Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  amount     Decimal  @db.Decimal(15, 2)
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([budgetId, categoryId])
+  @@index([budgetId])
+  @@index([categoryId])
+}
+
+model Goal {
+  id            String    @id @default(uuid())
+  name          String
+  targetAmount  Decimal   @db.Decimal(15, 2)
+  currentAmount Decimal   @default(0) @db.Decimal(15, 2)
+  deadline      DateTime?
+  color         String?
+  icon          String?
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([userId, deadline])
+}
+
+model RecurringTransaction {
+  id          String          @id @default(uuid())
+  amount      Decimal         @db.Decimal(15, 2)
+  type        String          @default("EXPENSE") // 'INCOME' | 'EXPENSE'
+  categoryId  String
+  category    Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  note        String
+  dayOfMonth  Int             // 1 - 31
+  isActive    Boolean         @default(true)
+  lastRunAt   DateTime?
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([userId, isActive])
+  @@index([dayOfMonth, isActive])
+}
+
+model AIUsage {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prompt    String
+  tokens    Int      @default(0)
+  intent    String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([userId, createdAt])
 }

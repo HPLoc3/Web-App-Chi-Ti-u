@@ -1,52 +1,97 @@
 import { Request, Response } from 'express';
-import { Prisma, TransactionType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
+import { AppError } from '../middleware/errorHandler.middleware';
+import { resolveCategoryId } from '../services/category.helper';
+
+export type TransactionType = 'INCOME' | 'EXPENSE';
+
+/**
+ * Format Transaction data to frontend Expense standard
+ */
+function formatTransaction(tx: any) {
+  return {
+    id: tx.id,
+    amount: Number(tx.amount),
+    categoryId: tx.categoryId,
+    categoryName: tx.category?.name || 'Khác',
+    categoryIcon: tx.category?.icon || 'HelpCircle',
+    categoryColor: tx.category?.color || '#4B5563',
+    type: tx.type,
+    note: tx.note || '',
+    date: tx.date ? new Date(tx.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+    walletId: tx.walletId,
+    createdAt: tx.createdAt?.toISOString?.() || tx.createdAt,
+  };
+}
 
 /**
  * GET /api/transactions
- * Lấy danh sách giao dịch của người dùng (Có lọc theo tháng & năm)
+ * Lấy danh sách giao dịch của authenticated user
  */
 export const getTransactions = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userId = req.user?.id;
-    if (!userId) {
-      res.status(401).json({ success: false, message: 'Chưa xác thực người dùng.' });
-      return;
-    }
+  const userId = req.user?.id;
+  if (!userId) {
+    throw new AppError('Chưa xác thực người dùng.', 401, 'UNAUTHORIZED');
+  }
 
-    const { month, year, walletId, categoryId, limit } = req.query;
+  const { month, year, walletId, categoryId, search, type, limit, page, all } = req.query as {
+    month?: string;
+    year?: string;
+    walletId?: string;
+    categoryId?: string;
+    search?: string;
+    type?: string;
+    limit?: string;
+    page?: string;
+    all?: string;
+  };
 
-    const whereCondition: Prisma.TransactionWhereInput = {
-      userId,
+  const whereCondition: Prisma.TransactionWhereInput = {
+    userId,
+  };
+
+  if (type) {
+    whereCondition.type = type;
+  }
+
+  if (walletId) {
+    whereCondition.walletId = String(walletId);
+  }
+
+  if (categoryId && categoryId !== 'all') {
+    whereCondition.categoryId = String(categoryId);
+  }
+
+  if (search && search.trim() !== '') {
+    whereCondition.note = {
+      contains: search.trim(),
+      mode: 'insensitive',
     };
+  }
 
-    if (walletId) {
-      whereCondition.walletId = String(walletId);
+  if (month && year) {
+    const m = parseInt(String(month), 10);
+    const y = parseInt(String(year), 10);
+
+    if (!isNaN(m) && !isNaN(y) && m >= 1 && m <= 12) {
+      const startDate = new Date(y, m - 1, 1, 0, 0, 0, 0);
+      const endDate = new Date(y, m, 0, 23, 59, 59, 999);
+
+      whereCondition.date = {
+        gte: startDate,
+        lte: endDate,
+      };
     }
+  }
 
-    if (categoryId) {
-      whereCondition.categoryId = String(categoryId);
-    }
+  const isAll = all === 'true' || all === '1';
+  const takeCount = isAll ? 5000 : limit ? Math.min(Math.max(parseInt(String(limit), 10), 1), 1000) : 500;
+  const pageNumber = page ? Math.max(parseInt(String(page), 10), 1) : 1;
+  const skipCount = isAll ? 0 : (pageNumber - 1) * takeCount;
 
-    // Lọc theo tháng và năm nếu được chỉ định
-    if (month && year) {
-      const m = parseInt(String(month), 10);
-      const y = parseInt(String(year), 10);
-
-      if (!isNaN(m) && !isNaN(y) && m >= 1 && m <= 12) {
-        const startDate = new Date(y, m - 1, 1, 0, 0, 0, 0);
-        const endDate = new Date(y, m, 0, 23, 59, 59, 999);
-
-        whereCondition.date = {
-          gte: startDate,
-          lte: endDate,
-        };
-      }
-    }
-
-    const takeCount = limit ? parseInt(String(limit), 10) : undefined;
-
-    const transactions = await prisma.transaction.findMany({
+  const [transactions, totalCount] = await Promise.all([
+    prisma.transaction.findMany({
       where: whereCondition,
       include: {
         category: {
@@ -59,283 +104,348 @@ export const getTransactions = async (req: Request, res: Response): Promise<void
       orderBy: {
         date: 'desc',
       },
+      skip: skipCount,
       take: takeCount,
-    });
+    }),
+    prisma.transaction.count({
+      where: whereCondition,
+    }),
+  ]);
 
-    res.status(200).json({
-      success: true,
-      count: transactions.length,
-      data: transactions,
-    });
-  } catch (error: any) {
-    console.error('Lỗi khi lấy danh sách giao dịch:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Không thể truy vấn danh sách giao dịch.',
-      error: error.message,
-    });
-  }
+  const formattedTransactions = transactions.map(formatTransaction);
+
+  res.status(200).json({
+    success: true,
+    count: formattedTransactions.length,
+    total: totalCount,
+    page: pageNumber,
+    data: formattedTransactions,
+  });
 };
 
 /**
  * POST /api/transactions
- * Tạo giao dịch mới & tự động cập nhật số dư Ví tương ứng
+ * Tạo giao dịch mới
  */
 export const createTransaction = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userId = req.user?.id;
-    if (!userId) {
-      res.status(401).json({ success: false, message: 'Chưa xác thực người dùng.' });
-      return;
-    }
-
-    const { amount, type, note, date, walletId, categoryId } = req.body;
-
-    // Validate dữ liệu đầu vào
-    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-      res.status(400).json({ success: false, message: 'Số tiền không hợp lệ.' });
-      return;
-    }
-
-    if (!type || (type !== 'INCOME' && type !== 'EXPENSE')) {
-      res.status(400).json({ success: false, message: 'Loại giao dịch phải là INCOME hoặc EXPENSE.' });
-      return;
-    }
-
-    if (!categoryId) {
-      res.status(400).json({ success: false, message: 'Vui lòng chọn danh mục chi tiêu/thu nhập.' });
-      return;
-    }
-
-    const numAmount = new Prisma.Decimal(amount);
-    const transactionType = type as TransactionType;
-    const transactionDate = date ? new Date(date) : new Date();
-
-    // Sử dụng Prisma Interactive Transaction để đảm bảo tính toàn vẹn dữ liệu
-    const result = await prisma.$transaction(async (tx) => {
-      // 1. Lấy ví tiền (hoặc lấy ví đầu tiên/tạo ví mặc định nếu không truyền walletId)
-      let targetWalletId = walletId;
-
-      if (targetWalletId) {
-        const wallet = await tx.wallet.findFirst({
-          where: { id: targetWalletId, userId },
-        });
-        if (!wallet) {
-          throw new Error('Ví tiền không tồn tại hoặc không thuộc quyền sở hữu của bạn.');
-        }
-      } else {
-        // Tìm ví đầu tiên của user
-        let firstWallet = await tx.wallet.findFirst({
-          where: { userId },
-        });
-
-        if (!firstWallet) {
-          firstWallet = await tx.wallet.create({
-            data: {
-              name: 'Ví Chính',
-              balance: new Prisma.Decimal(0),
-              currency: 'VND',
-              userId,
-            },
-          });
-        }
-        targetWalletId = firstWallet.id;
-      }
-
-      // 2. Tự động tính toán & Cập nhật số dư Wallet
-      const balanceChange = transactionType === 'INCOME' ? numAmount : numAmount.negated();
-
-      const updatedWallet = await tx.wallet.update({
-        where: { id: targetWalletId },
-        data: {
-          balance: {
-            increment: balanceChange,
-          },
-        },
-      });
-
-      // 3. Tạo bản ghi Giao dịch mới
-      const newTransaction = await tx.transaction.create({
-        data: {
-          amount: numAmount,
-          type: transactionType,
-          note: note || '',
-          date: transactionDate,
-          walletId: targetWalletId,
-          categoryId,
-          userId,
-        },
-        include: {
-          category: {
-            select: { id: true, name: true, type: true, icon: true, color: true },
-          },
-          wallet: {
-            select: { id: true, name: true, balance: true, currency: true },
-          },
-        },
-      });
-
-      return {
-        transaction: newTransaction,
-        updatedWallet,
-      };
-    });
-
-    res.status(201).json({
-      success: true,
-      message: 'Tạo giao dịch thành công và đã cập nhật số dư ví.',
-      data: result.transaction,
-      wallet: result.updatedWallet,
-    });
-  } catch (error: any) {
-    console.error('Lỗi khi tạo giao dịch:', error);
-    res.status(400).json({
-      success: false,
-      message: error.message || 'Không thể tạo giao dịch mới.',
-    });
+  const userId = req.user?.id;
+  if (!userId) {
+    throw new AppError('Chưa xác thực người dùng.', 401, 'UNAUTHORIZED');
   }
+
+  const { amount, type = 'EXPENSE', note, date, walletId, categoryId } = req.body;
+
+  const numAmount = new Prisma.Decimal(amount || 0);
+  if (numAmount.lessThanOrEqualTo(0)) {
+    throw new AppError('Số tiền phải lớn hơn 0.', 400, 'INVALID_AMOUNT');
+  }
+
+  const transactionType = (type || 'EXPENSE') as TransactionType;
+  const parsedDate = date ? new Date(date) : new Date();
+
+  // Đảm bảo category tồn tại
+  const validCategoryId = await resolveCategoryId(categoryId, userId, transactionType);
+
+  const result = await prisma.$transaction(async (tx) => {
+    // 1. Kiểm tra hoặc tạo Ví mặc định
+    let targetWalletId = walletId;
+    if (targetWalletId) {
+      const wallet = await tx.wallet.findFirst({
+        where: { id: targetWalletId, userId },
+      });
+      if (!wallet) {
+        throw new AppError('Ví tiền không tồn tại hoặc bạn không có quyền truy cập.', 403, 'FORBIDDEN_WALLET_ACCESS');
+      }
+    } else {
+      let firstWallet = await tx.wallet.findFirst({
+        where: { userId },
+      });
+      if (!firstWallet) {
+        firstWallet = await tx.wallet.create({
+          data: {
+            name: 'Ví Chính',
+            balance: new Prisma.Decimal(0),
+            currency: 'VND',
+            isDefault: true,
+            userId,
+          },
+        });
+      }
+      targetWalletId = firstWallet.id;
+    }
+
+    // 2. Cập nhật số dư Ví
+    const balanceChange = transactionType === 'INCOME' ? numAmount : numAmount.negated();
+    const updatedWallet = await tx.wallet.update({
+      where: { id: targetWalletId },
+      data: {
+        balance: {
+          increment: balanceChange,
+        },
+      },
+    });
+
+    // 3. Tạo Transaction
+    const newTransaction = await tx.transaction.create({
+      data: {
+        amount: numAmount,
+        type: transactionType,
+        note: note ? String(note).slice(0, 500) : '',
+        date: parsedDate,
+        walletId: targetWalletId,
+        categoryId: validCategoryId,
+        userId,
+      },
+      include: {
+        category: {
+          select: { id: true, name: true, type: true, icon: true, color: true },
+        },
+        wallet: {
+          select: { id: true, name: true, balance: true, currency: true },
+        },
+      },
+    });
+
+    return {
+      transaction: newTransaction,
+      wallet: updatedWallet,
+    };
+  });
+
+  res.status(201).json({
+    success: true,
+    message: 'Tạo giao dịch thành công.',
+    data: formatTransaction(result.transaction),
+    wallet: result.wallet,
+  });
 };
 
 /**
- * GET /api/reports/summary
- * Báo cáo tổng quan thu, chi và số dư bằng truy vấn Prisma aggregate
+ * POST /api/transactions/bulk
+ * Tạo hàng loạt giao dịch (Dành cho Import sao kê, Sample Data hoặc Di chuyển dữ liệu)
  */
-export const getSummaryReport = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const userId = req.user?.id;
-    if (!userId) {
-      res.status(401).json({ success: false, message: 'Chưa xác thực người dùng.' });
-      return;
-    }
+export const createBulkTransactions = async (req: Request, res: Response): Promise<void> => {
+  const userId = req.user?.id;
+  if (!userId) {
+    throw new AppError('Chưa xác thực người dùng.', 401, 'UNAUTHORIZED');
+  }
 
-    const now = new Date();
-    const queryMonth = req.query.month ? parseInt(String(req.query.month), 10) : now.getMonth() + 1;
-    const queryYear = req.query.year ? parseInt(String(req.query.year), 10) : now.getFullYear();
+  const { items } = req.body;
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new AppError('Danh sách giao dịch không hợp lệ.', 400, 'INVALID_ITEMS');
+  }
 
-    const startDate = new Date(queryYear, queryMonth - 1, 1, 0, 0, 0, 0);
-    const endDate = new Date(queryYear, queryMonth, 0, 23, 59, 59, 999);
+  // Lấy ví mặc định của người dùng
+  let userWallet = await prisma.wallet.findFirst({
+    where: { userId },
+  });
 
-    // 1. Tính tổng Thu Nhập trong tháng
-    const incomeAggregate = await prisma.transaction.aggregate({
-      _sum: {
-        amount: true,
-      },
-      where: {
-        userId,
-        type: 'INCOME',
-        date: {
-          gte: startDate,
-          lte: endDate,
-        },
-      },
-    });
-
-    // 2. Tính tổng Chi Tiêu trong tháng
-    const expenseAggregate = await prisma.transaction.aggregate({
-      _sum: {
-        amount: true,
-      },
-      where: {
-        userId,
-        type: 'EXPENSE',
-        date: {
-          gte: startDate,
-          lte: endDate,
-        },
-      },
-    });
-
-    // 3. Tính tổng số dư hiện tại trên tất cả các Ví
-    const walletBalanceAggregate = await prisma.wallet.aggregate({
-      _sum: {
-        balance: true,
-      },
-      where: {
+  if (!userWallet) {
+    userWallet = await prisma.wallet.create({
+      data: {
+        name: 'Ví Chính',
+        balance: new Prisma.Decimal(0),
+        currency: 'VND',
+        isDefault: true,
         userId,
       },
-    });
-
-    // 4. GroupBy Phân tích chi tiêu theo từng Danh mục trong tháng
-    const categoryExpenses = await prisma.transaction.groupBy({
-      by: ['categoryId'],
-      _sum: {
-        amount: true,
-      },
-      _count: {
-        id: true,
-      },
-      where: {
-        userId,
-        type: 'EXPENSE',
-        date: {
-          gte: startDate,
-          lte: endDate,
-        },
-      },
-      orderBy: {
-        _sum: {
-          amount: 'desc',
-        },
-      },
-    });
-
-    // Lấy thông tin chi tiết tên/màu/icon của từng danh mục
-    const categoryIds = categoryExpenses.map((c) => c.categoryId);
-    const categoriesInfo = await prisma.category.findMany({
-      where: {
-        id: { in: categoryIds },
-      },
-      select: {
-        id: true,
-        name: true,
-        icon: true,
-        color: true,
-      },
-    });
-
-    const categoryMap = new Map(categoriesInfo.map((cat) => [cat.id, cat]));
-
-    const categoryBreakdown = categoryExpenses.map((item) => {
-      const catDetails = categoryMap.get(item.categoryId);
-      return {
-        categoryId: item.categoryId,
-        categoryName: catDetails?.name || 'Khác',
-        icon: catDetails?.icon || 'Tag',
-        color: catDetails?.color || '#94A3B8',
-        totalAmount: item._sum.amount ? Number(item._sum.amount) : 0,
-        transactionCount: item._count.id,
-      };
-    });
-
-    const totalIncome = incomeAggregate._sum.amount ? Number(incomeAggregate._sum.amount) : 0;
-    const totalExpense = expenseAggregate._sum.amount ? Number(expenseAggregate._sum.amount) : 0;
-    const netBalance = totalIncome - totalExpense;
-    const totalWalletBalance = walletBalanceAggregate._sum.balance
-      ? Number(walletBalanceAggregate._sum.balance)
-      : 0;
-
-    res.status(200).json({
-      success: true,
-      period: {
-        month: queryMonth,
-        year: queryYear,
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
-      },
-      summary: {
-        totalIncome,
-        totalExpense,
-        netBalance,
-        totalWalletBalance,
-      },
-      categoryBreakdown,
-    });
-  } catch (error: any) {
-    console.error('Lỗi khi tính toán báo cáo tổng quan:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Lỗi máy chủ khi tạo báo cáo tài chính.',
-      error: error.message,
     });
   }
+
+  const createdTransactions: any[] = [];
+
+  for (const item of items) {
+    const numAmount = new Prisma.Decimal(item.amount || 0);
+    if (numAmount.lessThanOrEqualTo(0)) continue;
+
+    const transactionType = (item.type || 'EXPENSE') as TransactionType;
+    const itemDate = item.date ? new Date(item.date) : new Date();
+    const validCategoryId = await resolveCategoryId(item.categoryId, userId, transactionType);
+
+    const tx = await prisma.transaction.create({
+      data: {
+        amount: numAmount,
+        type: transactionType,
+        note: item.note ? String(item.note).slice(0, 500) : '',
+        date: itemDate,
+        walletId: item.walletId || userWallet.id,
+        categoryId: validCategoryId,
+        userId,
+      },
+      include: {
+        category: {
+          select: { id: true, name: true, type: true, icon: true, color: true },
+        },
+      },
+    });
+    createdTransactions.push(formatTransaction(tx));
+  }
+
+  res.status(201).json({
+    success: true,
+    message: `Đã nhập thành công ${createdTransactions.length} giao dịch.`,
+    count: createdTransactions.length,
+    data: createdTransactions,
+  });
+};
+
+/**
+ * PUT /api/transactions/:id
+ * Cập nhật giao dịch
+ */
+export const updateTransaction = async (req: Request, res: Response): Promise<void> => {
+  const userId = req.user?.id;
+  const transactionId = req.params.id;
+
+  if (!userId) {
+    throw new AppError('Chưa xác thực người dùng.', 401, 'UNAUTHORIZED');
+  }
+
+  const { amount, type, note, date, walletId, categoryId } = req.body;
+
+  const result = await prisma.$transaction(async (tx) => {
+    const existingTransaction = await tx.transaction.findFirst({
+      where: { id: transactionId, userId },
+      include: { wallet: true },
+    });
+
+    if (!existingTransaction) {
+      throw new AppError('Giao dịch không tồn tại hoặc bạn không có quyền chỉnh sửa.', 404, 'TRANSACTION_NOT_FOUND');
+    }
+
+    const targetWalletId = walletId || existingTransaction.walletId;
+    if (walletId && walletId !== existingTransaction.walletId) {
+      const newWallet = await tx.wallet.findFirst({
+        where: { id: walletId, userId },
+      });
+      if (!newWallet) {
+        throw new AppError('Ví đích không tồn tại.', 403, 'FORBIDDEN_WALLET_ACCESS');
+      }
+    }
+
+    let targetCategoryId = existingTransaction.categoryId;
+    if (categoryId && categoryId !== existingTransaction.categoryId) {
+      targetCategoryId = await resolveCategoryId(categoryId, userId, (type || existingTransaction.type) as TransactionType);
+    }
+
+    // Hoàn tác số dư cũ
+    const oldChange = existingTransaction.type === 'INCOME' 
+      ? existingTransaction.amount.negated() 
+      : existingTransaction.amount;
+
+    await tx.wallet.update({
+      where: { id: existingTransaction.walletId },
+      data: { balance: { increment: oldChange } },
+    });
+
+    // Cộng số dư mới
+    const newType = (type || existingTransaction.type) as TransactionType;
+    const newAmount = amount !== undefined ? new Prisma.Decimal(amount) : existingTransaction.amount;
+    const newChange = newType === 'INCOME' ? newAmount : newAmount.negated();
+
+    const updatedWallet = await tx.wallet.update({
+      where: { id: targetWalletId },
+      data: { balance: { increment: newChange } },
+    });
+
+    // Cập nhật giao dịch
+    const updatedTransaction = await tx.transaction.update({
+      where: { id: transactionId },
+      data: {
+        amount: newAmount,
+        type: newType,
+        note: note !== undefined ? String(note).slice(0, 500) : existingTransaction.note,
+        date: date ? new Date(date) : existingTransaction.date,
+        walletId: targetWalletId,
+        categoryId: targetCategoryId,
+      },
+      include: {
+        category: {
+          select: { id: true, name: true, type: true, icon: true, color: true },
+        },
+        wallet: {
+          select: { id: true, name: true, balance: true, currency: true },
+        },
+      },
+    });
+
+    return { updatedTransaction, updatedWallet };
+  });
+
+  res.status(200).json({
+    success: true,
+    message: 'Cập nhật giao dịch thành công.',
+    data: formatTransaction(result.updatedTransaction),
+    wallet: result.updatedWallet,
+  });
+};
+
+/**
+ * DELETE /api/transactions/:id
+ * Xóa giao dịch
+ */
+export const deleteTransaction = async (req: Request, res: Response): Promise<void> => {
+  const userId = req.user?.id;
+  const transactionId = req.params.id;
+
+  if (!userId) {
+    throw new AppError('Chưa xác thực người dùng.', 401, 'UNAUTHORIZED');
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const existingTransaction = await tx.transaction.findFirst({
+      where: { id: transactionId, userId },
+    });
+
+    if (!existingTransaction) {
+      throw new AppError('Giao dịch không tồn tại hoặc bạn không có quyền xóa.', 404, 'TRANSACTION_NOT_FOUND');
+    }
+
+    const revertChange = existingTransaction.type === 'INCOME'
+      ? existingTransaction.amount.negated()
+      : existingTransaction.amount;
+
+    await tx.wallet.update({
+      where: { id: existingTransaction.walletId },
+      data: { balance: { increment: revertChange } },
+    });
+
+    await tx.transaction.delete({
+      where: { id: transactionId },
+    });
+  });
+
+  res.status(200).json({
+    success: true,
+    message: 'Đã xóa giao dịch thành công.',
+  });
+};
+
+/**
+ * DELETE /api/transactions/bulk
+ * Xóa nhiều giao dịch
+ */
+export const deleteBulkTransactions = async (req: Request, res: Response): Promise<void> => {
+  const userId = req.user?.id;
+  const { ids } = req.body;
+
+  if (!userId) {
+    throw new AppError('Chưa xác thực người dùng.', 401, 'UNAUTHORIZED');
+  }
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw new AppError('Danh sách ID không hợp lệ.', 400, 'INVALID_IDS');
+  }
+
+  await prisma.transaction.deleteMany({
+    where: {
+      id: { in: ids },
+      userId,
+    },
+  });
+
+  res.status(200).json({
+    success: true,
+    message: `Đã xóa thành công ${ids.length} giao dịch.`,
+  });
 };

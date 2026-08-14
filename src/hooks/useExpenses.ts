@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Expense } from '../types';
-import { expenseService } from '../services/firebase/expenseService';
+import { expenseService } from '../services/api/expenseService';
 
 export function useExpenses(userId: string | null) {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState<boolean>(!!userId);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchExpenses = useCallback(async () => {
     if (!userId) {
       setExpenses([]);
       setLoading(false);
@@ -17,23 +17,25 @@ export function useExpenses(userId: string | null) {
 
     setLoading(true);
     setError(null);
-
-    const unsubscribe = expenseService.subscribeExpenses(
-      userId,
-      (fetchedExpenses) => {
-        setExpenses(fetchedExpenses);
-        setLoading(false);
-      },
-      (err) => {
-        setError(err.message || 'Lỗi tải danh sách chi tiêu');
-        setLoading(false);
+    try {
+      const data = await expenseService.getExpenses();
+      setExpenses(data);
+    } catch (err: any) {
+      if (err?.response?.status === 401) {
+        setExpenses([]);
+        setError(null);
+        return;
       }
-    );
-
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
+      console.error('Error fetching expenses from PostgreSQL API:', err);
+      setError(err?.response?.data?.message || err?.message || 'Lỗi tải danh sách chi tiêu');
+    } finally {
+      setLoading(false);
+    }
   }, [userId]);
+
+  useEffect(() => {
+    fetchExpenses();
+  }, [fetchExpenses]);
 
   const addExpense = useCallback(
     async (expense: Omit<Expense, 'id'>) => {
@@ -46,11 +48,12 @@ export function useExpenses(userId: string | null) {
 
       try {
         const created = await expenseService.addExpense(userId, expense);
+        setExpenses((prev) => prev.map((e) => (e.id === tempId ? created : e)));
         return created;
       } catch (err: any) {
         // Rollback optimistic update
         setExpenses((prev) => prev.filter((e) => e.id !== tempId));
-        setError(err?.message || 'Không thể thêm chi tiêu');
+        setError(err?.response?.data?.message || err?.message || 'Không thể thêm chi tiêu');
         throw err;
       }
     },
@@ -61,17 +64,19 @@ export function useExpenses(userId: string | null) {
     async (expense: Expense) => {
       if (!userId) throw new Error('Người dùng chưa đăng nhập');
 
-      const original = expenses.find(e => e.id === expense.id);
+      const original = expenses.find((e) => e.id === expense.id);
       // Optimistic update
       setExpenses((prev) => prev.map((e) => (e.id === expense.id ? expense : e)));
 
       try {
-        await expenseService.updateExpense(userId, expense);
+        const updated = await expenseService.updateExpense(userId, expense);
+        setExpenses((prev) => prev.map((e) => (e.id === expense.id ? updated : e)));
+        return updated;
       } catch (err: any) {
         if (original) {
           setExpenses((prev) => prev.map((e) => (e.id === expense.id ? original : e)));
         }
-        setError(err?.message || 'Không thể cập nhật chi tiêu');
+        setError(err?.response?.data?.message || err?.message || 'Không thể cập nhật chi tiêu');
         throw err;
       }
     },
@@ -82,7 +87,7 @@ export function useExpenses(userId: string | null) {
     async (expenseId: string) => {
       if (!userId) throw new Error('Người dùng chưa đăng nhập');
 
-      const original = expenses.find(e => e.id === expenseId);
+      const original = expenses.find((e) => e.id === expenseId);
       // Optimistic update
       setExpenses((prev) => prev.filter((e) => e.id !== expenseId));
 
@@ -90,13 +95,45 @@ export function useExpenses(userId: string | null) {
         await expenseService.deleteExpense(userId, expenseId);
       } catch (err: any) {
         if (original) {
-          setExpenses((prev) => [...prev, original]);
+          setExpenses((prev) => [original, ...prev]);
         }
-        setError(err?.message || 'Không thể xóa chi tiêu');
+        setError(err?.response?.data?.message || err?.message || 'Không thể xóa chi tiêu');
         throw err;
       }
     },
     [userId, expenses]
+  );
+
+  const deleteBulkExpenses = useCallback(
+    async (ids: string[]) => {
+      if (!userId) throw new Error('Người dùng chưa đăng nhập');
+      const original = [...expenses];
+      setExpenses((prev) => prev.filter((e) => !ids.includes(e.id)));
+
+      try {
+        await expenseService.deleteBulkExpenses(userId, ids);
+      } catch (err: any) {
+        setExpenses(original);
+        setError(err?.response?.data?.message || err?.message || 'Không thể xóa các chi tiêu đã chọn');
+        throw err;
+      }
+    },
+    [userId, expenses]
+  );
+
+  const addBulkExpenses = useCallback(
+    async (items: Omit<Expense, 'id'>[]) => {
+      if (!userId) throw new Error('Người dùng chưa đăng nhập');
+      try {
+        const createdList = await expenseService.addBulkExpenses(userId, items);
+        await fetchExpenses();
+        return createdList;
+      } catch (err: any) {
+        setError(err?.response?.data?.message || err?.message || 'Không thể nhập hàng loạt chi tiêu');
+        throw err;
+      }
+    },
+    [userId, fetchExpenses]
   );
 
   return {
@@ -107,5 +144,8 @@ export function useExpenses(userId: string | null) {
     addExpense,
     updateExpense,
     deleteExpense,
+    deleteBulkExpenses,
+    addBulkExpenses,
+    refetchExpenses: fetchExpenses,
   };
 }

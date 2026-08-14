@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Goal } from '../types';
-import { goalService } from '../services/firebase/goalService';
+import { goalService } from '../services/api/goalService';
 
 export function useGoals(userId: string | null) {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState<boolean>(!!userId);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchGoals = useCallback(async () => {
     if (!userId) {
       setGoals([]);
       setLoading(false);
@@ -17,23 +17,25 @@ export function useGoals(userId: string | null) {
 
     setLoading(true);
     setError(null);
-
-    const unsubscribe = goalService.subscribeGoals(
-      userId,
-      (fetchedGoals) => {
-        setGoals(fetchedGoals);
-        setLoading(false);
-      },
-      (err) => {
-        setError(err.message || 'Lỗi tải mục tiêu tiết kiệm');
-        setLoading(false);
+    try {
+      const data = await goalService.getGoals();
+      setGoals(data);
+    } catch (err: any) {
+      if (err?.response?.status === 401) {
+        setGoals([]);
+        setError(null);
+        return;
       }
-    );
-
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
+      console.error('Error fetching goals from PostgreSQL API:', err);
+      setError(err?.response?.data?.message || err?.message || 'Lỗi tải mục tiêu tiết kiệm');
+    } finally {
+      setLoading(false);
+    }
   }, [userId]);
+
+  useEffect(() => {
+    fetchGoals();
+  }, [fetchGoals]);
 
   const addGoal = useCallback(
     async (goal: Omit<Goal, 'id'>) => {
@@ -45,10 +47,11 @@ export function useGoals(userId: string | null) {
 
       try {
         const created = await goalService.addGoal(userId, goal);
+        setGoals((prev) => prev.map((g) => (g.id === tempId ? created : g)));
         return created;
       } catch (err: any) {
         setGoals((prev) => prev.filter((g) => g.id !== tempId));
-        setError(err?.message || 'Không thể tạo mục tiêu mới');
+        setError(err?.response?.data?.message || err?.message || 'Không thể tạo mục tiêu mới');
         throw err;
       }
     },
@@ -63,12 +66,14 @@ export function useGoals(userId: string | null) {
       setGoals((prev) => prev.map((g) => (g.id === goal.id ? goal : g)));
 
       try {
-        await goalService.updateGoal(userId, goal);
+        const updated = await goalService.updateGoal(userId, goal);
+        setGoals((prev) => prev.map((g) => (g.id === goal.id ? updated : g)));
+        return updated;
       } catch (err: any) {
         if (original) {
           setGoals((prev) => prev.map((g) => (g.id === goal.id ? original : g)));
         }
-        setError(err?.message || 'Không thể cập nhật mục tiêu');
+        setError(err?.response?.data?.message || err?.message || 'Không thể cập nhật mục tiêu');
         throw err;
       }
     },
@@ -86,9 +91,9 @@ export function useGoals(userId: string | null) {
         await goalService.deleteGoal(userId, goalId);
       } catch (err: any) {
         if (original) {
-          setGoals((prev) => [...prev, original]);
+          setGoals((prev) => [original, ...prev]);
         }
-        setError(err?.message || 'Không thể xóa mục tiêu');
+        setError(err?.response?.data?.message || err?.message || 'Không thể xóa mục tiêu');
         throw err;
       }
     },
@@ -103,5 +108,6 @@ export function useGoals(userId: string | null) {
     addGoal,
     updateGoal,
     deleteGoal,
+    refetchGoals: fetchGoals,
   };
 }

@@ -2,22 +2,35 @@ import { Router } from 'express';
 import {
   getTransactions,
   createTransaction,
-  getSummaryReport,
+  createBulkTransactions,
+  updateTransaction,
+  deleteTransaction,
+  deleteBulkTransactions,
 } from '../controllers/transaction.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
+import { validateRequest } from '../middleware/validate.middleware';
+import {
+  createTransactionSchema,
+  updateTransactionSchema,
+  getTransactionsQuerySchema,
+  transactionIdParamSchema,
+} from '../validators/transaction.validator';
 
 const router = Router();
 
-// Áp dụng authMiddleware cho tất cả các route giao dịch & báo cáo
+// Tất cả endpoints đều bảo vệ bởi authMiddleware
 router.use(authMiddleware);
 
-// GET /api/transactions - Lấy danh sách giao dịch (có lọc theo month/year)
-router.get('/', getTransactions);
-
-// POST /api/transactions - Tạo giao dịch mới & tự động cập nhật số dư ví
-router.post('/', createTransaction);
-
-// GET /api/reports/summary - Trả về tổng thu, tổng chi và tổng số dư
-router.get('/summary', getSummaryReport);
+router.get('/', validateRequest(getTransactionsQuerySchema, 'query'), getTransactions);
+router.post('/', validateRequest(createTransactionSchema, 'body'), createTransaction);
+router.post('/bulk', createBulkTransactions);
+router.put(
+  '/:id',
+  validateRequest(transactionIdParamSchema, 'params'),
+  validateRequest(updateTransactionSchema, 'body'),
+  updateTransaction
+);
+router.delete('/bulk', deleteBulkTransactions);
+router.delete('/:id', validateRequest(transactionIdParamSchema, 'params'), deleteTransaction);
 
 export default router;
