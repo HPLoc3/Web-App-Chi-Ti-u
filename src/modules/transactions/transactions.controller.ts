@@ -22,6 +22,21 @@ export class TransactionsController {
     }
   }
 
+  static async getTransactionById(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        sendError(res, 401, 'UNAUTHORIZED', 'Chưa xác thực người dùng.', undefined, req.id);
+        return;
+      }
+
+      const transaction = await TransactionsService.getTransactionById(req.params.id, userId);
+      sendSuccess(res, 200, transaction);
+    } catch (error: any) {
+      sendError(res, error.statusCode || 500, error.code || 'TRANSACTION_ERROR', error.message, undefined, req.id);
+    }
+  }
+
   static async createTransaction(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user?.id;

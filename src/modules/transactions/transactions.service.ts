@@ -90,6 +90,17 @@ export class TransactionsService {
     };
   }
 
+  static async getTransactionById(id: string, userId: string): Promise<TransactionDTO> {
+    const transaction = await TransactionsRepository.findById(id);
+    if (!transaction) {
+      throw new AppError('Giao dịch không tồn tại.', 404, 'TRANSACTION_NOT_FOUND');
+    }
+    if (transaction.userId !== userId) {
+      throw new AppError('Bạn không có quyền truy cập giao dịch này.', 403, 'FORBIDDEN_ACCESS');
+    }
+    return this.formatTransaction(transaction);
+  }
+
   static async createTransaction(userId: string, input: CreateTransactionInput) {
     const numAmount = new Prisma.Decimal(input.amount || 0);
     if (numAmount.lessThanOrEqualTo(0)) {

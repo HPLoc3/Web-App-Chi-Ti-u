@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { Expense, Goal } from '../types';
 import { sendToAIAssistant, AIResponseData } from '../utils/aiService';
 
@@ -34,6 +34,7 @@ interface UseAIAssistantOptions {
   income?: number;
   onAddExpense: (expense: Omit<Expense, 'id'>) => void;
   userName?: string;
+  isAuthenticated?: boolean;
 }
 
 export function useAIAssistant({
@@ -43,12 +44,13 @@ export function useAIAssistant({
   income = 15000000,
   onAddExpense,
   userName = 'bạn',
+  isAuthenticated = false,
 }: UseAIAssistantOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
       id: 'welcome',
       sender: 'bot',
-      text: `Xin chào ${userName}! 🤖 Mình là Trợ lý AI Tài chính Sổ Tay.\n\nBạn có thể nhắn tự nhiên để ghi chi tiêu (ví dụ: "ăn sáng 35k", "đi Grab 85k hôm qua") hoặc hỏi phân tích tài chính (ví dụ: "Tháng này tôi tiêu bao nhiêu?", "Top 3 khoản chi lớn nhất?").`,
+      text: `Xin chào ${userName}! 🤖 Mình là Financial Copilot của Sổ Tay Chi Tiêu.\n\nBạn có thể nhắn tự nhiên để ghi chi tiêu (ví dụ: "ăn sáng 35k", "đi Grab 85k hôm qua") hoặc hỏi phân tích tài chính (ví dụ: "Tháng này tôi tiêu bao nhiêu?", "Top 3 khoản chi lớn nhất?").`,
       timestamp: new Date(),
     },
   ]);
@@ -77,7 +79,7 @@ export function useAIAssistant({
       const thinkingMessage: ChatMessage = {
         id: thinkingId,
         sender: 'bot',
-        text: '🤖 AI đang suy nghĩ & phân tích câu nói của bạn...',
+        text: '🤖 Financial Copilot đang phân tích & bóc tách dữ liệu...',
         timestamp: new Date(),
         isThinking: true,
       };
@@ -94,21 +96,22 @@ export function useAIAssistant({
       };
 
       try {
-        const aiResult: AIResponseData = await sendToAIAssistant(msgText, context);
+        const aiResult: AIResponseData = await sendToAIAssistant(msgText, context, isAuthenticated);
 
         setMessages((prev) => prev.filter((m) => m.id !== thinkingId));
 
-        if (aiResult.intent === 'create_expense' && aiResult.amount && aiResult.amount > 0) {
+        if (aiResult.action && aiResult.action.type === 'CREATE_EXPENSE' && aiResult.action.expense) {
+          const exp = aiResult.action.expense;
           const pendingTx: PendingTransaction = {
             id: `pending-${Date.now()}`,
-            amount: aiResult.amount,
-            category: aiResult.category || 'khac',
-            categoryName: aiResult.categoryName || 'Khác',
-            date: aiResult.date || currentDate,
-            note: aiResult.note || aiResult.categoryName || 'Chi tiêu',
-            confidence: aiResult.confidence || 0.85,
+            amount: exp.amount,
+            category: exp.category || 'khac',
+            categoryName: exp.categoryName || 'Khác',
+            date: exp.date || currentDate,
+            note: exp.note || exp.categoryName || 'Chi tiêu',
+            confidence: Math.round((aiResult.action.confidence || 0.85) * 100),
             status: 'pending',
-            explanation: aiResult.explanation,
+            explanation: aiResult.action.explanation,
           };
 
           const botMsg: ChatMessage = {
@@ -124,22 +127,13 @@ export function useAIAssistant({
           };
 
           setMessages((prev) => [...prev, botMsg]);
-        } else if (aiResult.intent === 'financial_query') {
-          const botMsg: ChatMessage = {
-            id: `bot-${Date.now()}`,
-            sender: 'bot',
-            text: aiResult.reply || 'Dưới đây là thống kê tài chính của bạn:',
-            timestamp: new Date(),
-            financialReply: aiResult.reply,
-            isFallback: aiResult.isFallback,
-          };
-          setMessages((prev) => [...prev, botMsg]);
         } else {
           const botMsg: ChatMessage = {
             id: `bot-${Date.now()}`,
             sender: 'bot',
-            text: aiResult.reply || 'Xin chào! Bạn muốn ghi chép chi tiêu hay hỏi đáp thống kê tài chính?',
+            text: aiResult.reply || 'Dưới đây là thông tin từ Financial Copilot:',
             timestamp: new Date(),
+            financialReply: aiResult.reply,
             isFallback: aiResult.isFallback,
           };
           setMessages((prev) => [...prev, botMsg]);
@@ -161,7 +155,7 @@ export function useAIAssistant({
         setIsProcessing(false);
       }
     },
-    [input, isProcessing, expenses, goals, categoryLimits, income]
+    [input, isProcessing, expenses, goals, categoryLimits, income, isAuthenticated]
   );
 
   const confirmTransaction = useCallback(
@@ -215,7 +209,7 @@ export function useAIAssistant({
       {
         id: 'welcome',
         sender: 'bot',
-        text: `Xin chào ${userName}! 🤖 Mình là Trợ lý AI Tài chính Sổ Tay. Bắt đầu phiên trò chuyện mới.`,
+        text: `Xin chào ${userName}! 🤖 Mình là Financial Copilot của Sổ Tay Chi Tiêu. Bắt đầu phiên trò chuyện mới.`,
         timestamp: new Date(),
       },
     ]);

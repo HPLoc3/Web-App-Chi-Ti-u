@@ -32,17 +32,17 @@ interface BudgetTabProps {
 }
 
 export default function BudgetTab({
-  expenses,
-  income,
-  budgetTemplate,
-  categoryLimits,
-  recurringExpenses,
-  onUpdateTemplate,
-  onUpdateCategoryLimit,
-  onAddRecurringExpense,
-  onDeleteRecurringExpense,
-  onTriggerManualRecurringSync
-}: BudgetTabProps) {
+  expenses = [],
+  income = 0,
+  budgetTemplate = '50_30_20',
+  categoryLimits = {},
+  recurringExpenses = [],
+  onUpdateTemplate = () => {},
+  onUpdateCategoryLimit = () => {},
+  onAddRecurringExpense = () => {},
+  onDeleteRecurringExpense = () => {},
+  onTriggerManualRecurringSync = () => {}
+}: Partial<BudgetTabProps> & { expenses: Expense[]; categoryLimits: Record<string, number> }) {
   const { showToast } = useToast();
 
   const [editingLimitCategoryId, setEditingLimitCategoryId] = useState<string | null>(null);

@@ -27,6 +27,20 @@ export class TransactionsRepository {
     return prisma.transaction.count({ where });
   }
 
+  static async findById(id: string): Promise<Transaction | null> {
+    return prisma.transaction.findUnique({
+      where: { id },
+      include: {
+        category: {
+          select: { id: true, name: true, type: true, icon: true, color: true },
+        },
+        wallet: {
+          select: { id: true, name: true, balance: true, currency: true },
+        },
+      },
+    });
+  }
+
   static async findByIdAndUserId(id: string, userId: string): Promise<Transaction | null> {
     return prisma.transaction.findFirst({
       where: { id, userId },

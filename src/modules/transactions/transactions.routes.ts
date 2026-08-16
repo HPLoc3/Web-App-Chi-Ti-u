@@ -19,6 +19,9 @@ router.get(
   TransactionsController.getTransactions
 );
 
+// GET /api/v1/transactions/:id
+router.get('/:id', TransactionsController.getTransactionById);
+
 // POST /api/v1/transactions
 router.post(
   '/',

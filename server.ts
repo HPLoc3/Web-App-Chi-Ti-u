@@ -194,7 +194,7 @@ async function startServer() {
   });
 }
 
-if (!process.env.VERCEL) {
+if (!process.env.VERCEL && !process.env.VITEST && process.env.NODE_ENV !== "test") {
   startServer();
 }
 

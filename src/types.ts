@@ -58,6 +58,11 @@ export interface FinancialInsight {
   metricValue?: string;
   actionableStep?: string;
   category?: string;
+  observation?: string;
+  projection?: string;
+  suggestedAction?: string;
+  dailyImpact?: string;
+  targetTab?: 'budget' | 'expenses' | 'goals' | 'chatbot' | 'insights';
 }
 
 export interface HealthScoreBreakdown {

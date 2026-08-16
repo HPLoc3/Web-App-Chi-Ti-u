@@ -579,10 +579,16 @@ export function LedgerApp() {
                 expenses={state.expenses}
                 goals={state.goals}
                 income={state.income}
+                categoryLimits={state.categoryLimits}
+                recurringExpenses={state.recurringExpenses}
                 onUpdateIncome={handleUpdateIncome}
                 onAddGoal={handleAddGoal}
                 onUpdateGoalProgress={handleUpdateGoalProgress}
                 onDeleteGoal={handleDeleteGoal}
+                onQuickAdd={() => setIsQuickAddOpen(true)}
+                onNavigateTab={(tab) => setActiveTab(tab)}
+                onTriggerManualRecurringSync={handleTriggerManualRecurringSync}
+                onAddExpense={handleAddExpense}
               />
             )}
 
@@ -592,7 +598,10 @@ export function LedgerApp() {
                 categoryLimits={state.categoryLimits}
                 goals={state.goals}
                 income={state.income}
+                recurringExpenses={state.recurringExpenses}
                 onAddExpense={handleAddExpense}
+                onUpdateExpense={handleUpdateExpense}
+                onDeleteExpense={handleDeleteExpense}
                 currentUser={currentUser}
                 onOpenAuthModal={() => {
                   setAuthModalTab('login');
