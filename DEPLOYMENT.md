@@ -137,20 +137,42 @@ chmod +x ./scripts/restore.sh
 
 ---
 
-## ⏪ 7. Rollback Strategy
+## 🚀 8. Deployment via SSH & CI/CD Troubleshooting
 
-Khi phát hiện phiên bản mới gặp lỗi nghiêm trọng sau khi triển khai:
+### 8.1. Khắc phục lỗi Git Merge Conflict khi Deploy trên Server:
+Khi lệnh `deploy.sh` hoặc `git pull` trên máy chủ báo lỗi:
+```text
+error: Your local changes to the following files would be overwritten by merge:
+```
+**Nguyên nhân**: Một số file trên server (ví dụ `package-lock.json`, file build hoặc log) bị thay đổi trực tiếp trên server làm lệch với repository.
 
-1. **Rollback Container Application**:
-   ```bash
-   # Khôi phục container về image trước đó
-   docker compose -f docker-compose.prod.yml down app
-   docker tag hophuloc/expense-ledger:previous hophuloc/expense-ledger:latest
-   docker compose -f docker-compose.prod.yml up -d app
-   ```
-2. **Kiểm tra Readiness Probe**:
-   ```bash
-   curl -f http://127.0.0.1:3000/health/ready
-   ```
-3. **Rollback Cơ sở dữ liệu (Nếu có schema incompatibility)**:
-   * Sử dụng bản sao lưu được tạo ngay trước thời điểm deploy để khôi phục qua `./scripts/restore.sh`.
+**Cách xử lý nhanh trên server**:
+```bash
+cd /var/www/app-chi-tieu
+# 1. Reset các file mã nguồn về đúng trạng thái nhánh main trên GitHub (giữ nguyên file .env)
+git reset --hard origin/main
+# 2. Hoặc stash các thay đổi cục bộ
+git stash
+# 3. Kéo code mới
+git pull origin main
+```
+
+### 8.2. Cấu hình Script Deploy Tự Động (`/var/www/app-chi-tieu/deploy.sh`):
+Để script deploy trên VPS không bao giờ bị nghẽn bởi git conflict, sử dụng nội dung sau:
+```bash
+#!/usr/bin/env bash
+set -e
+cd /var/www/app-chi-tieu
+
+echo "🔄 Fetching latest code..."
+git fetch origin main
+git reset --hard origin/main
+
+echo "🏗️ Building & starting containers..."
+docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+
+echo "🗄️ Running migrations..."
+docker compose -f docker-compose.prod.yml run --rm app npx prisma migrate deploy || true
+
+echo "✅ Deploy completed!"
+```

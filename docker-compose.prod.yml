@@ -8,7 +8,7 @@ services:
     restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-staychitiu_postgres_pass_2026}
       POSTGRES_DB: ${POSTGRES_DB:-hophuloc_expense_db}
       TZ: "Asia/Ho_Chi_Minh"
     volumes:
@@ -22,10 +22,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.5'
           memory: 1024M
         reservations:
-          cpus: '0.25'
           memory: 256M
     networks:
       - internal_network
@@ -45,9 +43,9 @@ services:
       PORT: 3000
       APP_URL: ${APP_URL:-https://hophuloc.online}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://hophuloc.online,https://www.hophuloc.online}
-      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-hophuloc_expense_db}?schema=public}
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required in production}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required in production}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-staychitiu_postgres_pass_2026}@postgres:5432/${POSTGRES_DB:-hophuloc_expense_db}?schema=public}
+      JWT_SECRET: ${JWT_SECRET:-staychitiu_super_secure_jwt_secret_key_2026}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-staychitiu_super_secure_jwt_refresh_key_2026}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -63,10 +61,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
           memory: 512M
         reservations:
-          cpus: '0.2'
           memory: 128M
     networks:
       - internal_network
@@ -89,7 +85,6 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
           memory: 256M
     networks:
       - internal_network
@@ -103,7 +98,7 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_DB: ${POSTGRES_DB:-hophuloc_expense_db}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-staychitiu_postgres_pass_2026}
       POSTGRES_EXTRA_OPTS: "-Z 9 --schema=public --blobs"
       SCHEDULE: "@daily"
       BACKUP_DIR: /backups
