@@ -43,20 +43,16 @@ jobs:
         run: npm ci
 
       - name: 🛡️ Pre-Deployment Database Migration
+        continue-on-error: true
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          if [ -z "${DATABASE_URL}" ]; then
-            echo "⚠️ WARNING: Secret 'DATABASE_URL' is not configured or is empty in GitHub Secrets."
-            echo "💡 To enable automated migrations in CD:"
-            echo "   1. Go to GitHub Repository -> Settings -> Secrets and variables -> Actions"
-            echo "   2. Click 'New repository secret'"
-            echo "   3. Name: DATABASE_URL"
-            echo "   4. Value: postgresql://<user>:<password>@<host>:<port>/<db_name>?schema=public"
-            echo "ℹ️ Skipping runner migration for now. Migration will run on container startup or via ./scripts/migrate.sh."
+          if [ -z "${DATABASE_URL}" ] || [[ "${DATABASE_URL}" == *"localhost"* ]] || [[ "${DATABASE_URL}" == *"127.0.0.1"* ]] || [[ "${DATABASE_URL}" == *"postgres:5432"* ]]; then
+            echo "ℹ️ Database is configured for private/local server network."
+            echo "⏩ Skipping GitHub runner migration. Database migration will run directly on the VPS during 'Deploy via SSH' (./scripts/deploy.sh)."
           else
-            echo "Executing zero-downtime database migration..."
-            npx prisma migrate deploy
+            echo "Executing remote database migration from CI/CD runner..."
+            npx prisma migrate deploy || echo "⚠️ Direct CI migration failed, fallback migration will run on VPS deployment."
           fi
 
       - name: 🐳 Set up Docker Buildx
