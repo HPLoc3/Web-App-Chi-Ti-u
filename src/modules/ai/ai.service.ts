@@ -10,6 +10,8 @@ import { AppError } from '../../middleware/errorHandler.middleware';
 import { AiQuotaManager } from './ai.quota';
 import { AiLogger } from './ai.logger';
 import { AiFactsAggregator } from './ai.aggregator';
+import { getBusinessDate, parseVietnameseDate } from '../../utils/dateParser';
+import { parseTransactionText } from '../../utils/parser';
 
 const CATEGORIES_MAP: Record<string, string> = {
   an_uong: 'Ăn uống',
@@ -76,8 +78,12 @@ export class AiService {
       };
     }
 
+    // Determine current business date in Asia/Ho_Chi_Minh as the absolute source of truth
+    const businessCurrentDate = input.context?.currentDate
+      ? getBusinessDate(input.context.currentDate)
+      : getBusinessDate();
+
     const {
-      currentDate = new Date().toISOString().split('T')[0],
       expenses = [],
       goals = [],
       categoryLimits = {},
@@ -85,9 +91,12 @@ export class AiService {
       recurringExpenses = [],
     } = input.context || {};
 
+    // Run deterministic date extraction upfront
+    const deterministicDateResult = parseVietnameseDate(rawCleanMessage, businessCurrentDate);
+
     // 2. Compute Deterministic Aggregated Facts
     const aggregatedFacts = AiFactsAggregator.aggregate({
-      currentDate,
+      currentDate: businessCurrentDate,
       expenses,
       goals,
       categoryLimits,
@@ -103,7 +112,8 @@ export class AiService {
         rawCleanMessage,
         aggregatedFacts,
         expenses,
-        currentDate
+        businessCurrentDate,
+        deterministicDateResult
       );
 
       AiLogger.logRequest({
@@ -129,17 +139,26 @@ export class AiService {
       };
     }
 
-    // 4. Gemini Prompt with Guardrails & Deterministic Facts
+    // 4. Gemini Prompt with Guardrails, Timezone awareness & Deterministic Facts
     const systemInstruction = `Bạn là Financial Copilot chuyên nghiệp cho ứng dụng Quản lý Tài chính Cá nhân "Sổ Tay Chi Tiêu Thông Minh".
 QUY TẮC BẢO MẬT & VẬN HÀNH BẮT BUỘC:
 1. Bạn KHÔNG ĐƯỢC tự ý ghi dữ liệu vào database. Với mọi thao tác thêm/sửa/xóa (CREATE_EXPENSE, UPDATE_EXPENSE, DELETE_EXPENSE), bạn PHẢI tạo cấu trúc "action" để người dùng xác nhận trên Preview Card [Hủy] / [Xác nhận].
-2. Với các câu hỏi tài chính (QUERY_FINANCE, ANALYZE_SPENDING, BUDGET_ADVICE, GOAL_FORECAST, CASHFLOW_FORECAST), bạn KHÔNG TỰ BỊA ĐẶT HAY TỰ TÍNH TOÁN LẠI SỐ LIỆU. Bạn PHẢI DỰA 100% vào bảng AGGREGATED_FINANCIAL_FACTS được cung cấp bên dưới.
-3. Khi phân tích hoặc đưa ra lời khuyên, hãy luôn cấu trúc câu trả lời rõ ràng:
+2. NGUYÊN TẮC XÁC ĐỊNH NGÀY GIAO DỊCH (QUAN TRỌNG NHẤT):
+   - Múi giờ chuẩn: Asia/Ho_Chi_Minh (UTC+7).
+   - Ngày hiện tại mốc (businessCurrentDate): ${businessCurrentDate}.
+   - Nếu câu của người dùng có đề cập thời gian tương đối hoặc tuyệt đối ("hôm qua", "hôm kia", "thứ 2 tuần trước", "15/08", "ngày mai", "3 ngày trước"):
+     * BẮT BUỘC tính toán chính xác ngày giao dịch theo YYYY-MM-DD dựa trên ngày mốc ${businessCurrentDate}.
+     * KHÔNG ĐƯỢC mặc định lấy ngày hiện tại nếu người dùng đã ghi rõ ngày ("hôm qua" -> lấy ngày trước ${businessCurrentDate}).
+   - Nếu câu KHÔNG đề cập ngày tháng nào: lấy ngày hiện tại ${businessCurrentDate}.
+3. Với các câu hỏi tài chính (QUERY_FINANCE, ANALYZE_SPENDING, BUDGET_ADVICE, GOAL_FORECAST, CASHFLOW_FORECAST), bạn KHÔNG TỰ BỊA ĐẶT HAY TỰ TÍNH TOÁN LẠI SỐ LIỆU. Bạn PHẢI DỰA 100% vào bảng AGGREGATED_FINANCIAL_FACTS được cung cấp bên dưới.
+4. Khi phân tích hoặc đưa ra lời khuyên, hãy luôn cấu trúc câu trả lời rõ ràng:
    - 📊 **Hiện trạng & Con số thực tế**
    - ⚠️ **Đánh giá rủi ro / Điểm cần lưu ý**
-   - 💡 **"Vậy tôi nên làm gì?"** (Khuyến nghị hành động định lượng cụ thể: ví dụ cắt giảm X đồng/ngày).
+   - 💡 **"Vậy tôi nên làm gì?"** (Khuyến nghị hành động định lượng cụ thể).
 
-HÔM NAY: ${currentDate}
+HÔM NAY (Asia/Ho_Chi_Minh): ${businessCurrentDate}
+KẾT QUẢ PHÂN TÍCH NGÀY CHUẨN XÁC ĐOÁN TRƯỚC:
+- Ngày nhận diện: ${deterministicDateResult.normalizedDate} (Loại: ${deterministicDateResult.dateType}, Biểu thức: "${deterministicDateResult.originalExpression || 'hôm nay'}")
 
 BẢNG SỐ LIỆU TÀI CHÍNH TẬP HỢP (AGGREGATED_FINANCIAL_FACTS):
 ${JSON.stringify(aggregatedFacts, null, 2)}
@@ -152,26 +171,26 @@ DANH MỤC HỢP LỆ:
 - hoa_don (Hóa đơn, điện, nước, internet, học phí...)
 - suc_khoe (Sức khỏe, thuốc, khám bệnh...)
 - giao_duc (Giáo dục, sách, khóa học...)
-- khac (Khác)
+- khac (Chi tiêu khác)
 
 CÁC INTENT ĐƯỢC HỖ TRỢ:
-- CREATE_EXPENSE: Người dùng muốn ghi một khoản chi mới (Ví dụ: "Ăn sáng 35k", "Đổ xăng 70k hôm qua").
+- CREATE_EXPENSE: Người dùng muốn ghi một khoản chi mới (Ví dụ: "Hôm qua ăn cơm 15k", "Đổ xăng 70k hôm qua", "Thứ 2 tuần trước ăn lẩu 200k").
 - UPDATE_EXPENSE: Người dùng muốn sửa khoản chi (Ví dụ: "Sửa tiền phở sáng nay thành 45k", "Đổi khoản cafe hôm qua thành 30k").
 - DELETE_EXPENSE: Người dùng muốn xóa khoản chi (Ví dụ: "Xóa khoản ăn tối 120k", "Bỏ khoản grab vừa ghi").
-- QUERY_FINANCE: Truy vấn thông tin tài chính cơ bản (Ví dụ: "Hôm nay tôi tiêu bao nhiêu?", "Tháng này đã chi hết bao nhiêu tiền?").
-- ANALYZE_SPENDING: Phân tích sâu hành vi chi tiêu (Ví dụ: "Tôi đang tiêu nhiều nhất vào đâu?", "So sánh chi tiêu với tháng trước").
-- BUDGET_ADVICE: Lời khuyên ngân sách (Ví dụ: "Tôi có bị vượt ngân sách không?", "Làm sao để không bị thâm hụt tháng này?").
-- GOAL_FORECAST: Dự báo tiến độ mục tiêu tích lũy (Ví dụ: "Bao lâu nữa mua được Macbook?", "Mục tiêu mua xe tiến độ thế nào?").
-- CASHFLOW_FORECAST: Dự báo dòng tiền cuối tháng (Ví dụ: "Dự kiến cuối tháng dư bao nhiêu?", "Tốc độ tiêu tiền hiện tại có an toàn không?").
-- GENERAL_CHAT: Chào hỏi, trò chuyện hoặc hỏi cách dùng Financial Copilot.`;
+- QUERY_FINANCE: Truy vấn thông tin tài chính cơ bản.
+- ANALYZE_SPENDING: Phân tích sâu hành vi chi tiêu.
+- BUDGET_ADVICE: Lời khuyên ngân sách.
+- GOAL_FORECAST: Dự báo tiến độ mục tiêu tích lũy.
+- CASHFLOW_FORECAST: Dự báo dòng tiền cuối tháng.
+- GENERAL_CHAT: Chào hỏi, trò chuyện.`;
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+        model: 'gemini-2.5-flash',
         contents: `<user_financial_input>${rawCleanMessage}</user_financial_input>`,
         config: {
           systemInstruction,
-          temperature: 0.2,
+          temperature: 0.1,
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -193,9 +212,12 @@ CÁC INTENT ĐƯỢC HỖ TRỢ:
                     type: Type.OBJECT,
                     properties: {
                       amount: { type: Type.NUMBER, description: 'Số tiền VNĐ' },
+                      currency: { type: Type.STRING, description: 'VND' },
                       category: { type: Type.STRING, description: 'Category ID' },
                       categoryName: { type: Type.STRING, description: 'Tên tiếng Việt của danh mục' },
                       date: { type: Type.STRING, description: 'YYYY-MM-DD' },
+                      dateExpression: { type: Type.STRING, description: 'Cụm từ ngày gốc (ví dụ: hôm qua, hôm kia)' },
+                      dateType: { type: Type.STRING, description: 'EXACT, RELATIVE, INFERRED, DEFAULT' },
                       note: { type: Type.STRING, description: 'Ghi chú khoản chi' },
                     },
                   },
@@ -264,14 +286,35 @@ CÁC INTENT ĐƯỢC HỖ TRỢ:
           });
         }
 
+        // Apply Deterministic Date Guardrail: If user input had an explicit date expression, enforce deterministic date
+        const finalNormalizedDate = deterministicDateResult.matched
+          ? deterministicDateResult.normalizedDate
+          : (rawExpense.date || businessCurrentDate);
+
+        const finalDateType = deterministicDateResult.matched
+          ? deterministicDateResult.dateType
+          : (rawExpense.dateType || 'DEFAULT');
+
+        const finalDateExpr = deterministicDateResult.matched
+          ? deterministicDateResult.originalExpression
+          : (rawExpense.dateExpression || 'hôm nay');
+
+        const finalConfidence = Math.max(
+          parsedData.action.confidence || 0.9,
+          deterministicDateResult.confidence
+        );
+
         action = {
           type: intent,
           expense: {
             id: matchedExpense?.id,
             amount: validAmount > 0 ? validAmount : (matchedExpense?.amount || 0),
+            currency: 'VND',
             category: catKey,
             categoryName: catName,
-            date: rawExpense.date || currentDate,
+            date: finalNormalizedDate,
+            dateExpression: finalDateExpr,
+            dateType: finalDateType,
             note: rawExpense.note || matchedExpense?.note || catName,
             originalExpense: matchedExpense ? {
               id: matchedExpense.id,
@@ -284,8 +327,8 @@ CÁC INTENT ĐƯỢC HỖ TRỢ:
           },
           targetExpenseId: matchedExpense?.id,
           targetSummary: parsedData.action.targetSummary || (matchedExpense ? `${matchedExpense.note} (${matchedExpense.amount?.toLocaleString('vi-VN')}₫)` : undefined),
-          confidence: parsedData.action.confidence || 0.9,
-          explanation: parsedData.action.explanation,
+          confidence: finalConfidence,
+          explanation: parsedData.action.explanation || (deterministicDateResult.matched ? deterministicDateResult.explanation : undefined),
           requiresConfirmation: true,
         };
       }
@@ -329,7 +372,8 @@ CÁC INTENT ĐƯỢC HỖ TRỢ:
         rawCleanMessage,
         aggregatedFacts,
         expenses,
-        currentDate
+        businessCurrentDate,
+        deterministicDateResult
       );
 
       AiLogger.logRequest({
@@ -361,7 +405,8 @@ CÁC INTENT ĐƯỢC HỖ TRỢ:
     message: string,
     facts: any,
     expenses: any[],
-    currentDate: string
+    businessCurrentDate: string,
+    precomputedDateResult?: any
   ): AiAssistantResult {
     const lower = message.toLowerCase();
 
@@ -380,45 +425,28 @@ CÁC INTENT ĐƯỢC HỖ TRỢ:
               expense: {
                 id: matched.id,
                 amount: matched.amount,
+                currency: 'VND',
                 category: matched.categoryId,
                 categoryName: CATEGORIES_MAP[matched.categoryId] || 'Khác',
                 date: matched.date,
                 note: matched.note,
               },
-              confidence: 0.85,
+              confidence: 0.9,
               explanation: 'Nhận diện yêu cầu xóa giao dịch',
               requiresConfirmation: true,
             },
             reply: 'Bạn có chắc chắn muốn xóa giao dịch này khỏi sổ tay chi tiêu không?',
-            confidence: 0.85,
+            confidence: 0.9,
           },
         };
       }
     }
 
-    // 2. CREATE_EXPENSE regex detection (e.g. "ăn sáng 35k", "grab 85000", "mua sách 120 ngàn")
-    const amountRegex = /(\d+(?:[.,]\d+)?)\s*(k|nghìn|ngàn|tr|triệu|đ|vnd)?/i;
-    const match = lower.match(amountRegex);
+    // 2. CREATE_EXPENSE with deterministic date normalization
+    const parsedTx = parseTransactionText(message, businessCurrentDate);
 
-    if (match && !lower.includes('bao nhiêu') && !lower.includes('thế nào') && !lower.includes('dự báo')) {
-      let rawVal = parseFloat(match[1].replace(',', '.'));
-      const unit = (match[2] || '').toLowerCase();
-
-      let finalAmount = rawVal;
-      if (unit === 'k' || unit === 'nghìn' || unit === 'ngàn') finalAmount = rawVal * 1000;
-      else if (unit === 'tr' || unit === 'triệu') finalAmount = rawVal * 1000000;
-      else if (finalAmount < 1000 && !unit) finalAmount = rawVal * 1000;
-
-      // Category detection
-      let detectedCat = 'khac';
-      if (/ăn|phở|cơm|bún|bánh|uống|cafe|trà|nhậu|siêu thị|chợ/.test(lower)) detectedCat = 'an_uong';
-      else if (/xăng|xe|grab|taxi|vé|gửi xe|bus|be/.test(lower)) detectedCat = 'di_chuyen';
-      else if (/quần|áo|giày|dép|mua|shopee|lazada|mỹ phẩm/.test(lower)) detectedCat = 'mua_sam';
-      else if (/phim|game|du lịch|karaoke|chơi/.test(lower)) detectedCat = 'giai_tri';
-      else if (/điện|nước|mạng|wifi|học phí|nhà|hóa đơn/.test(lower)) detectedCat = 'hoa_don';
-      else if (/thuốc|bệnh|khám|gym|bác sĩ/.test(lower)) detectedCat = 'suc_khoe';
-      else if (/sách|vở|học|khóa học/.test(lower)) detectedCat = 'giao_duc';
-
+    if (parsedTx.success && parsedTx.amount > 0 && !lower.includes('bao nhiêu') && !lower.includes('thế nào') && !lower.includes('dự báo')) {
+      const displayDateNote = parsedTx.dateLabel ? ` vào ${parsedTx.dateLabel}` : '';
       return {
         success: true,
         data: {
@@ -426,18 +454,21 @@ CÁC INTENT ĐƯỢC HỖ TRỢ:
           action: {
             type: 'CREATE_EXPENSE',
             expense: {
-              amount: finalAmount,
-              category: detectedCat,
-              categoryName: CATEGORIES_MAP[detectedCat] || 'Chi tiêu khác',
-              date: currentDate,
-              note: message.trim(),
+              amount: parsedTx.amount,
+              currency: 'VND',
+              category: parsedTx.categoryId,
+              categoryName: parsedTx.categoryName,
+              date: parsedTx.date,
+              dateExpression: parsedTx.dateExpression,
+              dateType: parsedTx.dateType,
+              note: parsedTx.note,
             },
-            confidence: 0.85,
-            explanation: `Bóc tách: ${CATEGORIES_MAP[detectedCat]} - ${finalAmount.toLocaleString('vi-VN')}₫`,
+            confidence: parsedTx.confidence,
+            explanation: `Đã nhận diện: ${parsedTx.categoryName} - ${parsedTx.amount.toLocaleString('vi-VN')}₫ (${parsedTx.date})`,
             requiresConfirmation: true,
           },
-          reply: 'Bạn có muốn lưu giao dịch này vào sổ tay chi tiêu không?',
-          confidence: 0.85,
+          reply: `Tôi đã nhận diện khoản chi: **${parsedTx.note}** với số tiền **${parsedTx.amount.toLocaleString('vi-VN')}₫**${displayDateNote} (Ngày **${parsedTx.date}**). Bạn có muốn lưu vào sổ tay chi tiêu không?`,
+          confidence: parsedTx.confidence,
         },
       };
     }
@@ -491,7 +522,7 @@ CÁC INTENT ĐƯỢC HỖ TRỢ:
           riskOrInsight: `Tỷ lệ tiết kiệm hiện tại: ${facts.savingsRatePct}%.`,
           recommendedAction: `Số dư còn lại: ${facts.netSavingsThisMonth?.toLocaleString('vi-VN')}₫.`,
         },
-        reply: `📊 **Tổng quan tài chính tháng ${facts.month}/${facts.year}:**\n\n• **Tổng chi tiêu**: **${facts.totalSpentThisMonth?.toLocaleString('vi-VN')}₫** (${facts.transactionCountThisMonth} giao dịch).\n• **Thu nhập định mức**: **${facts.income?.toLocaleString('vi-VN')}₫**.\n• **Tích lũy ròng**: **${facts.netSavingsThisMonth?.toLocaleString('vi-VN')}₫** (Tỷ lệ tiết kiệm: **${facts.savingsRatePct}%**).\n\n💡 Bạn có thể hỏi Copilot: *"Tôi tiêu nhiều nhất vào đâu?"*, *"Dự báo dòng tiền cuối tháng"*, hoặc gõ *"Ăn sáng 35k"* để ghi chép nhanh!`,
+        reply: `📊 **Tổng quan tài chính tháng ${facts.month}/${facts.year}:**\n\n• **Tổng chi tiêu**: **${facts.totalSpentThisMonth?.toLocaleString('vi-VN')}₫** (${facts.transactionCountThisMonth} giao dịch).\n• **Thu nhập định mức**: **${facts.income?.toLocaleString('vi-VN')}₫**.\n• **Tích lũy ròng**: **${facts.netSavingsThisMonth?.toLocaleString('vi-VN')}₫** (Tỷ lệ tiết kiệm: **${facts.savingsRatePct}%**).\n\n💡 Bạn có thể hỏi Copilot: *"Tôi tiêu nhiều nhất vào đâu?"*, *"Dự báo dòng tiền cuối tháng"*, hoặc gõ *"Hôm qua ăn cơm 15k"* để ghi chép nhanh!`,
         confidence: 0.85,
       },
     };

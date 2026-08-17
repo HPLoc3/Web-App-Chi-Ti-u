@@ -1,4 +1,5 @@
 import express from "express";
+import http from "http";
 import path from "path";
 import cors from "cors";
 import helmet from "helmet";
@@ -17,6 +18,9 @@ import recurringRoutes from "./src/modules/recurring/recurring.routes";
 import reportsRoutes from "./src/modules/reports/reports.routes";
 import syncRoutes from "./src/modules/sync/sync.routes";
 import aiRoutes from "./src/modules/ai/ai.routes";
+import healthRoutes, { setDraining } from "./src/modules/health/health.routes";
+
+import { validateEnvironment } from "./src/config/env";
 import { getJwtSecret } from "./src/middleware/auth.middleware";
 import { requestIdMiddleware } from "./src/middleware/requestId.middleware";
 import { securityHeadersMiddleware } from "./src/middleware/securityHeaders.middleware";
@@ -24,31 +28,33 @@ import { sanitizeInputMiddleware } from "./src/middleware/sanitize.middleware";
 import { apiRateLimiter } from "./src/middleware/rateLimiter.middleware";
 import { errorHandler, notFoundHandler } from "./src/middleware/errorHandler.middleware";
 import { Logger } from "./src/utils/logger";
+import { prisma } from "./src/lib/prisma";
 
 dotenv.config({ override: true });
 
-// Bắt buộc kiểm tra JWT_SECRET khi server khởi động (Fail-fast)
+// 1. Khởi tạo và kiểm tra toàn vẹn biến môi trường khi server khởi động (Fail-fast)
+const envConfig = validateEnvironment();
 getJwtSecret();
 
 const app = express();
-const PORT = 3000;
+const PORT = envConfig.PORT || 3000;
 
-// Cho phép Express nhận diện client IP thực tế qua Nginx / Cloud Run Proxy
+// 2. Cho phép Express nhận diện client IP thực tế qua Nginx / Cloud Run / Kubernetes Ingress
 app.set("trust proxy", 1);
 
-// 1. Gán Request ID cho mỗi HTTP request để phục vụ Audit Trail & Logging
+// 3. Gán Request ID cho mỗi HTTP request để phục vụ Audit Trail & Logging
 app.use(requestIdMiddleware);
 
-// 2. HTTP Security Headers (Helmet + Custom OWASP Security Headers)
+// 4. HTTP Security Headers (Helmet + Custom OWASP Security Headers)
 app.use(
   helmet({
-    contentSecurityPolicy: false, // Để tránh chặn Vite dev server / iframe scripts
+    contentSecurityPolicy: false, // Quản lý qua securityHeadersMiddleware và tương thích preview iframe
     crossOriginEmbedderPolicy: false,
   })
 );
 app.use(securityHeadersMiddleware);
 
-// 3. Cấu hình Whitelist CORS an toàn (Chống CSRF & Cross-Origin Unauthorized Access)
+// 5. Cấu hình Whitelist CORS an toàn (Chống CSRF & Cross-Origin Unauthorized Access)
 const parseAllowedOrigins = (): string[] => {
   const defaultOrigins = [
     "https://hophuloc.online",
@@ -80,7 +86,7 @@ const allowedOrigins = parseAllowedOrigins();
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Cho phép các request nội bộ không có Origin (same-origin, cURL, server-to-server)
+      // Cho phép các request nội bộ không có Origin (same-origin, cURL, server-to-server, health check probes)
       if (!origin) {
         return callback(null, true);
       }
@@ -114,13 +120,17 @@ app.use(
   })
 );
 
-// 4. Request Body Parsing & Sanitization (Prototype Pollution Protection & Size Limit)
+// 6. Request Body Parsing & Sanitization (Prototype Pollution Protection & Size Limit)
 app.use(cookieParser());
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(sanitizeInputMiddleware);
 
-// 5. Rate Limiting toàn cục cho các API endpoints (/api/*)
+// 7. Health Check, Liveness & Readiness Routes (Được đặt trước rate limiter để tránh chặn load balancer probe)
+app.use("/health", healthRoutes);
+app.use("/api/health", healthRoutes);
+
+// 8. Rate Limiting toàn cục cho các API endpoints (/api/*)
 app.use("/api", apiRateLimiter);
 
 // --- REST API ENDPOINTS (v1 & Legacy Aliases) ---
@@ -151,20 +161,13 @@ app.use("/api/reports", reportsRoutes);
 app.use("/api/sync", syncRoutes);
 app.use("/api/ai", aiRoutes);
 
-// Health Check API Route
-app.get("/api/health", (_req, res) => {
-  res.json({
-    status: "ok",
-    aiEnabled: !!(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "MY_GEMINI_API_KEY"),
-    timestamp: new Date().toISOString(),
-  });
-});
-
 // Xử lý 404 cho các đường dẫn /api/* không hợp lệ
 app.use("/api/*", notFoundHandler);
 
-// 6. Centralized Error Handler (Xử lý lỗi tập trung & che giấu thông tin nhạy cảm)
+// 9. Centralized Error Handler (Xử lý lỗi tập trung & che giấu thông tin nhạy cảm)
 app.use(errorHandler);
+
+let httpServer: http.Server | null = null;
 
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
@@ -189,10 +192,66 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    Logger.info(`Server listening on http://0.0.0.0:${PORT}`);
+  httpServer = app.listen(PORT, "0.0.0.0", () => {
+    Logger.info(`Server listening on http://0.0.0.0:${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
   });
+
+  // Tối ưu hóa Keep-Alive timeout cho Reverse Proxy (Nginx / Cloud Run / ALB)
+  httpServer.keepAliveTimeout = 65000;
+  httpServer.headersTimeout = 66000;
+
+  return httpServer;
 }
+
+// 10. Graceful Shutdown & Process Signal Handling (SIGTERM & SIGINT)
+const handleGracefulShutdown = (signal: string) => {
+  Logger.info(`Received ${signal}. Initiating graceful shutdown...`);
+  
+  // Đánh dấu server bắt đầu draining để readiness probe trả về 503
+  setDraining(true);
+
+  if (!httpServer) {
+    process.exit(0);
+    return;
+  }
+
+  // 15-second safety timeout để ép dừng nếu có kết nối bị treo
+  const forceExitTimer = setTimeout(() => {
+    Logger.error('Graceful shutdown timeout exceeded (15s). Forcefully terminating process.');
+    process.exit(1);
+  }, 15000);
+  forceExitTimer.unref();
+
+  // Đóng HTTP Server, không nhận thêm kết nối mới
+  httpServer.close(async (err) => {
+    if (err) {
+      Logger.error('Error while closing HTTP server:', err);
+      process.exit(1);
+    }
+
+    Logger.info('HTTP server closed successfully. Disconnecting database client...');
+    try {
+      await prisma.$disconnect();
+      Logger.info('PostgreSQL connection pool disconnected cleanly.');
+      process.exit(0);
+    } catch (dbErr) {
+      Logger.error('Error disconnecting database:', dbErr);
+      process.exit(1);
+    }
+  });
+};
+
+process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));
+
+process.on('unhandledRejection', (reason: any) => {
+  Logger.error('Unhandled Promise Rejection:', reason);
+});
+
+process.on('uncaughtException', (err: Error) => {
+  Logger.error('Uncaught Exception:', err);
+  handleGracefulShutdown('uncaughtException');
+});
 
 if (!process.env.VERCEL && !process.env.VITEST && process.env.NODE_ENV !== "test") {
   startServer();

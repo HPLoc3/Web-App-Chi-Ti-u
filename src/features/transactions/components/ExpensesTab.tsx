@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Expense } from '../../../types';
 import { CATEGORIES } from '../../../constants/categories';
 import { formatCurrency, formatDateVietnamese } from '../../../utils/format';
+import { getBusinessDate } from '../../../utils/dateParser';
 import { useToast } from '../../../context/ToastContext';
 import { EditExpenseModal } from './EditExpenseModal';
 import { ImportStatementModal } from './ImportStatementModal';
@@ -57,7 +58,7 @@ export default function ExpensesTab({
   // Form states
   const [amount, setAmount] = useState('');
   const [categoryId, setCategoryId] = useState(CATEGORIES[0].id);
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(getBusinessDate());
   const [note, setNote] = useState('');
 
   // Search & Filters

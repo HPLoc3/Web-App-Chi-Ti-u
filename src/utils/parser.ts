@@ -1,18 +1,24 @@
-import { Expense } from '../types';
 import { CATEGORIES } from '../constants/categories';
+import { parseVietnameseDate, DateConfidenceType } from './dateParser';
 
-interface ParsedResult {
+export interface ParsedResult {
   amount: number;
   categoryId: string;
   categoryName: string;
   date: string; // YYYY-MM-DD
   dateLabel: string;
+  dateType: DateConfidenceType;
+  dateExpression: string;
+  confidence: number;
   note: string;
   success: boolean;
   message: string;
 }
 
-export function parseTransactionText(text: string): ParsedResult {
+export function parseTransactionText(
+  text: string,
+  referenceDate?: string | Date | null
+): ParsedResult {
   const cleanedText = text.trim();
   if (!cleanedText) {
     return {
@@ -21,16 +27,22 @@ export function parseTransactionText(text: string): ParsedResult {
       categoryName: 'Khác',
       date: '',
       dateLabel: '',
+      dateType: 'DEFAULT',
+      dateExpression: '',
+      confidence: 0,
       note: '',
       success: false,
       message: 'Vui lòng nhập nội dung chi tiêu.',
     };
   }
 
-  const lowerText = cleanedText.toLowerCase();
+  // 1. EXTRACT DATE WITH DETERMINISTIC ENGINE
+  const dateResult = parseVietnameseDate(cleanedText, referenceDate);
+  const textWithoutDate = dateResult.cleanedText || cleanedText;
+  const lowerText = textWithoutDate.toLowerCase();
 
-  // 1. EXTRACT AMOUNT
-  const amountRegex = /(\d+(?:[\d.,\s]*\d)?)\s*(k|nghìn|ngàn|triệu|tr|đ|đồng|d)?\b/iu;
+  // 2. EXTRACT AMOUNT
+  const amountRegex = /(\d+(?:[\d.,\s]*\d)?)\s*(k|nghìn|ngàn|triệu|tr|đ|đồng|d|vnd)?\b/iu;
   const amountMatch = lowerText.match(amountRegex);
 
   let amount = 0;
@@ -72,15 +84,18 @@ export function parseTransactionText(text: string): ParsedResult {
       amount: 0,
       categoryId: 'khac',
       categoryName: 'Khác',
-      date: '',
-      dateLabel: '',
+      date: dateResult.normalizedDate,
+      dateLabel: dateResult.originalExpression || 'hôm nay',
+      dateType: dateResult.dateType,
+      dateExpression: dateResult.originalExpression,
+      confidence: 0,
       note: '',
       success: false,
       message: 'Không nhận diện được số tiền hợp lệ.',
     };
   }
 
-  // 2. DETECT CATEGORY
+  // 3. DETECT CATEGORY
   let categoryId = 'khac';
   let maxScore = 0;
 
@@ -101,40 +116,17 @@ export function parseTransactionText(text: string): ParsedResult {
     }
   }
 
-  const matchedCategory = CATEGORIES.find(c => c.id === categoryId) || CATEGORIES[CATEGORIES.length - 1];
-
-  // 3. DETECT DATE
-  const today = new Date();
-  let targetDate = today;
-  let dateLabel = 'hôm nay';
-
-  if (lowerText.includes('hôm qua')) {
-    targetDate = new Date(Date.now() - 86400000);
-    dateLabel = 'hôm qua';
-  } else if (lowerText.includes('hôm kia')) {
-    targetDate = new Date(Date.now() - 2 * 86400000);
-    dateLabel = 'hôm kia';
-  }
-
-  const year = targetDate.getFullYear();
-  const month = String(targetDate.getMonth() + 1).padStart(2, '0');
-  const day = String(targetDate.getDate()).padStart(2, '0');
-  const dateStr = `${year}-${month}-${day}`;
+  const matchedCategory = CATEGORIES.find((c) => c.id === categoryId) || CATEGORIES[CATEGORIES.length - 1];
 
   // 4. EXTRACT NOTE
-  let rawNote = cleanedText;
+  let rawNote = textWithoutDate;
 
   if (amountMatch && amountMatch[0]) {
     rawNote = rawNote.replace(amountMatch[0], '');
   }
 
   rawNote = rawNote
-    .replace(/hôm qua/gi, '')
-    .replace(/hôm kia/gi, '')
-    .replace(/hôm nay/gi, '');
-
-  rawNote = rawNote
-    .replace(/\b(hết|mất|khoảng|khoản|tầm)\b/gi, '')
+    .replace(/\b(hết|mất|khoảng|khoản|tầm|hôm nay|hôm qua|hôm kia|ngày mai|ngày mốt)\b/gi, '')
     .replace(/[-_:+]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -146,25 +138,35 @@ export function parseTransactionText(text: string): ParsedResult {
     note = matchedCategory.name;
   }
 
+  const overallConfidence = dateResult.matched
+    ? Math.min(dateResult.confidence, 0.98)
+    : 0.95;
+
   return {
     amount,
     categoryId: matchedCategory.id,
     categoryName: matchedCategory.name,
-    date: dateStr,
-    dateLabel,
+    date: dateResult.normalizedDate,
+    dateLabel: dateResult.originalExpression || 'hôm nay',
+    dateType: dateResult.dateType,
+    dateExpression: dateResult.originalExpression,
+    confidence: overallConfidence,
     note,
     success: true,
-    message: `Đã ghi: ${matchedCategory.name} — ${amount.toLocaleString('vi-VN')}₫.`,
+    message: `Đã nhận diện: ${matchedCategory.name} — ${amount.toLocaleString('vi-VN')}₫ vào ngày ${dateResult.normalizedDate}.`,
   };
 }
 
-export function parseNaturalExpense(text: string) {
-  const result = parseTransactionText(text);
+export function parseNaturalExpense(text: string, referenceDate?: string | Date | null) {
+  const result = parseTransactionText(text, referenceDate);
   return {
     amount: result.amount,
     categoryId: result.categoryId,
-    date: result.date || new Date().toISOString().slice(0, 10),
+    categoryName: result.categoryName,
+    date: result.date,
+    dateType: result.dateType,
+    dateExpression: result.dateExpression,
     note: result.note,
-    confidence: result.success ? 0.9 : 0.3
+    confidence: result.success ? result.confidence : 0.3,
   };
 }

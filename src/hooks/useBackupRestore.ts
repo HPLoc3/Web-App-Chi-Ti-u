@@ -39,13 +39,18 @@ export function useBackupRestore(
     return generateSampleState();
   });
 
-  // Persist localState to localStorage
+  // Persist localState to localStorage with debounce to prevent main-thread lag
   useEffect(() => {
-    try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(localState));
-    } catch (e) {
-      console.error('Error saving ledger data to localStorage:', e);
-    }
+    // When logged in, cloud sync handles persistence; only keep minimal backup in localStorage
+    const timeoutId = setTimeout(() => {
+      try {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(localState));
+      } catch (e) {
+        console.error('Error saving ledger data to localStorage:', e);
+      }
+    }, 400);
+
+    return () => clearTimeout(timeoutId);
   }, [localState]);
 
   const handleBackupData = useCallback((currentState: AppState) => {

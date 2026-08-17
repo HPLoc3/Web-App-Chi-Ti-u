@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { Expense, Goal } from '../types';
 import { sendToAIAssistant, AIResponseData } from '../utils/aiService';
+import { getBusinessDate } from '../utils/dateParser';
 
 export interface PendingTransaction {
   id: string;
@@ -86,7 +87,7 @@ export function useAIAssistant({
 
       setMessages((prev) => [...prev, thinkingMessage]);
 
-      const currentDate = new Date().toISOString().split('T')[0];
+      const currentDate = getBusinessDate();
       const context = {
         currentDate,
         expenses,

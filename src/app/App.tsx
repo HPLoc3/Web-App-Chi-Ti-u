@@ -1,12 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AppState, Expense, Goal, RecurringExpense } from '../types';
+import TabSkeleton from '../components/common/TabSkeleton';
 import OverviewTab from '../features/dashboard/components/OverviewTab';
-import ChatbotTab from '../features/ai/components/ChatbotTab';
-import ExpensesTab from '../features/transactions/components/ExpensesTab';
-import BudgetTab from '../features/budgets/components/BudgetTab';
-import GoalsTab from '../features/goals/components/GoalsTab';
-import AboutTab from '../features/settings/components/AboutTab';
-import InsightsTab from '../features/insights/components/InsightsTab';
+
+// Code-split heavy tabs with React.lazy to minimize initial JavaScript bundle
+const ChatbotTab = lazy(() => import('../features/ai/components/ChatbotTab'));
+const ExpensesTab = lazy(() => import('../features/transactions/components/ExpensesTab'));
+const BudgetTab = lazy(() => import('../features/budgets/components/BudgetTab'));
+const GoalsTab = lazy(() => import('../features/goals/components/GoalsTab'));
+const AboutTab = lazy(() => import('../features/settings/components/AboutTab'));
+const InsightsTab = lazy(() => import('../features/insights/components/InsightsTab'));
+
 import OnboardingModal from '../components/common/OnboardingModal';
 import QuickAddExpenseModal from '../features/transactions/components/QuickAddExpenseModal';
 import MobileBottomNav from '../components/layout/MobileBottomNav';
@@ -572,90 +576,92 @@ export function LedgerApp() {
             </button>
           </div>
 
-          {/* Render Active Tab */}
+          {/* Render Active Tab with Suspense */}
           <div className="flex-1">
-            {activeTab === 'overview' && (
-              <OverviewTab
-                expenses={state.expenses}
-                goals={state.goals}
-                income={state.income}
-                categoryLimits={state.categoryLimits}
-                recurringExpenses={state.recurringExpenses}
-                onUpdateIncome={handleUpdateIncome}
-                onAddGoal={handleAddGoal}
-                onUpdateGoalProgress={handleUpdateGoalProgress}
-                onDeleteGoal={handleDeleteGoal}
-                onQuickAdd={() => setIsQuickAddOpen(true)}
-                onNavigateTab={(tab) => setActiveTab(tab)}
-                onTriggerManualRecurringSync={handleTriggerManualRecurringSync}
-                onAddExpense={handleAddExpense}
-              />
-            )}
+            <Suspense fallback={<TabSkeleton />}>
+              {activeTab === 'overview' && (
+                <OverviewTab
+                  expenses={state.expenses}
+                  goals={state.goals}
+                  income={state.income}
+                  categoryLimits={state.categoryLimits}
+                  recurringExpenses={state.recurringExpenses}
+                  onUpdateIncome={handleUpdateIncome}
+                  onAddGoal={handleAddGoal}
+                  onUpdateGoalProgress={handleUpdateGoalProgress}
+                  onDeleteGoal={handleDeleteGoal}
+                  onQuickAdd={() => setIsQuickAddOpen(true)}
+                  onNavigateTab={(tab) => setActiveTab(tab)}
+                  onTriggerManualRecurringSync={handleTriggerManualRecurringSync}
+                  onAddExpense={handleAddExpense}
+                />
+              )}
 
-            {activeTab === 'chatbot' && (
-              <ChatbotTab
-                expenses={state.expenses}
-                categoryLimits={state.categoryLimits}
-                goals={state.goals}
-                income={state.income}
-                recurringExpenses={state.recurringExpenses}
-                onAddExpense={handleAddExpense}
-                onUpdateExpense={handleUpdateExpense}
-                onDeleteExpense={handleDeleteExpense}
-                currentUser={currentUser}
-                onOpenAuthModal={() => {
-                  setAuthModalTab('login');
-                  setIsAuthModalOpen(true);
-                }}
-              />
-            )}
+              {activeTab === 'chatbot' && (
+                <ChatbotTab
+                  expenses={state.expenses}
+                  categoryLimits={state.categoryLimits}
+                  goals={state.goals}
+                  income={state.income}
+                  recurringExpenses={state.recurringExpenses}
+                  onAddExpense={handleAddExpense}
+                  onUpdateExpense={handleUpdateExpense}
+                  onDeleteExpense={handleDeleteExpense}
+                  currentUser={currentUser}
+                  onOpenAuthModal={() => {
+                    setAuthModalTab('login');
+                    setIsAuthModalOpen(true);
+                  }}
+                />
+              )}
 
-            {activeTab === 'insights' && (
-              <InsightsTab state={state} />
-            )}
+              {activeTab === 'insights' && (
+                <InsightsTab state={state} />
+              )}
 
-            {activeTab === 'budget' && (
-              <BudgetTab
-                expenses={state.expenses}
-                income={state.income}
-                budgetTemplate={state.budgetTemplate}
-                categoryLimits={state.categoryLimits}
-                recurringExpenses={state.recurringExpenses}
-                onUpdateTemplate={handleUpdateTemplate}
-                onUpdateCategoryLimit={handleUpdateCategoryLimit}
-                onAddRecurringExpense={handleAddRecurringExpense}
-                onDeleteRecurringExpense={handleDeleteRecurringExpense}
-                onTriggerManualRecurringSync={handleTriggerManualRecurringSync}
-              />
-            )}
+              {activeTab === 'budget' && (
+                <BudgetTab
+                  expenses={state.expenses}
+                  income={state.income}
+                  budgetTemplate={state.budgetTemplate}
+                  categoryLimits={state.categoryLimits}
+                  recurringExpenses={state.recurringExpenses}
+                  onUpdateTemplate={handleUpdateTemplate}
+                  onUpdateCategoryLimit={handleUpdateCategoryLimit}
+                  onAddRecurringExpense={handleAddRecurringExpense}
+                  onDeleteRecurringExpense={handleDeleteRecurringExpense}
+                  onTriggerManualRecurringSync={handleTriggerManualRecurringSync}
+                />
+              )}
 
-            {activeTab === 'expenses' && (
-              <ExpensesTab
-                expenses={state.expenses}
-                onAddExpense={handleAddExpense}
-                onDeleteExpense={handleDeleteExpense}
-                onUpdateExpense={handleUpdateExpense}
-              />
-            )}
+              {activeTab === 'expenses' && (
+                <ExpensesTab
+                  expenses={state.expenses}
+                  onAddExpense={handleAddExpense}
+                  onDeleteExpense={handleDeleteExpense}
+                  onUpdateExpense={handleUpdateExpense}
+                />
+              )}
 
-            {activeTab === 'goals' && (
-              <GoalsTab
-                expenses={state.expenses}
-                goals={state.goals}
-                income={state.income}
-                onUpdateIncome={handleUpdateIncome}
-                onAddGoal={handleAddGoal}
-                onUpdateGoalProgress={handleUpdateGoalProgress}
-                onDeleteGoal={handleDeleteGoal}
-              />
-            )}
+              {activeTab === 'goals' && (
+                <GoalsTab
+                  expenses={state.expenses}
+                  goals={state.goals}
+                  income={state.income}
+                  onUpdateIncome={handleUpdateIncome}
+                  onAddGoal={handleAddGoal}
+                  onUpdateGoalProgress={handleUpdateGoalProgress}
+                  onDeleteGoal={handleDeleteGoal}
+                />
+              )}
 
-            {activeTab === 'about' && (
-              <AboutTab
-                onGoToApp={() => setActiveTab('overview')}
-                onGoToChatbot={() => setActiveTab('chatbot')}
-              />
-            )}
+              {activeTab === 'about' && (
+                <AboutTab
+                  onGoToApp={() => setActiveTab('overview')}
+                  onGoToChatbot={() => setActiveTab('chatbot')}
+                />
+              )}
+            </Suspense>
           </div>
         </div>
       </main>

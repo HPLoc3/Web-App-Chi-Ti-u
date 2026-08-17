@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   ResponsiveContainer, 
   BarChart, 
@@ -22,7 +22,7 @@ interface SpendingTrendsSectionProps {
   onNavigateToExpenses?: () => void;
 }
 
-export const SpendingTrendsSection: React.FC<SpendingTrendsSectionProps> = ({
+export const SpendingTrendsSection: React.FC<SpendingTrendsSectionProps> = React.memo(({
   filteredExpenses,
   allExpenses,
   totalExpenseThisMonth,
@@ -30,40 +30,50 @@ export const SpendingTrendsSection: React.FC<SpendingTrendsSectionProps> = ({
 }) => {
   const [chartView, setChartView] = useState<'7days' | 'byCategory'>('7days');
 
-  // Calculate Category breakdown
-  const categoryTotals: Record<string, number> = {};
-  filteredExpenses.forEach((exp) => {
-    categoryTotals[exp.categoryId] = (categoryTotals[exp.categoryId] || 0) + exp.amount;
-  });
-
-  const categoryData = CATEGORIES.map((cat) => ({
-    id: cat.id,
-    name: cat.name,
-    value: categoryTotals[cat.id] || 0,
-    color: cat.color,
-  }))
-    .filter((item) => item.value > 0)
-    .sort((a, b) => b.value - a.value);
-
-  // Calculate 7-day daily spending trend
-  const today = new Date();
-  const last7DaysData = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(today.getDate() - i);
-    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const displayLabel = `${d.getDate()}/${d.getMonth() + 1}`;
-
-    const daySum = allExpenses
-      .filter((exp) => exp.date === dateStr)
-      .reduce((sum, exp) => sum + exp.amount, 0);
-
-    last7DaysData.push({
-      date: dateStr,
-      label: displayLabel,
-      'Số tiền': daySum,
+  // Memoize category breakdown calculations
+  const categoryData = useMemo(() => {
+    const categoryTotals: Record<string, number> = {};
+    filteredExpenses.forEach((exp) => {
+      categoryTotals[exp.categoryId] = (categoryTotals[exp.categoryId] || 0) + exp.amount;
     });
-  }
+
+    return CATEGORIES.map((cat) => ({
+      id: cat.id,
+      name: cat.name,
+      value: categoryTotals[cat.id] || 0,
+      color: cat.color,
+    }))
+      .filter((item) => item.value > 0)
+      .sort((a, b) => b.value - a.value);
+  }, [filteredExpenses]);
+
+  // Memoize 7-day daily spending trend
+  const last7DaysData = useMemo(() => {
+    const today = new Date();
+    // Build a map of dates for O(N) lookup instead of O(7 * N) filter
+    const expenseByDateMap = new Map<string, number>();
+    allExpenses.forEach((exp) => {
+      if (exp.date) {
+        expenseByDateMap.set(exp.date, (expenseByDateMap.get(exp.date) || 0) + exp.amount);
+      }
+    });
+
+    const result = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(today.getDate() - i);
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const displayLabel = `${d.getDate()}/${d.getMonth() + 1}`;
+      const daySum = expenseByDateMap.get(dateStr) || 0;
+
+      result.push({
+        date: dateStr,
+        label: displayLabel,
+        'Số tiền': daySum,
+      });
+    }
+    return result;
+  }, [allExpenses]);
 
   return (
     <div className="bg-[#FAF7F0] border border-[#E6DEC9] rounded-2xl p-5 shadow-xs space-y-4">
@@ -278,5 +288,5 @@ export const SpendingTrendsSection: React.FC<SpendingTrendsSectionProps> = ({
       </div>
     </div>
   );
-};
+});
 export default SpendingTrendsSection;

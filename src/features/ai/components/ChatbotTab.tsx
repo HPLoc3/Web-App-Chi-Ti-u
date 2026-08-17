@@ -15,9 +15,11 @@ import {
   ArrowRight,
   Zap,
   RotateCcw,
+  Calendar,
 } from 'lucide-react';
 import { Expense, Goal, RecurringExpense } from '../../../types';
-import { formatCurrency } from '../../../utils/format';
+import { formatCurrency, formatDateVietnamese } from '../../../utils/format';
+import { getBusinessDate } from '../../../utils/dateParser';
 import { CATEGORIES } from '../../../constants/categories';
 import { AppUser } from '../../../context/AuthContext';
 import {
@@ -32,9 +34,12 @@ export interface PendingActionState {
   id: string;
   type: 'CREATE_EXPENSE' | 'UPDATE_EXPENSE' | 'DELETE_EXPENSE';
   amount: number;
+  currency?: string;
   category: string;
   categoryName: string;
-  date: string;
+  date: string; // YYYY-MM-DD
+  dateExpression?: string;
+  dateType?: string;
   note: string;
   targetExpenseId?: string;
   targetSummary?: string;
@@ -94,7 +99,7 @@ export default function ChatbotTab({
     {
       id: 'welcome',
       sender: 'bot',
-      text: `Xin chào ${currentUser?.displayName || currentUser?.email || 'bạn'}! 🤖 Mình là **Financial Copilot** của Sổ Tay Chi Tiêu.\n\n🔒 **Cam kết bảo mật**: Copilot **không bao giờ tự ý ghi/sửa/xóa dữ liệu** mà luôn hiển thị thẻ **[Xác nhận]** để bạn phê duyệt.\n\nBạn có thể thử:\n• ✍️ **Ghi nhanh**: *"Ăn sáng 35k"*, *"Đi Grab 85k hôm qua"*\n• 📊 **Truy vấn**: *"Tháng này tôi tiêu bao nhiêu?"*, *"Tôi có vượt ngân sách không?"*\n• 🔮 **Dự báo**: *"Dự báo dòng tiền cuối tháng"*, *"Bao lâu nữa mua được Laptop?"*`,
+      text: `Xin chào ${currentUser?.displayName || currentUser?.email || 'bạn'}! 🤖 Mình là **Financial Copilot** của Sổ Tay Chi Tiêu.\n\n🔒 **Cam kết bảo mật & Chuẩn xác**: Copilot **không bao giờ tự ý ghi/sửa/xóa dữ liệu** mà luôn hiển thị thẻ **[Xác nhận]** để bạn phê duyệt, hỗ trợ nhận diện ngày thông minh ("hôm qua", "thứ 2 tuần trước", "15/08").\n\nBạn có thể thử:\n• ✍️ **Ghi nhanh**: *"Hôm qua ăn cơm 15k"*, *"Thứ 2 tuần trước ăn lẩu 200k"*\n• 📊 **Truy vấn**: *"Tháng này tôi tiêu bao nhiêu?"*, *"Tôi có vượt ngân sách không?"*\n• 🔮 **Dự báo**: *"Dự báo dòng tiền cuối tháng"*, *"Bao lâu nữa mua được Laptop?"*`,
       timestamp: new Date(),
     },
   ]);
@@ -139,14 +144,15 @@ export default function ChatbotTab({
     const thinkingMessage: ChatMessage = {
       id: thinkingId,
       sender: 'bot',
-      text: '🤖 Financial Copilot đang phân tích số liệu tài chính & tổng hợp facts...',
+      text: '🤖 Financial Copilot đang phân tích số liệu tài chính & chuẩn hóa thời gian...',
       timestamp: new Date(),
       isThinking: true,
     };
 
     setMessages((prev) => [...prev, thinkingMessage]);
 
-    const currentDate = new Date().toISOString().split('T')[0];
+    // Use safe business date in Asia/Ho_Chi_Minh
+    const currentDate = getBusinessDate();
     const context = {
       currentDate,
       expenses,
@@ -181,14 +187,17 @@ export default function ChatbotTab({
         id: `action-${Date.now()}`,
         type: act.type as any,
         amount: exp.amount,
+        currency: exp.currency || 'VND',
         category: exp.category,
         categoryName: exp.categoryName,
         date: exp.date,
+        dateExpression: exp.dateExpression,
+        dateType: exp.dateType,
         note: exp.note,
         targetExpenseId: act.targetExpenseId || exp.id,
         targetSummary: act.targetSummary,
         originalExpense: exp.originalExpense,
-        confidence: Math.round((act.confidence || 0.85) * 100),
+        confidence: Math.round((act.confidence || 0.9) * 100),
         explanation: act.explanation,
         status: 'pending',
         isEditing: false,
@@ -196,7 +205,7 @@ export default function ChatbotTab({
 
       const promptTitle =
         act.type === 'CREATE_EXPENSE'
-          ? 'Bạn muốn thêm giao dịch này?'
+          ? 'Bạn muốn thêm giao dịch này vào sổ?'
           : act.type === 'UPDATE_EXPENSE'
           ? 'Bạn muốn cập nhật giao dịch này?'
           : 'Bạn có chắc chắn muốn xóa giao dịch này?';
@@ -283,8 +292,7 @@ export default function ChatbotTab({
       if (action.type !== 'DELETE_EXPENSE') {
         const limit = categoryLimits[action.category] || 0;
         if (limit > 0) {
-          const today = new Date();
-          const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+          const currentMonthStr = action.date.slice(0, 7);
 
           const spentBefore = expenses
             .filter((e) => e.categoryId === action.category && e.date && e.date.startsWith(currentMonthStr))
@@ -377,12 +385,12 @@ export default function ChatbotTab({
   };
 
   const quickChips = [
-    { text: 'Ăn sáng 35k phở bò', type: 'tx', label: '✍️ Ăn sáng 35k' },
-    { text: 'Đi Grab 85 nghìn hôm qua', type: 'tx', label: '✍️ Grab 85k' },
+    { text: 'Hôm qua ăn cơm 15k', type: 'tx', label: '✍️ Hôm qua ăn cơm 15k' },
+    { text: 'Thứ 2 tuần trước ăn lẩu 200k', type: 'tx', label: '✍️ T2 tuần trước 200k' },
+    { text: 'Đi Grab 85 nghìn hôm kia', type: 'tx', label: '✍️ Grab 85k hôm kia' },
     { text: 'Tháng này tôi tiêu bao nhiêu?', type: 'query', label: '📊 Tổng chi tiêu tháng' },
     { text: 'Tôi có vượt ngân sách ở đâu không?', type: 'query', label: '🛡️ Kiểm tra ngân sách' },
     { text: 'Dự báo dòng tiền cuối tháng', type: 'query', label: '🔮 Dự báo dòng tiền' },
-    { text: 'Bao lâu nữa mua được Laptop?', type: 'query', label: '🎯 Tiến độ mục tiêu' },
   ];
 
   return (
@@ -399,7 +407,7 @@ export default function ChatbotTab({
                 Financial Copilot
               </h3>
               <span className="bg-amber-400 text-emerald-950 text-[10px] font-bold px-1.5 py-0.5 rounded font-mono uppercase tracking-wider">
-                Gemini 3.7 Flash
+                Natural Date AI
               </span>
             </div>
             <span className="text-[11px] text-emerald-200/90 font-sans flex items-center gap-1.5 mt-0.5">
@@ -437,7 +445,7 @@ export default function ChatbotTab({
         <div className="bg-amber-50/90 border-b border-amber-200 px-4 py-2 flex items-center justify-between text-xs text-amber-900">
           <div className="flex items-center gap-2">
             <Sparkles size={14} className="text-amber-700 shrink-0" />
-            <span>Đăng nhập tài khoản để sử dụng Gemini 3.7 Financial Copilot với phân tích chuyên sâu & hạn mức 50 lượt/ngày.</span>
+            <span>Đăng nhập tài khoản để sử dụng Gemini Financial Copilot với phân tích chuyên sâu & hạn mức 50 lượt/ngày.</span>
           </div>
           <button
             onClick={onOpenAuthModal}
@@ -498,7 +506,7 @@ export default function ChatbotTab({
                       </div>
                     )}
 
-                    {/* Prescriptive Financial Summary Card ("Vậy tôi nên làm gì?") */}
+                    {/* Prescriptive Financial Summary Card */}
                     {msg.financialSummary && (
                       <div className="mt-3 bg-amber-50/80 border border-amber-200 rounded-xl p-3 text-xs space-y-2 text-amber-950 font-sans">
                         {msg.financialSummary.currentStatus && (
@@ -597,13 +605,25 @@ export default function ChatbotTab({
                                 </span>
                               </div>
 
-                              <div className="bg-white p-2.5 rounded-lg border border-stone-200 space-y-0.5 shadow-2xs">
-                                <span className="text-[10px] font-bold text-stone-400 uppercase block">Ngày ghi</span>
-                                <span className="font-mono text-stone-700 text-xs block">{act.date}</span>
+                              <div className="bg-white p-2.5 rounded-lg border border-stone-200 space-y-0.5 shadow-2xs col-span-2 sm:col-span-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[10px] font-bold text-stone-400 uppercase block">Ngày giao dịch</span>
+                                  {act.dateExpression && (
+                                    <span className="text-[10px] bg-amber-100 text-amber-900 font-bold px-1.5 py-0.2 rounded font-sans">
+                                      {act.dateExpression}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="font-semibold text-emerald-950 text-xs block">
+                                  {formatDateVietnamese(act.date)}
+                                </span>
+                                <span className="font-mono text-[10px] text-stone-500 block">
+                                  ({act.date})
+                                </span>
                               </div>
 
-                              <div className="bg-white p-2.5 rounded-lg border border-stone-200 space-y-0.5 shadow-2xs">
-                                <span className="text-[10px] font-bold text-stone-400 uppercase block">Nội dung</span>
+                              <div className="bg-white p-2.5 rounded-lg border border-stone-200 space-y-0.5 shadow-2xs col-span-2 sm:col-span-1">
+                                <span className="text-[10px] font-bold text-stone-400 uppercase block">Nội dung ghi chú</span>
                                 <span className="text-stone-800 text-xs font-medium block truncate">
                                   "{act.note}"
                                 </span>
@@ -646,7 +666,7 @@ export default function ChatbotTab({
 
                               <div className="grid grid-cols-2 gap-2">
                                 <div>
-                                  <label className="text-[10px] font-bold text-stone-500 block mb-1">Ngày</label>
+                                  <label className="text-[10px] font-bold text-stone-500 block mb-1">Ngày (YYYY-MM-DD)</label>
                                   <input
                                     type="date"
                                     value={act.date}
@@ -683,7 +703,7 @@ export default function ChatbotTab({
                                 <CheckCircle2 size={15} />
                                 <span>
                                   {act.type === 'CREATE_EXPENSE'
-                                    ? '✓ Xác nhận thêm'
+                                    ? '✓ Xác nhận lưu vào sổ'
                                     : act.type === 'UPDATE_EXPENSE'
                                     ? '✓ Xác nhận cập nhật'
                                     : '🗑️ Xác nhận xóa'}
@@ -720,7 +740,7 @@ export default function ChatbotTab({
                               <CheckCircle2 size={16} className="text-emerald-700 shrink-0" />
                               <span>
                                 {act.type === 'CREATE_EXPENSE'
-                                  ? 'Đã xác nhận & lưu giao dịch vào Sổ Tay!'
+                                  ? `Đã lưu thành công vào ngày ${formatDateVietnamese(act.date)}!`
                                   : act.type === 'UPDATE_EXPENSE'
                                   ? 'Đã cập nhật giao dịch thành công!'
                                   : 'Đã xóa giao dịch khỏi Sổ Tay!'}
@@ -750,53 +770,40 @@ export default function ChatbotTab({
         <div ref={chatEndRef} />
       </div>
 
-      {/* Quick Action Suggestion Chips */}
-      <div className="px-3.5 py-2 border-t border-stone-200 bg-[#FAF7F0] overflow-x-auto whitespace-nowrap scrollbar-hide flex items-center gap-2">
-        <span className="text-[10px] font-bold text-stone-400 uppercase mr-1 flex items-center gap-1 shrink-0 font-mono">
-          <HelpCircle size={12} className="text-amber-600" /> Gợi ý:
+      {/* Quick Prompt Chips */}
+      <div className="px-4 py-2.5 bg-stone-100/80 border-t border-[#E6DEC9] flex items-center gap-2 overflow-x-auto no-scrollbar">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 font-mono shrink-0">
+          Gợi ý:
         </span>
         {quickChips.map((chip, idx) => (
           <button
             key={idx}
-            disabled={isProcessing}
+            type="button"
             onClick={() => handleSend(undefined, chip.text)}
-            className={`px-3 py-1.5 bg-white hover:bg-emerald-50 border text-xs rounded-full cursor-pointer transition whitespace-nowrap shrink-0 flex items-center gap-1 shadow-2xs ${
-              chip.type === 'query'
-                ? 'border-amber-300 hover:border-amber-500 text-amber-950 font-medium'
-                : 'border-stone-200 hover:border-emerald-700 text-stone-700 hover:text-emerald-950'
-            }`}
+            className="shrink-0 text-xs bg-white hover:bg-emerald-50 text-stone-700 hover:text-emerald-900 font-medium px-2.5 py-1 rounded-lg border border-stone-200 transition shadow-2xs cursor-pointer"
           >
-            {chip.type === 'query' ? (
-              <TrendingUp size={12} className="text-amber-600" />
-            ) : (
-              <Sparkles size={12} className="text-emerald-600" />
-            )}
-            <span>{chip.label}</span>
+            {chip.label}
           </button>
         ))}
       </div>
 
-      {/* Input Message Form */}
-      <form onSubmit={(e) => handleSend(e)} className="p-3 border-t border-[#E6DEC9] bg-[#FAF7F0] flex gap-2">
+      {/* Message Input Box */}
+      <form onSubmit={handleSend} className="p-3 bg-[#FAF7F0] border-t border-[#E6DEC9] flex gap-2 items-center">
         <input
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          placeholder='Nhập chi tiêu hoặc câu hỏi (VD: "Hôm qua ăn cơm 15k", "Thứ 2 tuần trước mua sách 120k")...'
+          className="flex-1 bg-white border border-stone-300 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-700/50"
           disabled={isProcessing}
-          placeholder="Nhập 'Ăn sáng 35k', 'Tháng này tiêu bao nhiêu?', hoặc 'Dự báo dòng tiền'..."
-          className="flex-1 bg-white border border-[#E6DEC9] rounded-xl px-3.5 py-3 sm:py-2.5 text-sm text-stone-800 focus:outline-none focus:border-emerald-700 focus:ring-1 focus:ring-emerald-700 disabled:opacity-50 min-h-[44px] sm:min-h-0"
         />
         <button
           type="submit"
-          disabled={isProcessing || !input.trim()}
-          className="bg-emerald-900 hover:bg-emerald-850 disabled:bg-stone-300 text-white px-4 py-3 sm:py-2.5 rounded-xl flex items-center justify-center gap-1.5 text-sm font-semibold cursor-pointer transition shadow-sm shrink-0 min-h-[44px] sm:min-h-0"
+          disabled={!input.trim() || isProcessing}
+          className="bg-emerald-900 hover:bg-emerald-950 disabled:opacity-40 text-amber-300 font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5 text-xs sm:text-sm shadow-xs cursor-pointer disabled:cursor-not-allowed"
         >
-          {isProcessing ? (
-            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-          ) : (
-            <Send size={15} />
-          )}
-          <span>Gửi</span>
+          <Send size={15} />
+          <span className="hidden sm:inline">Gửi</span>
         </button>
       </form>
     </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { AppState, SeverityType } from '../../../types';
 import { calculateHealthScore } from '../../../utils/healthScore';
 import { generateFinancialInsights } from '../../../utils/insightsEngine';
@@ -20,17 +20,19 @@ interface InsightsTabProps {
   state: AppState;
 }
 
-export const InsightsTab: React.FC<InsightsTabProps> = ({ state }) => {
+export const InsightsTab: React.FC<InsightsTabProps> = React.memo(({ state }) => {
   const [selectedFilter, setSelectedFilter] = useState<'all' | SeverityType>('all');
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [showFormulaInfo, setShowFormulaInfo] = useState(false);
 
-  const health = calculateHealthScore(state);
-  const insights = generateFinancialInsights(state);
+  const health = useMemo(() => calculateHealthScore(state), [state]);
+  const insights = useMemo(() => generateFinancialInsights(state), [state]);
 
-  const filteredInsights = insights.filter((ins) =>
-    selectedFilter === 'all' ? true : ins.severity === selectedFilter
-  );
+  const filteredInsights = useMemo(() => {
+    return insights.filter((ins) =>
+      selectedFilter === 'all' ? true : ins.severity === selectedFilter
+    );
+  }, [insights, selectedFilter]);
 
   return (
     <div className="space-y-6 pb-12 animate-in fade-in duration-200">
@@ -315,6 +317,6 @@ export const InsightsTab: React.FC<InsightsTabProps> = ({ state }) => {
       />
     </div>
   );
-};
+});
 
 export default InsightsTab;

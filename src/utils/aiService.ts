@@ -1,6 +1,7 @@
 import { Expense, Goal } from '../types';
 import { CATEGORIES } from '../constants/categories';
 import { parseTransactionText } from './parser';
+import { getBusinessDate, formatVietnameseDisplayDate, DateConfidenceType } from './dateParser';
 import { apiClient } from '../lib/apiClient';
 
 export type FinancialIntent =
@@ -17,9 +18,12 @@ export type FinancialIntent =
 export interface StructuredExpense {
   id?: string;
   amount: number;
+  currency?: string;
   category: string;
   categoryName: string;
-  date: string;
+  date: string; // YYYY-MM-DD
+  dateExpression?: string;
+  dateType?: DateConfidenceType;
   note: string;
   originalExpense?: {
     id: string;
@@ -100,26 +104,27 @@ export function computeFinancialQueryResponse(query: string, context: AssistantC
   const lower = query.toLowerCase();
   const { expenses, goals, categoryLimits, income } = context;
 
-  const today = new Date();
-  const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-  const prevMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-  const prevMonthStr = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
+  const bizCurrentDate = getBusinessDate(context.currentDate);
+  const [currentYear, currentMonthNum] = bizCurrentDate.split('-').map(Number);
+  const currentMonthStr = `${currentYear}-${String(currentMonthNum).padStart(2, '0')}`;
+
+  const prevMonthNum = currentMonthNum === 1 ? 12 : currentMonthNum - 1;
+  const prevYearNum = currentMonthNum === 1 ? currentYear - 1 : currentYear;
+  const prevMonthStr = `${prevYearNum}-${String(prevMonthNum).padStart(2, '0')}`;
 
   const currentMonthExpenses = expenses.filter((e) => e.date && e.date.startsWith(currentMonthStr));
-  const prevMonthExpenses = expenses.filter((e) => e.date && e.date.startsWith(prevMonthStr));
 
   const totalCurrent = currentMonthExpenses.reduce((sum, e) => sum + e.amount, 0);
-  const totalPrev = prevMonthExpenses.reduce((sum, e) => sum + e.amount, 0);
 
-  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-  const currentDay = today.getDate();
+  const daysInMonth = new Date(Date.UTC(currentYear, currentMonthNum, 0)).getUTCDate();
+  const currentDay = parseInt(bizCurrentDate.split('-')[2], 10);
   const daysRemaining = Math.max(0, daysInMonth - currentDay);
   const dailyBurnRate = Math.round(totalCurrent / Math.max(1, currentDay));
   const projectedEndMonth = totalCurrent + dailyBurnRate * daysRemaining;
 
   // 1. "tháng này tôi tiêu bao nhiêu" / "tổng chi tiêu tháng này"
   if (lower.includes('tháng này') && (lower.includes('bao nhiêu') || lower.includes('tổng'))) {
-    return `📊 **Thống kê chi tiêu tháng ${today.getMonth() + 1}/${today.getFullYear()}:**\n\n• Tổng chi tiêu hiện tại: **${totalCurrent.toLocaleString('vi-VN')}₫** (${currentMonthExpenses.length} giao dịch).\n• Tích lũy còn lại: **${Math.max(0, income - totalCurrent).toLocaleString('vi-VN')}₫**.\n• Tốc độ chi: **~${dailyBurnRate.toLocaleString('vi-VN')}₫/ngày**.\n\n💡 **Khuyến nghị Copilot**: Trong ${daysRemaining} ngày tới, hạn mức chi tiêu trung bình an toàn là **${Math.round(Math.max(0, income - totalCurrent) / Math.max(1, daysRemaining)).toLocaleString('vi-VN')}₫/ngày**.`;
+    return `📊 **Thống kê chi tiêu tháng ${currentMonthNum}/${currentYear}:**\n\n• Tổng chi tiêu hiện tại: **${totalCurrent.toLocaleString('vi-VN')}₫** (${currentMonthExpenses.length} giao dịch).\n• Tích lũy còn lại: **${Math.max(0, income - totalCurrent).toLocaleString('vi-VN')}₫**.\n• Tốc độ chi: **~${dailyBurnRate.toLocaleString('vi-VN')}₫/ngày**.\n\n💡 **Khuyến nghị Copilot**: Trong ${daysRemaining} ngày tới, hạn mức chi tiêu trung bình an toàn là **${Math.round(Math.max(0, income - totalCurrent) / Math.max(1, daysRemaining)).toLocaleString('vi-VN')}₫/ngày**.`;
   }
 
   // 2. "tiêu nhiều nhất vào đâu" / "danh mục nào tiêu nhiều nhất"
@@ -181,11 +186,11 @@ export function computeFinancialQueryResponse(query: string, context: AssistantC
   // 5. "dự báo dòng tiền"
   if (lower.includes('dự báo') || lower.includes('dòng tiền') || lower.includes('cuối tháng')) {
     const projectedSavings = Math.max(0, income - projectedEndMonth);
-    return `📊 **Dự báo dòng tiền tháng ${today.getMonth() + 1}/${today.getFullYear()}:**\n\n• **Tốc độ đốt tiền (Burn Rate)**: ~**${dailyBurnRate.toLocaleString('vi-VN')}₫/ngày**.\n• **Dự kiến tổng chi hết tháng**: **${projectedEndMonth.toLocaleString('vi-VN')}₫**.\n• **Dự kiến tích lũy cuối tháng**: **${projectedSavings.toLocaleString('vi-VN')}₫**.\n\n💡 **Khuyến nghị Copilot**: Giữ mức chi tiêu hằng ngày dưới **${Math.round(Math.max(0, income - totalCurrent) / Math.max(1, daysRemaining)).toLocaleString('vi-VN')}₫/ngày** để bảo toàn số dư.`;
+    return `📊 **Dự báo dòng tiền tháng ${currentMonthNum}/${currentYear}:**\n\n• **Tốc độ đốt tiền (Burn Rate)**: ~**${dailyBurnRate.toLocaleString('vi-VN')}₫/ngày**.\n• **Dự kiến tổng chi hết tháng**: **${projectedEndMonth.toLocaleString('vi-VN')}₫**.\n• **Dự kiến tích lũy cuối tháng**: **${projectedSavings.toLocaleString('vi-VN')}₫**.\n\n💡 **Khuyến nghị Copilot**: Giữ mức chi tiêu hằng ngày dưới **${Math.round(Math.max(0, income - totalCurrent) / Math.max(1, daysRemaining)).toLocaleString('vi-VN')}₫/ngày** để bảo toàn số dư.`;
   }
 
   // Default query overview
-  return `💡 **Tổng quan tài chính tháng ${today.getMonth() + 1}/${today.getFullYear()}:**\n\n• Tổng chi tiêu: **${totalCurrent.toLocaleString('vi-VN')}₫**\n• Số giao dịch: **${currentMonthExpenses.length}**\n• Số dư dự kiến: **${Math.max(0, income - totalCurrent).toLocaleString('vi-VN')}₫**.\n\nBạn có thể hỏi: *"Dự báo dòng tiền cuối tháng"*, *"Tôi có vượt ngân sách không?"*, *"Tôi tiêu nhiều nhất vào đâu?"*.`;
+  return `💡 **Tổng quan tài chính tháng ${currentMonthNum}/${currentYear}:**\n\n• Tổng chi tiêu: **${totalCurrent.toLocaleString('vi-VN')}₫**\n• Số giao dịch: **${currentMonthExpenses.length}**\n• Số dư dự kiến: **${Math.max(0, income - totalCurrent).toLocaleString('vi-VN')}₫**.\n\nBạn có thể hỏi: *"Dự báo dòng tiền cuối tháng"*, *"Tôi có vượt ngân sách không?"*, *"Tôi tiêu nhiều nhất vào đâu?"*.`;
 }
 
 /**
@@ -197,13 +202,17 @@ export async function sendToAIAssistant(
   isAuthenticated: boolean = false
 ): Promise<AIResponseData> {
   const trimmedMessage = message.trim();
+  const runtimeCurrentDate = getBusinessDate(context.currentDate);
 
   // If user is authenticated, call server-side Gemini Financial Copilot
   if (isAuthenticated) {
     try {
       const response = await apiClient.post('/api/v1/ai/assistant', {
         message: trimmedMessage,
-        context,
+        context: {
+          ...context,
+          currentDate: runtimeCurrentDate,
+        },
       });
 
       if (response.data && response.data.success && response.data.data) {
@@ -219,15 +228,18 @@ export async function sendToAIAssistant(
             type: aiData.action.type,
             targetExpenseId: aiData.action.targetExpenseId,
             targetSummary: aiData.action.targetSummary,
-            confidence: aiData.action.confidence || 0.9,
+            confidence: aiData.action.confidence || 0.95,
             explanation: aiData.action.explanation,
             requiresConfirmation: true, // ALWAYS require explicit confirmation before write
             expense: {
               id: rawExp.id,
               amount: Number(rawExp.amount) || 0,
+              currency: 'VND',
               category: catObj.id,
               categoryName: catObj.name,
-              date: rawExp.date || context.currentDate,
+              date: rawExp.date || runtimeCurrentDate,
+              dateExpression: rawExp.dateExpression,
+              dateType: rawExp.dateType,
               note: rawExp.note || catObj.name,
               originalExpense: rawExp.originalExpense,
             },
@@ -273,10 +285,11 @@ export async function sendToAIAssistant(
           targetExpenseId: matched.id,
           targetSummary: `${matched.note} (${matched.amount.toLocaleString('vi-VN')}₫)`,
           requiresConfirmation: true,
-          confidence: 0.85,
+          confidence: 0.9,
           expense: {
             id: matched.id,
             amount: matched.amount,
+            currency: 'VND',
             category: matched.categoryId,
             categoryName: catObj.name,
             date: matched.date,
@@ -284,7 +297,7 @@ export async function sendToAIAssistant(
           },
         },
         reply: 'Bạn có muốn xóa giao dịch này khỏi sổ tay chi tiêu không?',
-        confidence: 0.85,
+        confidence: 0.9,
         isFallback: true,
       };
     }
@@ -318,13 +331,13 @@ export async function sendToAIAssistant(
     return {
       intent,
       reply: computedReply,
-      confidence: 0.85,
+      confidence: 0.9,
       isFallback: true,
     };
   }
 
-  // 3. Otherwise try rule-based expense parser
-  const parsed = parseTransactionText(trimmedMessage);
+  // 3. Otherwise try rule-based expense parser with deterministic date engine
+  const parsed = parseTransactionText(trimmedMessage, runtimeCurrentDate);
 
   if (parsed.success && parsed.amount > 0) {
     return {
@@ -332,18 +345,21 @@ export async function sendToAIAssistant(
       action: {
         type: 'CREATE_EXPENSE',
         requiresConfirmation: true,
-        confidence: 0.85,
+        confidence: parsed.confidence,
         explanation: parsed.message,
         expense: {
           amount: parsed.amount,
+          currency: 'VND',
           category: parsed.categoryId,
           categoryName: parsed.categoryName,
           date: parsed.date,
+          dateExpression: parsed.dateExpression,
+          dateType: parsed.dateType,
           note: parsed.note,
         },
       },
-      reply: 'Bạn có muốn thêm giao dịch này vào sổ tay chi tiêu không?',
-      confidence: 0.85,
+      reply: `Tôi đã nhận diện giao dịch: **${parsed.note}** (${parsed.amount.toLocaleString('vi-VN')}₫) vào ngày **${parsed.date}**. Bạn có muốn lưu vào sổ không?`,
+      confidence: parsed.confidence,
       isFallback: true,
       isLowConfidence: false,
     };
@@ -351,8 +367,8 @@ export async function sendToAIAssistant(
 
   return {
     intent: 'GENERAL_CHAT',
-    reply: `👋 **Chào bạn! Mình là Financial Copilot của Sổ Tay Chi Tiêu.**\n\n• **Ghi chép giao dịch**: Gõ *"Ăn sáng 35k"*, *"Đi Grab 80k hôm qua"*.\n• **Phân tích chi tiêu**: Hỏi *"Tháng này tôi tiêu bao nhiêu?"*, *"Tôi có bị vượt ngân sách không?"*.\n• **Dự báo dòng tiền**: Hỏi *"Dự báo dòng tiền cuối tháng"*, *"Bao lâu nữa mua được Laptop?"*.\n\n*Lưu ý: Mọi giao dịch tạo mới, sửa hoặc xóa luôn hiển thị thẻ xác nhận [Hủy] / [Xác nhận] trước khi ghi vào sổ.*`,
-    confidence: 0.8,
+    reply: `👋 **Chào bạn! Mình là Financial Copilot của Sổ Tay Chi Tiêu.**\n\n• **Ghi chép giao dịch**: Gõ *"Hôm qua ăn cơm 15k"*, *"Đi Grab 80k hôm qua"*, *"Thứ 2 tuần trước ăn lẩu 200k"*.\n• **Phân tích chi tiêu**: Hỏi *"Tháng này tôi tiêu bao nhiêu?"*, *"Tôi có bị vượt ngân sách không?"*.\n• **Dự báo dòng tiền**: Hỏi *"Dự báo dòng tiền cuối tháng"*, *"Bao lâu nữa mua được Laptop?"*.\n\n*Lưu ý: Mọi giao dịch tạo mới, sửa hoặc xóa luôn hiển thị thẻ xác nhận [Hủy] / [Xác nhận] trước khi ghi vào sổ.*`,
+    confidence: 0.85,
     isFallback: true,
   };
 }

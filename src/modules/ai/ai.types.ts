@@ -9,12 +9,17 @@ export type FinancialIntent =
   | 'CASHFLOW_FORECAST'
   | 'GENERAL_CHAT';
 
+export type DateConfidenceType = 'EXACT' | 'RELATIVE' | 'INFERRED' | 'DEFAULT';
+
 export interface StructuredExpense {
   id?: string;
   amount: number;
+  currency?: string;
   category: string;
   categoryName: string;
-  date: string;
+  date: string; // YYYY-MM-DD
+  dateExpression?: string;
+  dateType?: DateConfidenceType;
   note: string;
   originalExpense?: {
     id: string;

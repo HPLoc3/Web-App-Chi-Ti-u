@@ -1,11 +1,24 @@
 import { Prisma } from '@prisma/client';
+import { prisma } from '../../lib/prisma';
 import { TransactionsRepository } from './transactions.repository';
 import { TransactionDTO, GetTransactionsQuery, CreateTransactionInput, UpdateTransactionInput } from './transactions.types';
 import { resolveCategoryId } from '../../services/category.helper';
 import { AppError } from '../../middleware/errorHandler.middleware';
+import { getBusinessDate, parseBusinessDate } from '../../utils/dateParser';
 
 export class TransactionsService {
   private static formatTransaction(tx: any): TransactionDTO {
+    let dateStr = '';
+    if (tx.date) {
+      if (typeof tx.date === 'string') {
+        dateStr = tx.date.slice(0, 10);
+      } else {
+        dateStr = getBusinessDate(tx.date);
+      }
+    } else {
+      dateStr = getBusinessDate();
+    }
+
     return {
       id: tx.id,
       amount: Number(tx.amount),
@@ -15,7 +28,7 @@ export class TransactionsService {
       color: tx.category?.color || '#4B5563',
       type: tx.type,
       note: tx.note || '',
-      date: tx.date ? new Date(tx.date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+      date: dateStr,
       walletId: tx.walletId,
       walletName: tx.wallet?.name,
       userId: tx.userId,
@@ -108,7 +121,7 @@ export class TransactionsService {
     }
 
     const transactionType = input.type || 'EXPENSE';
-    const parsedDate = input.date ? new Date(input.date) : new Date();
+    const parsedDate = input.date ? parseBusinessDate(input.date) : parseBusinessDate(getBusinessDate());
     const validCategoryId = await resolveCategoryId(input.categoryId, userId, transactionType);
 
     let targetWalletId = input.walletId;
@@ -152,7 +165,19 @@ export class TransactionsService {
       defaultWallet = await TransactionsRepository.createDefaultWallet(userId);
     }
 
-    const created: TransactionDTO[] = [];
+    const defaultWalletId = defaultWallet.id;
+    const validItems: {
+      userId: string;
+      walletId: string;
+      categoryId: string;
+      amount: Prisma.Decimal;
+      type: 'EXPENSE' | 'INCOME';
+      note: string;
+      date: Date;
+    }[] = [];
+
+    let netWalletBalanceAdjustment = new Prisma.Decimal(0);
+
     for (const item of items) {
       const numAmount = new Prisma.Decimal(item.amount || 0);
       if (numAmount.lessThanOrEqualTo(0)) continue;
@@ -160,19 +185,56 @@ export class TransactionsService {
       const transactionType = (item.type as 'EXPENSE' | 'INCOME') || 'EXPENSE';
       const itemDate = item.date ? new Date(item.date) : new Date();
       const validCategoryId = await resolveCategoryId(item.categoryId, userId, transactionType);
+      const targetWalletId = item.walletId || defaultWalletId;
 
-      const createdRes = await this.createTransaction(userId, {
-        amount: Number(numAmount),
-        type: transactionType,
-        note: item.note,
-        date: itemDate.toISOString(),
-        walletId: item.walletId || defaultWallet.id,
+      validItems.push({
+        userId,
+        walletId: targetWalletId,
         categoryId: validCategoryId,
+        amount: numAmount,
+        type: transactionType,
+        note: item.note ? String(item.note).slice(0, 500) : '',
+        date: isNaN(itemDate.getTime()) ? new Date() : itemDate,
       });
-      created.push(createdRes.transaction);
+
+      if (targetWalletId === defaultWalletId) {
+        if (transactionType === 'INCOME') {
+          netWalletBalanceAdjustment = netWalletBalanceAdjustment.plus(numAmount);
+        } else {
+          netWalletBalanceAdjustment = netWalletBalanceAdjustment.minus(numAmount);
+        }
+      }
     }
 
-    return created;
+    if (validItems.length === 0) {
+      return [];
+    }
+
+    // Atomic execution in a single database transaction
+    await prisma.$transaction(async (tx) => {
+      if (!netWalletBalanceAdjustment.isZero()) {
+        await tx.wallet.update({
+          where: { id: defaultWalletId },
+          data: { balance: { increment: netWalletBalanceAdjustment } },
+        });
+      }
+      await tx.transaction.createMany({
+        data: validItems,
+      });
+    });
+
+    // Return the newly created transactions
+    const latestCreated = await prisma.transaction.findMany({
+      where: { userId },
+      include: {
+        category: { select: { id: true, name: true, type: true, icon: true, color: true } },
+        wallet: { select: { id: true, name: true, balance: true, currency: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: validItems.length,
+    });
+
+    return latestCreated.map((t) => this.formatTransaction(t));
   }
 
   static async updateTransaction(id: string, userId: string, input: UpdateTransactionInput) {
@@ -206,7 +268,7 @@ export class TransactionsService {
         amount: newAmount,
         type: newType,
         note: input.note !== undefined ? String(input.note).slice(0, 500) : existing.note,
-        date: input.date ? new Date(input.date) : existing.date,
+        date: input.date ? parseBusinessDate(input.date) : existing.date,
         wallet: { connect: { id: targetWalletId } },
         category: { connect: { id: targetCategoryId } },
       }

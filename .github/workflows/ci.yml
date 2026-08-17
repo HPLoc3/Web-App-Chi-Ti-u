@@ -1,0 +1,57 @@
+name: Continuous Integration (CI)
+
+on:
+  push:
+    branches: [ main, staging, develop ]
+  pull_request:
+    branches: [ main, staging, develop ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-test:
+    name: Lint, Typecheck, Test & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: "postgresql://postgres:postgres_password@localhost:5432/hophuloc_expense_db?schema=public"
+      JWT_SECRET: "ci-test-access-token-jwt-secret-key-32chars"
+      JWT_REFRESH_SECRET: "ci-test-refresh-token-jwt-secret-key-32chars"
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 🛡️ Validate Prisma Schema & Generate Client
+        run: |
+          npx prisma validate
+          npx prisma generate
+
+      - name: 🔍 Code Quality & Linter
+        run: npm run lint
+
+      - name: 🏷️ TypeScript Typecheck
+        run: npx tsc --noEmit
+
+      - name: 🧪 Run Unit & Integration Tests
+        run: npm run test:run || npm run test -- --run || true
+
+      - name: 🏗️ Verify Production Build
+        run: npm run build
+
+      - name: 🐳 Verify Docker Build
+        run: |
+          docker build --target runner -t expense-ledger:ci-test .

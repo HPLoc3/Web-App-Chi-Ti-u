@@ -15,6 +15,14 @@ export const SYSTEM_CATEGORIES = [
   { id: 'thu_nhap_khac', name: 'Thu nhập khác', type: 'INCOME', icon: 'PlusCircle', color: '#059669' },
 ];
 
+// In-memory set of known System Category IDs for O(1) instantaneous lookup
+const SYSTEM_CATEGORY_ID_SET = new Set(SYSTEM_CATEGORIES.map((c) => c.id));
+const SYSTEM_CATEGORY_NAME_MAP = new Map(SYSTEM_CATEGORIES.map((c) => [c.name.toLowerCase(), c.id]));
+
+// Fast LRU/Map cache for resolved categories to prevent database queries in high-throughput endpoints
+const categoryResolutionCache = new Map<string, { id: string; cachedAt: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 /**
  * Đảm bảo các System Categories luôn tồn tại trong PostgreSQL
  */
@@ -43,41 +51,65 @@ export async function ensureSystemCategoriesExist() {
 }
 
 /**
- * Tìm hoặc lấy category ID hợp lệ cho người dùng
+ * Tìm hoặc lấy category ID hợp lệ cho người dùng với cơ chế caching O(1)
  */
-export async function resolveCategoryId(categoryIdOrName: string | undefined, userId: string, type: 'EXPENSE' | 'INCOME' = 'EXPENSE'): Promise<string> {
+export async function resolveCategoryId(
+  categoryIdOrName: string | undefined,
+  userId: string,
+  type: 'EXPENSE' | 'INCOME' = 'EXPENSE'
+): Promise<string> {
   if (!categoryIdOrName) {
     return 'khac';
   }
 
-  // 1. Kiểm tra theo ID chính xác (System Category ID hoặc UUID)
+  const trimmed = categoryIdOrName.trim();
+
+  // 1. Fast path: System ID match O(1)
+  if (SYSTEM_CATEGORY_ID_SET.has(trimmed)) {
+    return trimmed;
+  }
+
+  // 2. Fast path: System Name match O(1)
+  const systemIdFromName = SYSTEM_CATEGORY_NAME_MAP.get(trimmed.toLowerCase());
+  if (systemIdFromName) {
+    return systemIdFromName;
+  }
+
+  // 3. Cache check
+  const cacheKey = `${userId}:${trimmed.toLowerCase()}:${type}`;
+  const cached = categoryResolutionCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) {
+    return cached.id;
+  }
+
+  // 4. Kiểm tra theo ID chính xác (System Category ID hoặc UUID)
   const byId = await prisma.category.findFirst({
     where: {
-      id: categoryIdOrName,
+      id: trimmed,
       OR: [{ userId: null }, { userId }],
     },
+    select: { id: true },
   });
-  if (byId) return byId.id;
+  if (byId) {
+    categoryResolutionCache.set(cacheKey, { id: byId.id, cachedAt: Date.now() });
+    return byId.id;
+  }
 
-  // 2. Tìm theo tên
+  // 5. Tìm theo tên
   const byName = await prisma.category.findFirst({
     where: {
-      name: { equals: categoryIdOrName, mode: 'insensitive' },
+      name: { equals: trimmed, mode: 'insensitive' },
       OR: [{ userId: null }, { userId }],
     },
+    select: { id: true },
   });
-  if (byName) return byName.id;
+  if (byName) {
+    categoryResolutionCache.set(cacheKey, { id: byName.id, cachedAt: Date.now() });
+    return byName.id;
+  }
 
-  // 3. Fallback: Nếu không tìm thấy, trả về category 'khac'
-  const fallback = await prisma.category.findFirst({
-    where: {
-      OR: [{ id: 'khac' }, { name: 'Khác' }],
-    },
-  });
-
-  if (fallback) return fallback.id;
-
-  // 4. Khởi tạo category nếu CSDL trống
-  await ensureSystemCategoriesExist();
+  // 6. Fallback: Nếu không tìm thấy, trả về category 'khac'
+  categoryResolutionCache.set(cacheKey, { id: 'khac', cachedAt: Date.now() });
   return 'khac';
 }
+

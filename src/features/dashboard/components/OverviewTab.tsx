@@ -26,7 +26,7 @@ interface OverviewTabProps {
   onAddExpense?: (expense: Omit<Expense, 'id'>) => void;
 }
 
-export const OverviewTab: React.FC<OverviewTabProps> = ({
+export const OverviewTab: React.FC<OverviewTabProps> = React.memo(({
   expenses = [],
   goals = [],
   income = 0,
@@ -190,5 +190,5 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       </div>
     </div>
   );
-};
+});
 export default OverviewTab;

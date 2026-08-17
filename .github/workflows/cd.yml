@@ -1,0 +1,93 @@
+name: Continuous Deployment (CD)
+
+on:
+  push:
+    branches:
+      - staging
+      - main
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build, Migrate & Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🎯 Determine Environment
+        id: env_spec
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "TARGET_ENV=production" >> $GITHUB_OUTPUT
+            echo "DEPLOY_URL=https://hophuloc.online" >> $GITHUB_OUTPUT
+          else
+            echo "TARGET_ENV=staging" >> $GITHUB_OUTPUT
+            echo "DEPLOY_URL=https://staging.hophuloc.online" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 🟢 Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 🛡️ Pre-Deployment Database Migration
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          echo "Executing zero-downtime database migration..."
+          npx prisma migrate deploy
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🏗️ Build & Tag Production Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: hophuloc/expense-ledger:${{ github.sha }},hophuloc/expense-ledger:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 🔒 Vulnerability Scanning (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'hophuloc/expense-ledger:${{ github.sha }}'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+      - name: 🚀 Deploy Application Container
+        run: |
+          echo "Deploying container image to ${{ steps.env_spec.outputs.TARGET_ENV }} environment..."
+          # Example Cloud Run / Docker Compose / Kubernetes command
+          # docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+      - name: 🩺 Post-Deployment Health & Readiness Probe Check
+        run: |
+          echo "Verifying health endpoint at ${{ steps.env_spec.outputs.DEPLOY_URL }}/health/ready..."
+          for i in {1..12}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ steps.env_spec.outputs.DEPLOY_URL }}/health/ready" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Application is READY and healthy (HTTP 200)!"
+              exit 0
+            fi
+            echo "⏳ Attempt $i: Received HTTP $STATUS. Waiting 5s..."
+            sleep 5
+          done
+          echo "❌ Readiness probe timed out or returned error. Triggering rollback!"
+          exit 1

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { 
   AlertTriangle, 
   CheckCircle2, 
@@ -29,52 +29,55 @@ interface BudgetProgressCardProps {
   onNavigateToBudget: () => void;
 }
 
-export const BudgetProgressCard: React.FC<BudgetProgressCardProps> = ({
+export const BudgetProgressCard: React.FC<BudgetProgressCardProps> = React.memo(({
   categoryLimits,
   expensesThisMonth,
   income,
   totalExpenseThisMonth,
   onNavigateToBudget,
 }) => {
-  // Aggregate category spend
-  const categoryTotals: Record<string, number> = {};
-  expensesThisMonth.forEach((exp) => {
-    categoryTotals[exp.categoryId] = (categoryTotals[exp.categoryId] || 0) + exp.amount;
-  });
+  // Aggregate category spend and sort by highest usage (memoized)
+  const budgetList = useMemo(() => {
+    const categoryTotals: Record<string, number> = {};
+    expensesThisMonth.forEach((exp) => {
+      categoryTotals[exp.categoryId] = (categoryTotals[exp.categoryId] || 0) + exp.amount;
+    });
 
-  // Calculate budget infos for categories with limits or significant spending
-  const budgetList: CategorySpendInfo[] = [];
+    const list: CategorySpendInfo[] = [];
+    CATEGORIES.forEach((cat) => {
+      const limit = categoryLimits[cat.id] || 0;
+      const spent = categoryTotals[cat.id] || 0;
+      
+      if (limit > 0 || spent > 0) {
+        const percent = limit > 0 ? (spent / limit) * 100 : 0;
+        list.push({
+          categoryId: cat.id,
+          name: cat.name,
+          color: cat.color,
+          spent,
+          limit,
+          percent,
+          isOver: limit > 0 && spent > limit,
+          isNear: limit > 0 && spent >= limit * 0.85 && spent <= limit,
+        });
+      }
+    });
 
-  CATEGORIES.forEach((cat) => {
-    const limit = categoryLimits[cat.id] || 0;
-    const spent = categoryTotals[cat.id] || 0;
-    
-    if (limit > 0 || spent > 0) {
-      const percent = limit > 0 ? (spent / limit) * 100 : 0;
-      budgetList.push({
-        categoryId: cat.id,
-        name: cat.name,
-        color: cat.color,
-        spent,
-        limit,
-        percent,
-        isOver: limit > 0 && spent > limit,
-        isNear: limit > 0 && spent >= limit * 0.85 && spent <= limit,
-      });
-    }
-  });
+    list.sort((a, b) => {
+      if (a.isOver && !b.isOver) return -1;
+      if (!a.isOver && b.isOver) return 1;
+      return b.percent - a.percent;
+    });
 
-  // Sort by highest percent used or over budget first
-  budgetList.sort((a, b) => {
-    if (a.isOver && !b.isOver) return -1;
-    if (!a.isOver && b.isOver) return 1;
-    return b.percent - a.percent;
-  });
+    return list;
+  }, [categoryLimits, expensesThisMonth]);
 
-  const overBudgetCategories = budgetList.filter((b) => b.isOver);
-  const nearBudgetCategories = budgetList.filter((b) => b.isNear);
+  const overBudgetCategories = useMemo(() => budgetList.filter((b) => b.isOver), [budgetList]);
 
-  const totalPlannedBudget = Object.values(categoryLimits).reduce((acc, l) => acc + l, 0) || income;
+  const totalPlannedBudget = useMemo(() => {
+    return Object.values(categoryLimits).reduce((acc, l) => acc + l, 0) || income;
+  }, [categoryLimits, income]);
+
   const overallUsagePct = totalPlannedBudget > 0 ? (totalExpenseThisMonth / totalPlannedBudget) * 100 : 0;
 
   return (
@@ -211,5 +214,5 @@ export const BudgetProgressCard: React.FC<BudgetProgressCardProps> = ({
       </button>
     </div>
   );
-};
+});
 export default BudgetProgressCard;
