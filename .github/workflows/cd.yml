@@ -21,6 +21,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: 🔍 Display Deployment Context
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
         run: |
           echo "=================================================="
           echo "🚀 INITIATING PRODUCTION DEPLOYMENT"
@@ -29,31 +31,56 @@ jobs:
           echo "Branch     : ${{ github.ref_name }}"
           echo "Commit SHA : ${{ github.sha }}"
           echo "Triggered  : ${{ github.event_name }}"
-          echo "Target Host: ${{ secrets.VPS_HOST }}"
+          echo "Target Host: ${SSH_HOST}"
           echo "Target URL : https://hophuloc.online"
           echo "=================================================="
 
-      - name: 🔑 Configure SSH Authentication
+      - name: 🛡️ Validate Required Deployment Secrets
         env:
-          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
-          if [ -z "${VPS_SSH_KEY}" ] || [ -z "${VPS_HOST}" ]; then
-            echo "❌ ERROR: Missing required secrets 'VPS_HOST' or 'VPS_SSH_KEY'."
-            echo "💡 Please add them in: GitHub Repository -> Settings -> Secrets and variables -> Actions"
-            exit 1
+          MISSING=0
+          if [ -z "${SSH_HOST}" ]; then
+            echo "❌ ERROR: Missing required GitHub Secret: SSH_HOST"
+            MISSING=1
+          fi
+          if [ -z "${SSH_PORT}" ]; then
+            echo "❌ ERROR: Missing required GitHub Secret: SSH_PORT"
+            MISSING=1
+          fi
+          if [ -z "${SSH_USER}" ]; then
+            echo "❌ ERROR: Missing required GitHub Secret: SSH_USER"
+            MISSING=1
+          fi
+          if [ -z "${SSH_PRIVATE_KEY}" ]; then
+            echo "❌ ERROR: Missing required GitHub Secret: SSH_PRIVATE_KEY"
+            MISSING=1
           fi
 
+          if [ $MISSING -ne 0 ]; then
+            echo "💡 Please ensure all 4 secrets (SSH_HOST, SSH_PORT, SSH_USER, SSH_PRIVATE_KEY) are configured in GitHub Repository Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          echo "✅ All required deployment secrets are validated."
+
+      - name: 🔑 Configure SSH Authentication
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          # Load private key into SSH agent
+          # Load private key into SSH agent without displaying key in logs
           eval "$(ssh-agent -s)"
-          echo "${VPS_SSH_KEY}" | tr -d '\r' | ssh-add - > /dev/null
+          echo "${SSH_PRIVATE_KEY}" | tr -d '\r' | ssh-add - > /dev/null
 
           # Add target host to known_hosts to prevent interactive prompt
-          ssh-keyscan -p "${VPS_PORT}" -H "${VPS_HOST}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -p "${SSH_PORT}" -H "${SSH_HOST}" >> ~/.ssh/known_hosts 2>/dev/null || true
           chmod 600 ~/.ssh/known_hosts
 
           # Persist SSH agent socket across sub-steps
@@ -62,13 +89,13 @@ jobs:
 
       - name: 🚀 Execute Remote Deployment via SSH
         env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER || 'root' }}
-          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
         run: |
-          echo "🌐 Connecting to VPS [${VPS_USER}@${VPS_HOST}:${VPS_PORT}]..."
+          echo "🌐 Connecting to VPS [${SSH_USER}@${SSH_HOST}:${SSH_PORT}]..."
 
-          ssh -p "${VPS_PORT}" -o StrictHostKeyChecking=accept-new "${VPS_USER}@${VPS_HOST}" "bash -s" << 'EOF'
+          ssh -p "${SSH_PORT}" -o StrictHostKeyChecking=accept-new "${SSH_USER}@${SSH_HOST}" "bash -s" << 'EOF'
             set -eo pipefail
 
             APP_DIR="/var/www/app-chi-tieu"
@@ -121,9 +148,9 @@ jobs:
 
       - name: 🩺 Verify Production Readiness Probe (Health Check)
         env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER || 'root' }}
-          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
         run: |
           TARGET_READY_URL="https://hophuloc.online/health/ready"
           TARGET_LIVE_URL="https://hophuloc.online/health/live"
@@ -156,7 +183,7 @@ jobs:
             echo "❌ CRITICAL: Production health probe FAILED at ${TARGET_READY_URL} after $((MAX_RETRIES * DELAY_SECONDS))s!"
             echo "📋 Fetching remote container diagnostics via SSH..."
 
-            ssh -p "${VPS_PORT}" -o StrictHostKeyChecking=accept-new "${VPS_USER}@${VPS_HOST}" "bash -s" << 'EOF' || true
+            ssh -p "${SSH_PORT}" -o StrictHostKeyChecking=accept-new "${SSH_USER}@${SSH_HOST}" "bash -s" << 'EOF' || true
               cd /var/www/app-chi-tieu
               echo "--- Docker Compose Container Status ---"
               docker compose -f docker-compose.prod.yml ps
@@ -177,4 +204,3 @@ jobs:
           echo "🎉 PRODUCTION DEPLOYMENT COMPLETED SUCCESSFULLY!"
           echo "🚀 Live URL: https://hophuloc.online"
           echo "=================================================="
-
