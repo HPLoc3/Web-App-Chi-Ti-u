@@ -1,20 +1,18 @@
-name: Continuous Deployment (CD)
+name: Production Deployment
 
 on:
   push:
     branches:
-      - staging
       - main
-    tags:
-      - 'v*.*.*'
+  workflow_dispatch:
 
 concurrency:
-  group: cd-${{ github.ref }}
+  group: production-deployment
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Build, Migrate & Deploy
+    name: Deploy to VPS Production
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -22,78 +20,161 @@ jobs:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 🎯 Determine Environment
-        id: env_spec
+      - name: 🔍 Display Deployment Context
         run: |
-          if [ "${{ github.ref }}" = "refs/heads/main" ] || [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            echo "TARGET_ENV=production" >> $GITHUB_OUTPUT
-            echo "DEPLOY_URL=https://hophuloc.online" >> $GITHUB_OUTPUT
-          else
-            echo "TARGET_ENV=staging" >> $GITHUB_OUTPUT
-            echo "DEPLOY_URL=https://staging.hophuloc.online" >> $GITHUB_OUTPUT
-          fi
+          echo "=================================================="
+          echo "🚀 INITIATING PRODUCTION DEPLOYMENT"
+          echo "=================================================="
+          echo "Repository : ${{ github.repository }}"
+          echo "Branch     : ${{ github.ref_name }}"
+          echo "Commit SHA : ${{ github.sha }}"
+          echo "Triggered  : ${{ github.event_name }}"
+          echo "Target Host: ${{ secrets.VPS_HOST }}"
+          echo "Target URL : https://hophuloc.online"
+          echo "=================================================="
 
-      - name: 🟢 Setup Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-
-      - name: 📦 Install Dependencies
-        run: npm ci
-
-      - name: 🛡️ Pre-Deployment Database Migration
-        continue-on-error: true
+      - name: 🔑 Configure SSH Authentication
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
         run: |
-          if [ -z "${DATABASE_URL}" ] || [[ "${DATABASE_URL}" == *"localhost"* ]] || [[ "${DATABASE_URL}" == *"127.0.0.1"* ]] || [[ "${DATABASE_URL}" == *"postgres:5432"* ]]; then
-            echo "ℹ️ Database is configured for private/local server network."
-            echo "⏩ Skipping GitHub runner migration. Database migration will run directly on the VPS during 'Deploy via SSH' (./scripts/deploy.sh)."
-          else
-            echo "Executing remote database migration from CI/CD runner..."
-            npx prisma migrate deploy || echo "⚠️ Direct CI migration failed, fallback migration will run on VPS deployment."
+          if [ -z "${VPS_SSH_KEY}" ] || [ -z "${VPS_HOST}" ]; then
+            echo "❌ ERROR: Missing required secrets 'VPS_HOST' or 'VPS_SSH_KEY'."
+            echo "💡 Please add them in: GitHub Repository -> Settings -> Secrets and variables -> Actions"
+            exit 1
           fi
 
-      - name: 🐳 Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
 
-      - name: 🏗️ Build & Tag Production Docker Image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: false
-          load: true
-          tags: hophuloc/expense-ledger:${{ github.sha }},hophuloc/expense-ledger:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Load private key into SSH agent
+          eval "$(ssh-agent -s)"
+          echo "${VPS_SSH_KEY}" | tr -d '\r' | ssh-add - > /dev/null
 
-      - name: 🔒 Vulnerability Scanning (Trivy)
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'hophuloc/expense-ledger:${{ github.sha }}'
-          format: 'table'
-          exit-code: '0'
-          ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
+          # Add target host to known_hosts to prevent interactive prompt
+          ssh-keyscan -p "${VPS_PORT}" -H "${VPS_HOST}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          chmod 600 ~/.ssh/known_hosts
 
-      - name: 🚀 Deploy Application Container
+          # Persist SSH agent socket across sub-steps
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> $GITHUB_ENV
+          echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> $GITHUB_ENV
+
+      - name: 🚀 Execute Remote Deployment via SSH
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER || 'root' }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
         run: |
-          echo "Deploying container image to ${{ steps.env_spec.outputs.TARGET_ENV }} environment..."
-          # Example Cloud Run / Docker Compose / Kubernetes command
-          # docker compose -f docker-compose.prod.yml up -d --remove-orphans
+          echo "🌐 Connecting to VPS [${VPS_USER}@${VPS_HOST}:${VPS_PORT}]..."
 
-      - name: 🩺 Post-Deployment Health & Readiness Probe Check
-        continue-on-error: true
-        run: |
-          echo "Verifying health endpoint at ${{ steps.env_spec.outputs.DEPLOY_URL }}/health/ready..."
-          for i in {1..6}; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ steps.env_spec.outputs.DEPLOY_URL }}/health/ready" || echo "000")
-            if [ "$STATUS" = "200" ]; then
-              echo "✅ Application is READY and healthy (HTTP 200)!"
-              exit 0
+          ssh -p "${VPS_PORT}" -o StrictHostKeyChecking=accept-new "${VPS_USER}@${VPS_HOST}" "bash -s" << 'EOF'
+            set -eo pipefail
+
+            APP_DIR="/var/www/app-chi-tieu"
+            COMPOSE_FILE="docker-compose.prod.yml"
+
+            echo "=================================================="
+            echo "📂 Changing working directory to ${APP_DIR}..."
+            echo "=================================================="
+            cd "${APP_DIR}" || {
+              echo "❌ ERROR: Directory ${APP_DIR} does not exist on VPS!"
+              exit 1
+            }
+
+            PREV_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+            echo "📌 Current commit on VPS before deployment: ${PREV_COMMIT}"
+
+            echo "📥 Fetching latest commits from origin/main..."
+            git fetch origin main
+
+            echo "🔄 Resetting working tree to match origin/main (preserving .env)..."
+            git reset --hard origin/main
+
+            NEW_COMMIT=$(git rev-parse --short HEAD)
+            echo "✅ VPS is now updated to target commit: ${NEW_COMMIT}"
+
+            if [ ! -f .env ]; then
+              echo "⚠️ WARNING: .env file was not found! Generating default from .env.example..."
+              cp .env.example .env
             fi
-            echo "⏳ Attempt $i: Received HTTP $STATUS. Waiting 5s..."
-            sleep 5
+
+            echo "🐳 Building Docker production containers with fresh code..."
+            docker compose -f "${COMPOSE_FILE}" build --pull
+
+            echo "🗄️ Executing Prisma Database Migrations on VPS..."
+            docker compose -f "${COMPOSE_FILE}" run --rm app npx prisma migrate deploy
+
+            echo "🚀 Launching production containers (zero-downtime recreation)..."
+            docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans
+
+            echo "🧹 Pruning old dangling Docker images..."
+            docker image prune -f
+
+            echo "📊 Verifying production container status..."
+            docker compose -f "${COMPOSE_FILE}" ps
+
+            echo "=================================================="
+            echo "✅ VPS Remote Deployment Steps Finished!"
+            echo "=================================================="
+          EOF
+
+      - name: 🩺 Verify Production Readiness Probe (Health Check)
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER || 'root' }}
+          VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          TARGET_READY_URL="https://hophuloc.online/health/ready"
+          TARGET_LIVE_URL="https://hophuloc.online/health/live"
+
+          echo "=================================================="
+          echo "🩺 VERIFYING PRODUCTION HEALTH & READINESS"
+          echo "Target URL: ${TARGET_READY_URL}"
+          echo "=================================================="
+
+          MAX_RETRIES=12
+          DELAY_SECONDS=5
+          HEALTHY=0
+
+          for ((i=1; i<=MAX_RETRIES; i++)); do
+            HTTP_CODE=$(curl -s -k -o /dev/null -w "%{http_code}" --max-time 10 "${TARGET_READY_URL}" || echo "000")
+            echo "⏳ [Attempt $i/$MAX_RETRIES] Probing ${TARGET_READY_URL} -> HTTP ${HTTP_CODE}"
+
+            if [ "${HTTP_CODE}" = "200" ]; then
+              echo "✅ Health check PASSED (HTTP 200 OK)!"
+              HEALTHY=1
+              break
+            fi
+
+            if [ $i -lt $MAX_RETRIES ]; then
+              sleep ${DELAY_SECONDS}
+            fi
           done
-          echo "⚠️ Notice: Remote endpoint ${{ steps.env_spec.outputs.DEPLOY_URL }} returned non-200. Ensure DNS and server container are up."
+
+          if [ $HEALTHY -ne 1 ]; then
+            echo "❌ CRITICAL: Production health probe FAILED at ${TARGET_READY_URL} after $((MAX_RETRIES * DELAY_SECONDS))s!"
+            echo "📋 Fetching remote container diagnostics via SSH..."
+
+            ssh -p "${VPS_PORT}" -o StrictHostKeyChecking=accept-new "${VPS_USER}@${VPS_HOST}" "bash -s" << 'EOF' || true
+              cd /var/www/app-chi-tieu
+              echo "--- Docker Compose Container Status ---"
+              docker compose -f docker-compose.prod.yml ps
+              echo "--- App Container Recent Logs ---"
+              docker compose -f docker-compose.prod.yml logs --tail=50 app
+              echo "--- Nginx Container Recent Logs ---"
+              docker compose -f docker-compose.prod.yml logs --tail=50 nginx
+          EOF
+
+            exit 1
+          fi
+
+          echo "🔍 Secondary Live Probe Check (${TARGET_LIVE_URL}):"
+          LIVE_CODE=$(curl -s -k -o /dev/null -w "%{http_code}" --max-time 10 "${TARGET_LIVE_URL}" || echo "000")
+          echo "ℹ️ Live Endpoint HTTP Response: ${LIVE_CODE}"
+
+          echo "=================================================="
+          echo "🎉 PRODUCTION DEPLOYMENT COMPLETED SUCCESSFULLY!"
+          echo "🚀 Live URL: https://hophuloc.online"
+          echo "=================================================="
+
