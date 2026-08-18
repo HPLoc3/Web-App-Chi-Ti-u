@@ -104,8 +104,12 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login', initi
       setErrorMsg('Vui lòng nhập Email hợp lệ.');
       return;
     }
-    if (registerPassword.length < 6) {
-      setErrorMsg('Mật khẩu phải có độ dài tối thiểu 6 ký tự.');
+    if (registerPassword.length < 8) {
+      setErrorMsg('Mật khẩu phải có độ dài tối thiểu 8 ký tự.');
+      return;
+    }
+    if (!(/[A-Za-z]/.test(registerPassword) && /[0-9]/.test(registerPassword))) {
+      setErrorMsg('Mật khẩu phải chứa ít nhất một chữ cái và một chữ số.');
       return;
     }
     if (registerPassword !== confirmPassword) {
@@ -125,7 +129,8 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login', initi
         setSuccessMsg('Đăng ký tài khoản thành công! Vui lòng đăng nhập để bắt đầu.');
       }
     } catch (err: any) {
-      setErrorMsg(err.message);
+      const msg = err.response?.data?.error?.message || err.response?.data?.message || err.message || 'Đăng ký thất bại.';
+      setErrorMsg(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -160,8 +165,12 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login', initi
       setErrorMsg('Vui lòng nhập mã Token đặt lại mật khẩu.');
       return;
     }
-    if (resetNewPassword.length < 6) {
-      setErrorMsg('Mật khẩu mới phải có tối thiểu 6 ký tự.');
+    if (resetNewPassword.length < 8) {
+      setErrorMsg('Mật khẩu mới phải có tối thiểu 8 ký tự.');
+      return;
+    }
+    if (!(/[A-Za-z]/.test(resetNewPassword) && /[0-9]/.test(resetNewPassword))) {
+      setErrorMsg('Mật khẩu mới phải chứa ít nhất một chữ cái và một chữ số.');
       return;
     }
     if (resetNewPassword !== resetConfirmPassword) {
@@ -408,14 +417,14 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login', initi
 
               <div>
                 <label className="block text-xs font-semibold text-stone-600 mb-1">
-                  Mật khẩu (tối thiểu 6 ký tự) <span className="text-red-500">*</span>
+                  Mật khẩu (tối thiểu 8 ký tự, gồm chữ & số) <span className="text-red-500">*</span>
                 </label>
                 <div className="relative">
                   <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
                   <input
                     type={showRegisterPassword ? 'text' : 'password'}
                     required
-                    minLength={6}
+                    minLength={8}
                     value={registerPassword}
                     onChange={(e) => setRegisterPassword(e.target.value)}
                     placeholder="••••••••"

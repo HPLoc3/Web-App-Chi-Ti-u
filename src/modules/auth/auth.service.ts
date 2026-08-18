@@ -28,10 +28,10 @@ export class AuthService {
     return '';
   }
 
-  private static getGoogleOAuthClient(): OAuth2Client {
+  private static getGoogleOAuthClient(): OAuth2Client | null {
     const clientId = this.getGoogleClientId();
     if (!clientId) {
-      throw new Error('Chưa cấu hình GOOGLE_CLIENT_ID trên máy chủ.');
+      return null;
     }
     const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || '').replace(/^["']|["']$/g, '').trim();
     return new OAuth2Client(clientId, clientSecret || undefined);
@@ -149,41 +149,73 @@ export class AuthService {
   }
 
   static async googleAuth(payload: GoogleAuthPayload): Promise<{ user: UserDTO; tokens: AuthTokens }> {
-    const clientId = this.getGoogleClientId();
-    if (!clientId) {
-      throw new Error('Lỗi cấu hình máy chủ: Chưa đặt biến môi trường GOOGLE_CLIENT_ID.');
-    }
-
     const tokenToVerify = payload.credential || payload.idToken || payload.token;
     const rawAccessToken = payload.accessToken || payload.access_token;
     let email: string | undefined = payload.email;
     let name: string | undefined = payload.name;
     let avatar: string | undefined = payload.picture;
 
-    const googleClient = this.getGoogleOAuthClient();
+    const clientId = this.getGoogleClientId();
 
     if (tokenToVerify) {
-      const ticket = await googleClient.verifyIdToken({
-        idToken: tokenToVerify,
-        audience: clientId,
-      });
+      let verifiedSuccessfully = false;
+      const googleClient = this.getGoogleOAuthClient();
 
-      const tokenPayload = ticket.getPayload();
-      if (!tokenPayload) {
-        throw new Error('Google ID Token không hợp lệ.');
+      if (googleClient && clientId) {
+        try {
+          const ticket = await googleClient.verifyIdToken({
+            idToken: tokenToVerify,
+            audience: clientId,
+          });
+          const tokenPayload = ticket.getPayload();
+          if (tokenPayload && tokenPayload.email) {
+            if (tokenPayload.email_verified === false) {
+              throw new Error('Email Google chưa được xác thực.');
+            }
+            email = tokenPayload.email;
+            name = tokenPayload.name || name;
+            avatar = tokenPayload.picture || avatar;
+            verifiedSuccessfully = true;
+          }
+        } catch (clientErr: any) {
+          console.warn('Google Client verifyIdToken failed, attempting TokenInfo fallback:', clientErr.message);
+        }
       }
 
-      if (tokenPayload.iss !== 'accounts.google.com' && tokenPayload.iss !== 'https://accounts.google.com') {
-        throw new Error('Google ID Token issuer không hợp lệ.');
-      }
+      // Fallback verification using Google's public tokeninfo endpoint
+      if (!verifiedSuccessfully) {
+        try {
+          const tokenInfoRes = await fetch(
+            `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(tokenToVerify)}`
+          );
+          if (!tokenInfoRes.ok) {
+            throw new Error(`Google TokenInfo returned HTTP ${tokenInfoRes.status}`);
+          }
+          const tokenInfo = (await tokenInfoRes.json()) as {
+            email?: string;
+            name?: string;
+            picture?: string;
+            email_verified?: string | boolean;
+            aud?: string;
+          };
 
-      if (tokenPayload.email_verified === false) {
-        throw new Error('Email Google chưa được xác thực.');
-      }
+          if (!tokenInfo.email) {
+            throw new Error('Google ID Token không chứa thông tin email.');
+          }
 
-      email = tokenPayload.email;
-      name = tokenPayload.name;
-      avatar = tokenPayload.picture;
+          if (tokenInfo.email_verified === false || tokenInfo.email_verified === 'false') {
+            throw new Error('Email Google chưa được xác thực.');
+          }
+
+          email = tokenInfo.email;
+          name = tokenInfo.name || name;
+          avatar = tokenInfo.picture || avatar;
+          verifiedSuccessfully = true;
+        } catch (tokenInfoErr: any) {
+          console.error('Google TokenInfo fallback verification failed:', tokenInfoErr);
+          throw new Error('Xác thực Google ID Token không thành công. Vui lòng thử lại.');
+        }
+      }
     } else if (rawAccessToken) {
       try {
         const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
@@ -207,13 +239,19 @@ export class AuthService {
           throw new Error('Email Google chưa được xác thực.');
         }
 
+        if (!userInfo.email) {
+          throw new Error('Không thể lấy địa chỉ Email từ Google Account.');
+        }
+
         email = userInfo.email;
-        name = userInfo.name;
-        avatar = userInfo.picture;
+        name = userInfo.name || name;
+        avatar = userInfo.picture || avatar;
       } catch (err: any) {
         console.error('Lỗi lấy thông tin Google UserInfo:', err);
         throw new Error(err.message || 'Không thể xác thực Google Access Token.');
       }
+    } else {
+      throw new Error('Không nhận được mã xác thực hoặc Access Token từ Google.');
     }
 
     if (!email) {
@@ -245,11 +283,36 @@ export class AuthService {
 
         return newUser;
       });
-    } else if (avatar && !user.avatar) {
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: { avatar, name: name || user.name },
+    } else {
+      // User exists: update missing avatar/name and link if appropriate
+      const updateData: { avatar?: string; name?: string } = {};
+      if (avatar && (!user.avatar || user.avatar.includes('googleusercontent.com'))) {
+        updateData.avatar = avatar;
+      }
+      if (!user.name && name) {
+        updateData.name = name;
+      }
+      if (Object.keys(updateData).length > 0) {
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: updateData,
+        });
+      }
+
+      // Ensure user has at least 1 wallet
+      const walletCount = await prisma.wallet.count({
+        where: { userId: user.id },
       });
+      if (walletCount === 0) {
+        await prisma.wallet.create({
+          data: {
+            name: 'Ví Tiền Mặt',
+            balance: 0,
+            currency: 'VND',
+            userId: user.id,
+          },
+        });
+      }
     }
 
     const tokens = await this.generateTokens(user);

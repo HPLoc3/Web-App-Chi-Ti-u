@@ -102,6 +102,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (error: any) {
       const errorMsg =
+        error.response?.data?.error?.message ||
         error.response?.data?.message ||
         error.message ||
         'Đăng nhập Google thất bại. Vui lòng thử lại.';
@@ -135,7 +136,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error(response.data?.message || 'Email hoặc mật khẩu không chính xác.');
       }
     } catch (error: any) {
-      let errorMsg = error.response?.data?.message || error.message;
+      let errorMsg =
+        error.response?.data?.error?.message ||
+        error.response?.data?.message ||
+        error.message;
       if (!errorMsg || errorMsg === 'Unauthorized' || errorMsg === 'AxiosError') {
         errorMsg = 'Email hoặc mật khẩu không chính xác. Vui lòng kiểm tra lại.';
       }
@@ -166,6 +170,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (error: any) {
       const errorMsg =
+        error.response?.data?.error?.message ||
         error.response?.data?.message ||
         error.message ||
         'Đăng ký thất bại. Vui lòng thử lại.';
@@ -192,6 +197,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
     } catch (error: any) {
       const errorMsg =
+        error.response?.data?.error?.message ||
         error.response?.data?.message ||
         error.message ||
         'Gửi yêu cầu thất bại. Vui lòng kiểm tra lại địa chỉ email.';
@@ -214,6 +220,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (error: any) {
       const errorMsg =
+        error.response?.data?.error?.message ||
         error.response?.data?.message ||
         error.message ||
         'Đặt lại mật khẩu thất bại. Mã token không hợp lệ hoặc đã hết hạn.';

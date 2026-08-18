@@ -58,7 +58,11 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({
       await loginWithGoogleToken({ idToken });
       onSuccess?.();
     } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Đăng nhập Google thất bại.';
+      const msg =
+        err.response?.data?.error?.message ||
+        err.response?.data?.message ||
+        err.message ||
+        'Đăng nhập Google thất bại.';
       onError?.(msg);
     } finally {
       setIsLoading(false);
@@ -76,7 +80,11 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({
         await loginWithGoogleToken({ accessToken: tokenResponse.access_token });
         onSuccess?.();
       } catch (err: any) {
-        const msg = err.response?.data?.message || err.message || 'Đăng nhập Google thất bại.';
+        const msg =
+          err.response?.data?.error?.message ||
+          err.response?.data?.message ||
+          err.message ||
+          'Đăng nhập Google thất bại.';
         onError?.(msg);
       } finally {
         setIsLoading(false);

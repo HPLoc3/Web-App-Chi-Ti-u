@@ -70,8 +70,8 @@ router.get('/ready', async (_req: Request, res: Response) => {
       timestamp: new Date().toISOString(),
       uptime: Math.floor((Date.now() - startTime) / 1000),
     });
-  } catch (error) {
-    Logger.error('Readiness probe failed - Database unreachable:', error);
+  } catch (error: any) {
+    Logger.warn('Readiness probe - Database disconnected or ping timeout:', error?.message || error);
     return res.status(503).json({
       status: 'unavailable',
       database: 'disconnected',

@@ -117,11 +117,22 @@ export const errorHandler = (
   }
 
   // 5. Xử lý Prisma Database Errors
-  if (err.code && typeof err.code === 'string' && err.code.startsWith('P')) {
+  const isPrismaError =
+    (err.code && typeof err.code === 'string' && err.code.startsWith('P')) ||
+    err.name === 'PrismaClientInitializationError' ||
+    err.name === 'PrismaClientKnownRequestError' ||
+    err.name === 'PrismaClientUnknownRequestError' ||
+    err.name === 'PrismaClientRustPanicError' ||
+    err.name === 'PrismaClientValidationError';
+
+  if (isPrismaError) {
     let clientMessage = 'Lỗi thao tác cơ sở dữ liệu.';
     let statusCode = 400;
 
-    if (err.code === 'P2002') {
+    if (err.name === 'PrismaClientInitializationError' || ['P1000', 'P1001', 'P1002', 'P1003', 'P1008', 'P1017'].includes(err.code)) {
+      clientMessage = 'Không thể kết nối đến máy chủ cơ sở dữ liệu. Vui lòng kiểm tra lại cấu hình kết nối mạng hoặc thử lại sau.';
+      statusCode = 503;
+    } else if (err.code === 'P2002') {
       clientMessage = 'Dữ liệu đã tồn tại trong hệ thống (vi phạm ràng buộc duy nhất).';
       statusCode = 409;
     } else if (err.code === 'P2025') {
@@ -129,6 +140,10 @@ export const errorHandler = (
       statusCode = 404;
     } else if (err.code === 'P2003') {
       clientMessage = 'Ràng buộc khóa ngoại không hợp lệ.';
+      statusCode = 400;
+    } else if (err.name === 'PrismaClientValidationError') {
+      clientMessage = 'Dữ liệu truy vấn cơ sở dữ liệu không hợp lệ.';
+      statusCode = 400;
     }
 
     res.status(statusCode).json({
