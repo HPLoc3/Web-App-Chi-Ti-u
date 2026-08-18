@@ -10,11 +10,7 @@ export const getDatabaseUrl = (): string => {
   let envUrl = (process.env.DATABASE_URL || '').replace(/^["']|["']$/g, '').trim();
 
   if (!envUrl) {
-    const user = process.env.POSTGRES_USER || 'postgres';
-    const pass = process.env.POSTGRES_PASSWORD || 'staychitiu_postgres_pass_2026';
-    const db = process.env.POSTGRES_DB || 'hophuloc_expense_db';
-    const host = process.env.NODE_ENV === 'production' ? 'postgres' : 'localhost';
-    envUrl = `postgresql://${user}:${pass}@${host}:5432/${db}?schema=public`;
+    throw new Error('FATAL DATABASE CONFIG ERROR: Biến môi trường DATABASE_URL chưa được thiết lập.');
   }
 
   // Đảm bảo có connection timeout để tránh treo tiến trình

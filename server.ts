@@ -21,10 +21,11 @@ import aiRoutes from "./src/modules/ai/ai.routes";
 import healthRoutes, { setDraining } from "./src/modules/health/health.routes";
 
 import { validateEnvironment } from "./src/config/env";
-import { getJwtSecret } from "./src/middleware/auth.middleware";
+import { getJwtSecret, getRefreshTokenSecret } from "./src/middleware/auth.middleware";
 import { requestIdMiddleware } from "./src/middleware/requestId.middleware";
 import { securityHeadersMiddleware } from "./src/middleware/securityHeaders.middleware";
 import { sanitizeInputMiddleware } from "./src/middleware/sanitize.middleware";
+import { csrfProtectionMiddleware } from "./src/middleware/csrf.middleware";
 import { apiRateLimiter } from "./src/middleware/rateLimiter.middleware";
 import { errorHandler, notFoundHandler } from "./src/middleware/errorHandler.middleware";
 import { Logger } from "./src/utils/logger";
@@ -35,6 +36,7 @@ dotenv.config({ override: true });
 // 1. Khởi tạo và kiểm tra toàn vẹn biến môi trường khi server khởi động (Fail-fast)
 const envConfig = validateEnvironment();
 getJwtSecret();
+getRefreshTokenSecret();
 
 const app = express();
 const PORT = envConfig.PORT || 3000;
@@ -131,6 +133,14 @@ app.use("/health", healthRoutes);
 app.use("/api/health", healthRoutes);
 
 // 8. Rate Limiting toàn cục cho các API endpoints (/api/*)
+// Đảm bảo toàn bộ phản hồi API và Auth không bao giờ bị lưu cache bởi browser hoặc proxy
+app.use("/api", (_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  next();
+});
+app.use("/api", csrfProtectionMiddleware);
 app.use("/api", apiRateLimiter);
 
 // --- REST API ENDPOINTS (v1 & Legacy Aliases) ---
@@ -179,15 +189,30 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
 
-    // Serve static files under both /app_chi_tieu sub-path and root
-    app.use("/app_chi_tieu", express.static(distPath));
-    app.use(express.static(distPath));
+    const staticOptions = {
+      maxAge: "1y",
+      immutable: true,
+      setHeaders: (res: express.Response, filePath: string) => {
+        if (filePath.endsWith(".html") || filePath.endsWith("index.html")) {
+          res.setHeader("Cache-Control", "no-cache, must-revalidate");
+          res.setHeader("Pragma", "no-cache");
+        }
+      },
+    };
 
-    // SPA fallback routes
+    // Serve static files under both /app_chi_tieu sub-path and root
+    app.use("/app_chi_tieu", express.static(distPath, staticOptions));
+    app.use(express.static(distPath, staticOptions));
+
+    // SPA fallback routes (Luôn yêu cầu revalidate index.html để nạp bundle mới sau mỗi lần deploy)
     app.get("/app_chi_tieu*", (_req, res) => {
+      res.setHeader("Cache-Control", "no-cache, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
       res.sendFile(path.join(distPath, "index.html"));
     });
     app.get("*", (_req, res) => {
+      res.setHeader("Cache-Control", "no-cache, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

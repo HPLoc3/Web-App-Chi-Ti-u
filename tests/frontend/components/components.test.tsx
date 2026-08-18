@@ -139,8 +139,7 @@ describe('Frontend Component Tests', () => {
       );
 
       expect(screen.getAllByText(/Financial Copilot/i).length).toBeGreaterThan(0);
-      expect(screen.getAllByText(/Ăn sáng 35k/i).length).toBeGreaterThan(0);
-      expect(screen.getByPlaceholderText(/Nhập 'Ăn sáng 35k'/i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/Nhập chi tiêu hoặc câu hỏi/i)).toBeInTheDocument();
     });
   });
 });

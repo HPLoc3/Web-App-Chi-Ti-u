@@ -7,6 +7,7 @@ import { TransactionsRepository } from '../../../src/modules/transactions/transa
 import { WalletsRepository } from '../../../src/modules/wallets/wallets.repository';
 import { BudgetsRepository } from '../../../src/modules/budgets/budgets.repository';
 import { GoalsRepository } from '../../../src/modules/goals/goals.repository';
+import { ReportsService } from '../../../src/modules/reports/reports.service';
 import { Prisma } from '@prisma/client';
 
 describe('Integration Tests: API Endpoints', () => {
@@ -102,8 +103,8 @@ describe('Integration Tests: API Endpoints', () => {
         transaction: {
           id: 'tx-new',
           amount: new Prisma.Decimal(35000),
-          categoryId: 'an-uong',
-          category: { id: 'c1', name: 'Ăn uống', icon: 'Utensils', color: '#10B981', type: 'EXPENSE' },
+          categoryId: 'an_uong',
+          category: { id: 'an_uong', name: 'Ăn uống', icon: 'Utensils', color: '#10B981', type: 'EXPENSE' },
           type: 'EXPENSE',
           note: 'Bánh mì',
           date: new Date('2026-08-15'),
@@ -130,7 +131,7 @@ describe('Integration Tests: API Endpoints', () => {
         .set('Authorization', `Bearer ${token}`)
         .send({
           amount: 35000,
-          categoryId: 'an-uong',
+          categoryId: 'an_uong',
           note: 'Bánh mì',
           date: '2026-08-15',
           type: 'EXPENSE',
@@ -181,11 +182,11 @@ describe('Integration Tests: API Endpoints', () => {
           {
             id: 'bl-1',
             budgetId: 'b-1',
-            categoryId: 'an-uong',
+            categoryId: 'an_uong',
             amount: new Prisma.Decimal(3000000),
             createdAt: new Date(),
             updatedAt: new Date(),
-            category: { id: 'c1', name: 'Ăn uống', icon: 'Utensils', color: '#10B981' },
+            category: { id: 'an_uong', name: 'Ăn uống', icon: 'Utensils', color: '#10B981' },
           },
         ],
       } as any);
@@ -223,6 +224,44 @@ describe('Integration Tests: API Endpoints', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data[0].name).toBe('Mua Laptop');
+    });
+  });
+
+  describe('Reports API: /api/v1/reports', () => {
+    it('should return monthly report overview for user', async () => {
+      vi.spyOn(ReportsService, 'getSummaryReport').mockResolvedValue({
+        period: {
+          month: 8,
+          year: 2026,
+          startDate: '2026-08-01T00:00:00.000Z',
+          endDate: '2026-08-31T23:59:59.999Z',
+        },
+        summary: {
+          effectiveIncome: 20000000,
+          recordedIncome: 20000000,
+          configuredIncome: 20000000,
+          totalExpense: 150000,
+          netBalance: 19850000,
+          totalWalletBalance: 5000000,
+          savingsRate: 99,
+        },
+        categoryBreakdown: [],
+        topExpenses: [],
+        budgetAdherence: {
+          totalBudget: 20000000,
+          totalSpent: 150000,
+          adherencePercentage: 1,
+          status: 'UNDER_BUDGET',
+        },
+      } as any);
+
+      const res = await request(app)
+        .get('/api/v1/reports/summary?month=8&year=2026')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.summary.netBalance).toBe(19850000);
     });
   });
 });

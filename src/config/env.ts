@@ -35,9 +35,9 @@ export function validateEnvironment(): EnvConfig {
     PORT: process.env.PORT,
     APP_URL: process.env.APP_URL,
     ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
-    DATABASE_URL: process.env.DATABASE_URL || 'postgresql://hophuloc_admin:SecurePass_157_66_101_43@157.66.101.43:5432/hophuloc_expense_db?schema=public',
-    JWT_SECRET: process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'staychitiu-super-secure-access-token-jwt-secret-key-2026'),
-    JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'staychitiu-super-secure-refresh-token-jwt-secret-key-2026'),
+    DATABASE_URL: process.env.DATABASE_URL,
+    JWT_SECRET: process.env.JWT_SECRET,
+    JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET,
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
@@ -47,29 +47,19 @@ export function validateEnvironment(): EnvConfig {
   const parsed = envSchema.safeParse(rawEnv);
 
   if (!parsed.success) {
-    console.error('❌ FATAL: Invalid Environment Configuration:');
+    console.error('❌ FATAL: Missing or Invalid Mandatory Environment Variables:');
     parsed.error.issues.forEach((issue) => {
-      console.error(`  - ${issue.path.join('.')}: ${issue.message}`);
+      console.error(`  - [${issue.path.join('.')}]: ${issue.message}`);
     });
-    // In production, exit immediately to prevent running with insecure or broken config
-    if (process.env.NODE_ENV === 'production') {
+    console.error('\nServer cannot start without mandatory environment variables (DATABASE_URL, JWT_SECRET, JWT_REFRESH_SECRET).');
+    console.error('Please configure them in your .env file or production environment settings.\n');
+
+    if (typeof process !== 'undefined' && process.exit && process.env.NODE_ENV !== 'test') {
       process.exit(1);
     }
-    // In development/test, provide safe fallback
-    validatedEnv = {
-      NODE_ENV: (rawEnv.NODE_ENV as any) || 'development',
-      PORT: Number(rawEnv.PORT) || 3000,
-      APP_URL: rawEnv.APP_URL || 'http://localhost:3000',
-      ALLOWED_ORIGINS: rawEnv.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:5173',
-      DATABASE_URL: rawEnv.DATABASE_URL,
-      JWT_SECRET: rawEnv.JWT_SECRET || 'staychitiu-super-secure-access-token-jwt-secret-key-2026',
-      JWT_REFRESH_SECRET: rawEnv.JWT_REFRESH_SECRET || 'staychitiu-super-secure-refresh-token-jwt-secret-key-2026',
-      GOOGLE_CLIENT_ID: rawEnv.GOOGLE_CLIENT_ID,
-      GOOGLE_CLIENT_SECRET: rawEnv.GOOGLE_CLIENT_SECRET,
-      GEMINI_API_KEY: rawEnv.GEMINI_API_KEY,
-      LOG_LEVEL: (rawEnv.LOG_LEVEL as any) || 'info',
-    };
-    return validatedEnv;
+    throw new Error(
+      `Environment validation failed: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ')}`
+    );
   }
 
   validatedEnv = parsed.data;

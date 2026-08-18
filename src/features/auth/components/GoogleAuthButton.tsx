@@ -38,14 +38,6 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({
     }
   }, []);
 
-  if (!isGoogleConfigured) {
-    return (
-      <div className="w-full p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs text-center">
-        Chưa cấu hình biến môi trường <code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-[11px]">VITE_GOOGLE_CLIENT_ID</code>.
-      </div>
-    );
-  }
-
   const handleGoogleSuccess = async (credentialResponse: any) => {
     const idToken = credentialResponse.credential;
     if (!idToken) {
@@ -95,6 +87,14 @@ export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({
       onError?.('Cửa sổ đăng nhập Google bị đóng hoặc bị chặn bởi trình duyệt.');
     },
   });
+
+  if (!isGoogleConfigured) {
+    return (
+      <div className="w-full p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs text-center">
+        Chưa cấu hình biến môi trường <code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-[11px]">VITE_GOOGLE_CLIENT_ID</code>.
+      </div>
+    );
+  }
 
   const renderCustomPopupButton = (buttonText: string = 'Tiếp tục với Google') => (
     <button

@@ -83,8 +83,8 @@ describe('Validation Tests: Zod Schemas & Input Sanitization', () => {
         transaction: {
           id: 'tx-new',
           amount: new Prisma.Decimal(50000),
-          categoryId: 'an-uong',
-          category: { id: 'c1', name: 'Ăn uống', icon: 'Utensils', color: '#10B981', type: 'EXPENSE' },
+          categoryId: 'an_uong',
+          category: { id: 'an_uong', name: 'Ăn uống', icon: 'Utensils', color: '#10B981', type: 'EXPENSE' },
           type: 'EXPENSE',
           note: 'An toàn',
           date: new Date('2026-08-15'),
@@ -111,7 +111,7 @@ describe('Validation Tests: Zod Schemas & Input Sanitization', () => {
         .set('Authorization', `Bearer ${token}`)
         .send({
           amount: 50000,
-          categoryId: 'an-uong',
+          categoryId: 'an_uong',
           note: 'An toàn',
           __proto__: { isAdmin: true },
           constructor: { prototype: { hacked: true } },

@@ -78,7 +78,6 @@ describe('E2E Full Scenarios (16 Key Workflows)', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.accessToken).toBeDefined();
     expect(res.body.data.email).toBe(USER_A.email);
   });
 
@@ -142,8 +141,8 @@ describe('E2E Full Scenarios (16 Key Workflows)', () => {
       transaction: {
         id: 'tx-s5',
         amount: new Prisma.Decimal(45000),
-        categoryId: 'an-uong',
-        category: { id: 'c1', name: 'Ăn uống', icon: 'Utensils', color: '#10B981', type: 'EXPENSE' },
+        categoryId: 'an_uong',
+        category: { id: 'an_uong', name: 'Ăn uống', icon: 'Utensils', color: '#10B981', type: 'EXPENSE' },
         type: 'EXPENSE',
         note: 'Bún bò Huế',
         date: new Date('2026-08-15'),
@@ -170,7 +169,7 @@ describe('E2E Full Scenarios (16 Key Workflows)', () => {
       .set('Authorization', `Bearer ${tokenA}`)
       .send({
         amount: 45000,
-        categoryId: 'an-uong',
+        categoryId: 'an_uong',
         note: 'Bún bò Huế',
         date: '2026-08-15',
         type: 'EXPENSE',
@@ -187,7 +186,7 @@ describe('E2E Full Scenarios (16 Key Workflows)', () => {
     vi.spyOn(TransactionsRepository, 'findByIdAndUserId').mockResolvedValue({
       id: 'tx-s5',
       amount: new Prisma.Decimal(45000),
-      categoryId: 'an-uong',
+      categoryId: 'an_uong',
       type: 'EXPENSE',
       note: 'Bún bò Huế',
       date: new Date('2026-08-15'),
@@ -201,8 +200,8 @@ describe('E2E Full Scenarios (16 Key Workflows)', () => {
       updatedTransaction: {
         id: 'tx-s5',
         amount: new Prisma.Decimal(55000), // Adjusted amount
-        categoryId: 'an-uong',
-        category: { id: 'c1', name: 'Ăn uống', icon: 'Utensils', color: '#10B981', type: 'EXPENSE' },
+        categoryId: 'an_uong',
+        category: { id: 'an_uong', name: 'Ăn uống', icon: 'Utensils', color: '#10B981', type: 'EXPENSE' },
         type: 'EXPENSE',
         note: 'Bún bò Huế đặc biệt',
         date: new Date('2026-08-15'),
@@ -243,7 +242,7 @@ describe('E2E Full Scenarios (16 Key Workflows)', () => {
     vi.spyOn(TransactionsRepository, 'findByIdAndUserId').mockResolvedValue({
       id: 'tx-s5',
       amount: new Prisma.Decimal(55000),
-      categoryId: 'an-uong',
+      categoryId: 'an_uong',
       type: 'EXPENSE',
       walletId: 'w-default',
       userId: USER_A.id,

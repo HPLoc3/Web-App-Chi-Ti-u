@@ -1,4 +1,4 @@
-name: Production Deployment
+name: Production Deployment Pipeline
 
 on:
   push:
@@ -11,29 +11,67 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ============================================================================
+  # Stage 1: Continuous Integration (Test -> Typecheck -> Build -> Docker Build)
+  # ============================================================================
+  ci:
+    name: 🧪 CI Validation (Test, Typecheck, Build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 🗄️ Generate Prisma Client
+        run: npx prisma generate
+
+      - name: 🧪 Run Unit & Integration Tests
+        env:
+          NODE_ENV: test
+          JWT_SECRET: test-jwt-secret-key-minimum-32-characters-long!
+          JWT_REFRESH_SECRET: test-refresh-jwt-secret-key-minimum-32-chars!
+          REFRESH_TOKEN_SECRET: test-refresh-jwt-secret-key-minimum-32-chars!
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db?schema=public
+          ALLOWED_ORIGINS: http://localhost:3000,http://localhost:5173
+        run: npm test
+
+      - name: 🔍 Run TypeScript Typecheck
+        run: npm run lint
+
+      - name: 🏗️ Run Production Application Build
+        env:
+          NODE_ENV: production
+          VITE_API_URL: https://hophuloc.online
+        run: npm run build
+
+      - name: 🐳 Validate Multi-Stage Docker Build
+        run: |
+          docker build \
+            --build-arg GIT_COMMIT="${{ github.sha }}" \
+            -t hophuloc_app_ci_test:${{ github.sha }} .
+
+  # ============================================================================
+  # Stage 2: Production Deployment & Verification
+  # ============================================================================
   deploy:
-    name: Deploy to VPS Production
+    name: 🚀 Deploy to VPS Production
+    needs: [ci]
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
-      - name: 📥 Checkout Repository
+      - name: 📥 Checkout Source Code
         uses: actions/checkout@v4
-
-      - name: 🔍 Display Deployment Context
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-        run: |
-          echo "=================================================="
-          echo "🚀 INITIATING PRODUCTION DEPLOYMENT"
-          echo "=================================================="
-          echo "Repository : ${{ github.repository }}"
-          echo "Branch     : ${{ github.ref_name }}"
-          echo "Commit SHA : ${{ github.sha }}"
-          echo "Triggered  : ${{ github.event_name }}"
-          echo "Target Host: ${SSH_HOST}"
-          echo "Target URL : https://hophuloc.online"
-          echo "=================================================="
 
       - name: 🛡️ Validate Required Deployment Secrets
         env:
@@ -42,29 +80,33 @@ jobs:
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
+          set -e
+          echo "=================================================="
+          echo "🔒 VALIDATING DEPLOYMENT CREDENTIALS"
+          echo "=================================================="
           MISSING=0
           if [ -z "${SSH_HOST}" ]; then
-            echo "❌ ERROR: Missing required GitHub Secret: SSH_HOST"
+            echo "❌ ERROR: Missing required secret SSH_HOST"
             MISSING=1
           fi
           if [ -z "${SSH_PORT}" ]; then
-            echo "❌ ERROR: Missing required GitHub Secret: SSH_PORT"
+            echo "❌ ERROR: Missing required secret SSH_PORT"
             MISSING=1
           fi
           if [ -z "${SSH_USER}" ]; then
-            echo "❌ ERROR: Missing required GitHub Secret: SSH_USER"
+            echo "❌ ERROR: Missing required secret SSH_USER"
             MISSING=1
           fi
           if [ -z "${SSH_PRIVATE_KEY}" ]; then
-            echo "❌ ERROR: Missing required GitHub Secret: SSH_PRIVATE_KEY"
+            echo "❌ ERROR: Missing required secret SSH_PRIVATE_KEY"
             MISSING=1
           fi
 
           if [ $MISSING -ne 0 ]; then
-            echo "💡 Please ensure all 4 secrets (SSH_HOST, SSH_PORT, SSH_USER, SSH_PRIVATE_KEY) are configured in GitHub Repository Settings -> Secrets and variables -> Actions."
+            echo "❌ FATAL: Deployment cannot proceed without all 4 SSH secrets."
             exit 1
           fi
-          echo "✅ All required deployment secrets are validated."
+          echo "✅ All required SSH secrets are present."
 
       - name: 🔑 Configure SSH Authentication
         env:
@@ -72,95 +114,108 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
         run: |
+          set -e
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          # Load private key into SSH agent without displaying key in logs
           eval "$(ssh-agent -s)"
           echo "${SSH_PRIVATE_KEY}" | tr -d '\r' | ssh-add - > /dev/null
 
-          # Add target host to known_hosts to prevent interactive prompt
-          ssh-keyscan -p "${SSH_PORT}" -H "${SSH_HOST}" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -p "${SSH_PORT}" -H "${SSH_HOST}" >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-          # Persist SSH agent socket across sub-steps
           echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> $GITHUB_ENV
           echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> $GITHUB_ENV
 
-      - name: 🚀 Execute Remote Deployment via SSH
+      - name: 🚀 Remote Deploy on VPS via SSH
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_PORT: ${{ secrets.SSH_PORT }}
           SSH_USER: ${{ secrets.SSH_USER }}
+          TARGET_COMMIT: ${{ github.sha }}
         run: |
+          set -e
           echo "🌐 Connecting to VPS [${SSH_USER}@${SSH_HOST}:${SSH_PORT}]..."
 
-          ssh -p "${SSH_PORT}" -o StrictHostKeyChecking=accept-new "${SSH_USER}@${SSH_HOST}" "bash -s" << 'EOF'
+          ssh -p "${SSH_PORT}" -o StrictHostKeyChecking=accept-new "${SSH_USER}@${SSH_HOST}" "bash -s" << EOF
             set -eo pipefail
 
             APP_DIR="/var/www/app-chi-tieu"
             COMPOSE_FILE="docker-compose.prod.yml"
+            TARGET_SHA="${TARGET_COMMIT}"
 
             echo "=================================================="
-            echo "📂 Changing working directory to ${APP_DIR}..."
+            echo "📂 Step 1: Navigating to \${APP_DIR}..."
             echo "=================================================="
-            cd "${APP_DIR}" || {
-              echo "❌ ERROR: Directory ${APP_DIR} does not exist on VPS!"
-              exit 1
-            }
+            cd "\${APP_DIR}"
 
-            PREV_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-            echo "📌 Current commit on VPS before deployment: ${PREV_COMMIT}"
-
-            echo "📥 Fetching latest commits from origin/main..."
+            echo "=================================================="
+            echo "📥 Step 2: Fetching origin/main & Hard Reset..."
+            echo "=================================================="
             git fetch origin main
-
-            echo "🔄 Resetting working tree to match origin/main (preserving .env)..."
             git reset --hard origin/main
 
-            NEW_COMMIT=$(git rev-parse --short HEAD)
-            echo "✅ VPS is now updated to target commit: ${NEW_COMMIT}"
+            echo "=================================================="
+            echo "🔍 Step 3: Verifying VPS Commit SHA..."
+            echo "=================================================="
+            VPS_SHA=\$(git rev-parse HEAD)
+            echo "Expected Commit SHA : \${TARGET_SHA}"
+            echo "Actual VPS Commit   : \${VPS_SHA}"
 
-            if [ ! -f .env ]; then
-              echo "⚠️ WARNING: .env file was not found! Generating default from .env.example..."
-              cp .env.example .env
+            if [ "\${VPS_SHA}" != "\${TARGET_SHA}" ]; then
+              echo "❌ FATAL: VPS commit SHA mismatch! Expected \${TARGET_SHA}, got \${VPS_SHA}"
+              exit 1
             fi
+            echo "✅ Commit SHA verified on VPS: \${VPS_SHA}"
 
-            echo "🐳 Building Docker production containers with fresh code..."
-            docker compose -f "${COMPOSE_FILE}" build --pull
+            echo "=================================================="
+            echo "🛡️ Step 4: Validating Production .env Presence..."
+            echo "=================================================="
+            if [ ! -f .env ]; then
+              echo "❌ FATAL: Production .env file not found at \${APP_DIR}/.env!"
+              echo "Deployment aborted. .env must be manually configured on VPS."
+              exit 1
+            fi
+            echo "✅ Production .env file is present."
 
-            echo "🗄️ Executing Prisma Database Migrations on VPS..."
-            docker compose -f "${COMPOSE_FILE}" run --rm app npx prisma migrate deploy
+            echo "=================================================="
+            echo "🐳 Step 5: Building Production Docker Images..."
+            echo "=================================================="
+            COMMIT_SHA="\${TARGET_SHA}" docker compose -f "\${COMPOSE_FILE}" build --pull
 
-            echo "🚀 Launching production containers (zero-downtime recreation)..."
-            docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans
+            echo "=================================================="
+            echo "🗄️ Step 6: Executing Prisma Database Migrations..."
+            echo "=================================================="
+            docker compose -f "\${COMPOSE_FILE}" run --rm app npx prisma migrate deploy
 
-            echo "🧹 Pruning old dangling Docker images..."
+            echo "=================================================="
+            echo "🚀 Step 7: Launching Docker Containers..."
+            echo "=================================================="
+            COMMIT_SHA="\${TARGET_SHA}" docker compose -f "\${COMPOSE_FILE}" up -d --remove-orphans
+
+            echo "=================================================="
+            echo "🧹 Step 8: Pruning Old Docker Images..."
+            echo "=================================================="
             docker image prune -f
 
-            echo "📊 Verifying production container status..."
-            docker compose -f "${COMPOSE_FILE}" ps
-
             echo "=================================================="
-            echo "✅ VPS Remote Deployment Steps Finished!"
+            echo "📊 Step 9: Verifying Container Status..."
             echo "=================================================="
+            docker compose -f "\${COMPOSE_FILE}" ps
           EOF
 
-      - name: 🩺 Verify Production Readiness Probe (Health Check)
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-          SSH_USER: ${{ secrets.SSH_USER }}
+      - name: 🩺 Step 10: Verify Production Health Check & Readiness Probe
         run: |
+          set -e
           TARGET_READY_URL="https://hophuloc.online/health/ready"
           TARGET_LIVE_URL="https://hophuloc.online/health/live"
 
           echo "=================================================="
-          echo "🩺 VERIFYING PRODUCTION HEALTH & READINESS"
+          echo "🩺 PROBING PRODUCTION READINESS & HEALTH"
           echo "Target URL: ${TARGET_READY_URL}"
           echo "=================================================="
 
-          MAX_RETRIES=12
+          MAX_RETRIES=15
           DELAY_SECONDS=5
           HEALTHY=0
 
@@ -181,26 +236,46 @@ jobs:
 
           if [ $HEALTHY -ne 1 ]; then
             echo "❌ CRITICAL: Production health probe FAILED at ${TARGET_READY_URL} after $((MAX_RETRIES * DELAY_SECONDS))s!"
-            echo "📋 Fetching remote container diagnostics via SSH..."
-
-            ssh -p "${SSH_PORT}" -o StrictHostKeyChecking=accept-new "${SSH_USER}@${SSH_HOST}" "bash -s" << 'EOF' || true
-              cd /var/www/app-chi-tieu
-              echo "--- Docker Compose Container Status ---"
-              docker compose -f docker-compose.prod.yml ps
-              echo "--- App Container Recent Logs ---"
-              docker compose -f docker-compose.prod.yml logs --tail=50 app
-              echo "--- Nginx Container Recent Logs ---"
-              docker compose -f docker-compose.prod.yml logs --tail=50 nginx
-          EOF
-
             exit 1
           fi
 
           echo "🔍 Secondary Live Probe Check (${TARGET_LIVE_URL}):"
           LIVE_CODE=$(curl -s -k -o /dev/null -w "%{http_code}" --max-time 10 "${TARGET_LIVE_URL}" || echo "000")
-          echo "ℹ️ Live Endpoint HTTP Response: ${LIVE_CODE}"
+          if [ "${LIVE_CODE}" != "200" ]; then
+            echo "❌ CRITICAL: Live probe returned HTTP ${LIVE_CODE} instead of 200!"
+            exit 1
+          fi
+          echo "✅ Live probe returned HTTP 200 OK."
+
+      - name: 🔍 Step 11: Verify Production Commit SHA via HTTP
+        env:
+          TARGET_COMMIT: ${{ github.sha }}
+        run: |
+          set -e
+          TARGET_VERSION_URL="https://hophuloc.online/health/version"
+          TARGET_HEALTH_URL="https://hophuloc.online/health"
 
           echo "=================================================="
-          echo "🎉 PRODUCTION DEPLOYMENT COMPLETED SUCCESSFULLY!"
-          echo "🚀 Live URL: https://hophuloc.online"
+          echo "🔍 VERIFYING LIVE PRODUCTION COMMIT SHA"
+          echo "Expected Target SHA: ${TARGET_COMMIT}"
+          echo "=================================================="
+
+          VERSION_RESPONSE=$(curl -s -f -k --max-time 10 "${TARGET_VERSION_URL}" || curl -s -f -k --max-time 10 "${TARGET_HEALTH_URL}")
+          echo "Live Health Response: ${VERSION_RESPONSE}"
+
+          PROD_COMMIT=$(echo "${VERSION_RESPONSE}" | grep -o '"commit":"[^"]*' | cut -d'"' -f4)
+          echo "Reported Live Commit: ${PROD_COMMIT}"
+
+          TARGET_SHORT="${TARGET_COMMIT:0:7}"
+          echo "Comparing Expected [${TARGET_SHORT}] with Live [${PROD_COMMIT}]..."
+
+          if [[ "${PROD_COMMIT}" != *"${TARGET_SHORT}"* ]] && [[ "${TARGET_COMMIT}" != *"${PROD_COMMIT}"* ]] && [ "${PROD_COMMIT}" != "unknown" ]; then
+            echo "❌ CRITICAL: Live production version mismatch! Expected ${TARGET_COMMIT}, but live server reported ${PROD_COMMIT}."
+            exit 1
+          fi
+
+          echo "=================================================="
+          echo "🎉 ALL PRODUCTION VERIFICATION STEPS PASSED!"
+          echo "🚀 Verified Live Commit : ${PROD_COMMIT}"
+          echo "🌐 Verified Live URL    : https://hophuloc.online"
           echo "=================================================="

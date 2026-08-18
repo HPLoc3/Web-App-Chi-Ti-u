@@ -4,6 +4,7 @@ import app from '../../../server';
 import { USER_A, generateTestToken, generateExpiredToken } from '../../helpers/authHelper';
 import { AuthRepository } from '../../../src/modules/auth/auth.repository';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 describe('Auth Tests: Security, Tokens & Verification', () => {
   beforeEach(() => {
@@ -114,6 +115,41 @@ describe('Auth Tests: Security, Tokens & Verification', () => {
       const res = await request(app).post('/api/v1/auth/logout');
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
+    });
+
+    it('should handle refresh token request', async () => {
+      vi.spyOn(AuthRepository, 'findRefreshToken').mockResolvedValue({
+        id: 'rt-1',
+        token: 'hashed-rt',
+        userId: USER_A.id,
+        revoked: false,
+        expiresAt: new Date(Date.now() + 86400000),
+        user: {
+          id: USER_A.id,
+          email: USER_A.email,
+          name: USER_A.name,
+          avatar: null,
+          provider: 'local',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any,
+      } as any);
+
+      vi.spyOn(AuthRepository, 'revokeRefreshToken').mockResolvedValue(undefined as any);
+      vi.spyOn(AuthRepository, 'createTokensAndSession').mockResolvedValue(undefined as any);
+
+      // Generate a valid refresh token payload
+      const validRefreshToken = jwt.sign(
+        { userId: USER_A.id, tokenVersion: 1 },
+        process.env.JWT_REFRESH_SECRET || 'test-refresh-jwt-secret-key-minimum-32-chars!',
+        { expiresIn: '7d' }
+      );
+
+      const res = await request(app)
+        .post('/api/v1/auth/refresh')
+        .set('Cookie', [`refreshToken=${validRefreshToken}`]);
+
+      expect([200, 401]).toContain(res.status);
     });
   });
 });

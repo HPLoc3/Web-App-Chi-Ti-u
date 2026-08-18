@@ -18,11 +18,26 @@ export function getDrainingStatus(): boolean {
 
 /**
  * Basic Health Check
- * Trả về trạng thái hoạt động cơ bản mà không tiết lộ thông tin nhạy cảm về hệ thống nội bộ
+ * Trả về trạng thái hoạt động cơ bản và Git commit SHA đang chạy
  */
 router.get('/', (_req: Request, res: Response) => {
   res.status(200).json({
     status: isDraining ? 'draining' : 'ok',
+    environment: process.env.NODE_ENV || 'production',
+    commit: process.env.GIT_COMMIT || process.env.COMMIT_SHA || 'unknown',
+    timestamp: new Date().toISOString(),
+    uptime: Math.floor((Date.now() - startTime) / 1000),
+  });
+});
+
+/**
+ * Version & Release Verification Endpoint
+ */
+router.get('/version', (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'ok',
+    environment: process.env.NODE_ENV || 'production',
+    commit: process.env.GIT_COMMIT || process.env.COMMIT_SHA || 'unknown',
     timestamp: new Date().toISOString(),
     uptime: Math.floor((Date.now() - startTime) / 1000),
   });

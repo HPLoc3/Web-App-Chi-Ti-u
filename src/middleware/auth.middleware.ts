@@ -10,7 +10,11 @@ export const getJwtSecret = (): string => {
 };
 
 export const getRefreshTokenSecret = (): string => {
-  return process.env.JWT_REFRESH_SECRET || getJwtSecret() + '_refresh';
+  const secret = process.env.JWT_REFRESH_SECRET;
+  if (!secret || secret.trim() === '') {
+    throw new Error('FATAL SECURITY ERROR: Biến môi trường JWT_REFRESH_SECRET chưa được cấu hình.');
+  }
+  return secret;
 };
 
 export interface AuthenticatedUser {

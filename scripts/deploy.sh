@@ -25,17 +25,16 @@ echo "🔄 Resetting local server changes to match remote repository safely..."
 git reset --hard origin/main
 
 if [ ! -f .env ]; then
-  echo "⚠️ .env not found! Creating default .env from .env.example..."
-  cp .env.example .env
+  echo "❌ FATAL ERROR: Production .env file not found in ${APP_DIR}!"
+  echo "Please configure the production .env file before deploying."
+  exit 1
 fi
 
 echo "📦 Syncing Docker images & building containers..."
 docker compose -f "${COMPOSE_FILE}" build --pull
 
 echo "🗄️ Executing database migrations..."
-if [ -f .env ]; then
-  docker compose -f "${COMPOSE_FILE}" run --rm app npx prisma migrate deploy || true
-fi
+docker compose -f "${COMPOSE_FILE}" run --rm app npx prisma migrate deploy
 
 echo "🚀 Restarting production containers (zero-downtime)..."
 docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans
