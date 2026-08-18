@@ -1,4 +1,4 @@
-name: Production Deployment Pipeline
+name: "Production Deployment Pipeline"
 
 on:
   push:
@@ -15,46 +15,46 @@ jobs:
   # Stage 1: Continuous Integration (Test -> Typecheck -> Build -> Docker Build)
   # ============================================================================
   ci:
-    name: 🧪 CI Validation (Test, Typecheck, Build)
+    name: "🧪 CI Validation (Test, Typecheck, Build)"
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: 📥 Checkout Source Code
+      - name: "📥 Checkout Source Code"
         uses: actions/checkout@v4
 
-      - name: ⚙️ Setup Node.js Environment
+      - name: "⚙️ Setup Node.js Environment"
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
 
-      - name: 📦 Install Dependencies
+      - name: "📦 Install Dependencies"
         run: npm ci
 
-      - name: 🗄️ Generate Prisma Client
+      - name: "🗄️ Generate Prisma Client"
         run: npx prisma generate
 
-      - name: 🧪 Run Unit & Integration Tests
+      - name: "🧪 Run Unit & Integration Tests"
         env:
           NODE_ENV: test
           JWT_SECRET: test-jwt-secret-key-minimum-32-characters-long!
           JWT_REFRESH_SECRET: test-refresh-jwt-secret-key-minimum-32-chars!
           REFRESH_TOKEN_SECRET: test-refresh-jwt-secret-key-minimum-32-chars!
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db?schema=public
-          ALLOWED_ORIGINS: http://localhost:3000,http://localhost:5173
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/test_db?schema=public"
+          ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:5173"
         run: npm test
 
-      - name: 🔍 Run TypeScript Typecheck
+      - name: "🔍 Run TypeScript Typecheck"
         run: npm run lint
 
-      - name: 🏗️ Run Production Application Build
+      - name: "🏗️ Run Production Application Build"
         env:
           NODE_ENV: production
-          VITE_API_URL: https://hophuloc.online
+          VITE_API_URL: "https://hophuloc.online"
         run: npm run build
 
-      - name: 🐳 Validate Multi-Stage Docker Build
+      - name: "🐳 Validate Multi-Stage Docker Build"
         run: |
           docker build \
             --build-arg GIT_COMMIT="${{ github.sha }}" \
@@ -64,16 +64,16 @@ jobs:
   # Stage 2: Production Deployment & Verification
   # ============================================================================
   deploy:
-    name: 🚀 Deploy to VPS Production
+    name: "🚀 Deploy to VPS Production"
     needs: [ci]
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
-      - name: 📥 Checkout Source Code
+      - name: "📥 Checkout Source Code"
         uses: actions/checkout@v4
 
-      - name: 🛡️ Validate Required Deployment Secrets
+      - name: "🛡️ Validate Required Deployment Secrets"
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_PORT: ${{ secrets.SSH_PORT }}
@@ -108,7 +108,7 @@ jobs:
           fi
           echo "✅ All required SSH secrets are present."
 
-      - name: 🔑 Configure SSH Authentication
+      - name: "🔑 Configure SSH Authentication"
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_PORT: ${{ secrets.SSH_PORT }}
@@ -127,7 +127,7 @@ jobs:
           echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> $GITHUB_ENV
           echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> $GITHUB_ENV
 
-      - name: 🚀 Remote Deploy on VPS via SSH
+      - name: "🚀 Remote Deploy on VPS via SSH"
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_PORT: ${{ secrets.SSH_PORT }}
@@ -204,50 +204,57 @@ jobs:
             docker compose -f "\${COMPOSE_FILE}" ps
           EOF
 
-      - name: 🩺 Step 10: Verify Production Health Check & Readiness Probe
+      - name: "🩺 Step 10: Verify Production Health Check & Readiness Probe"
         run: |
           set -e
+
           TARGET_READY_URL="https://hophuloc.online/health/ready"
           TARGET_LIVE_URL="https://hophuloc.online/health/live"
 
           echo "=================================================="
           echo "🩺 PROBING PRODUCTION READINESS & HEALTH"
-          echo "Target URL: ${TARGET_READY_URL}"
+          echo "=================================================="
+          echo "Ready URL: ${TARGET_READY_URL}"
+          echo "Live URL : ${TARGET_LIVE_URL}"
           echo "=================================================="
 
           MAX_RETRIES=15
           DELAY_SECONDS=5
-          HEALTHY=0
 
-          for ((i=1; i<=MAX_RETRIES; i++)); do
-            HTTP_CODE=$(curl -s -k -o /dev/null -w "%{http_code}" --max-time 10 "${TARGET_READY_URL}" || echo "000")
-            echo "⏳ [Attempt $i/$MAX_RETRIES] Probing ${TARGET_READY_URL} -> HTTP ${HTTP_CODE}"
+          check_health() {
+            local URL="$1"
+            local NAME="$2"
 
-            if [ "${HTTP_CODE}" = "200" ]; then
-              echo "✅ Health check PASSED (HTTP 200 OK)!"
-              HEALTHY=1
-              break
-            fi
+            for ((i=1; i<=MAX_RETRIES; i++)); do
+              HTTP_CODE=$(curl -sS -k -o /dev/null -w "%{http_code}" \
+                --max-time 10 \
+                "${URL}" || echo "000")
 
-            if [ $i -lt $MAX_RETRIES ]; then
-              sleep ${DELAY_SECONDS}
-            fi
-          done
+              echo "⏳ [${NAME}] Attempt ${i}/${MAX_RETRIES} -> HTTP ${HTTP_CODE}"
 
-          if [ $HEALTHY -ne 1 ]; then
-            echo "❌ CRITICAL: Production health probe FAILED at ${TARGET_READY_URL} after $((MAX_RETRIES * DELAY_SECONDS))s!"
+              if [ "${HTTP_CODE}" = "200" ]; then
+                echo "✅ ${NAME} health check PASSED!"
+                return 0
+              fi
+
+              if [ "${i}" -lt "${MAX_RETRIES}" ]; then
+                sleep "${DELAY_SECONDS}"
+              fi
+            done
+
+            echo "❌ CRITICAL: ${NAME} health check FAILED!"
+            echo "URL: ${URL}"
             exit 1
-          fi
+          }
 
-          echo "🔍 Secondary Live Probe Check (${TARGET_LIVE_URL}):"
-          LIVE_CODE=$(curl -s -k -o /dev/null -w "%{http_code}" --max-time 10 "${TARGET_LIVE_URL}" || echo "000")
-          if [ "${LIVE_CODE}" != "200" ]; then
-            echo "❌ CRITICAL: Live probe returned HTTP ${LIVE_CODE} instead of 200!"
-            exit 1
-          fi
-          echo "✅ Live probe returned HTTP 200 OK."
+          check_health "${TARGET_LIVE_URL}" "LIVENESS"
+          check_health "${TARGET_READY_URL}" "READINESS"
 
-      - name: 🔍 Step 11: Verify Production Commit SHA via HTTP
+          echo "=================================================="
+          echo "✅ PRODUCTION HEALTH CHECK PASSED"
+          echo "=================================================="
+
+      - name: "🔍 Step 11: Verify Production Commit SHA via HTTP"
         env:
           TARGET_COMMIT: ${{ github.sha }}
         run: |
@@ -279,3 +286,4 @@ jobs:
           echo "🚀 Verified Live Commit : ${PROD_COMMIT}"
           echo "🌐 Verified Live URL    : https://hophuloc.online"
           echo "=================================================="
+
