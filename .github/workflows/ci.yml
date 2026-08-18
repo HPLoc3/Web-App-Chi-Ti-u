@@ -47,7 +47,7 @@ jobs:
         run: npx tsc --noEmit
 
       - name: 🧪 Run Unit & Integration Tests
-        run: npm run test:run || npm run test -- --run || true
+        run: npm test
 
       - name: 🏗️ Verify Production Build
         run: npm run build
