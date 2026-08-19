@@ -179,6 +179,13 @@ jobs:
             echo "✅ Production .env file is present."
 
             echo "=================================================="
+            echo "🧹 Step 4.5: Pruning Docker Build Cache & Unused Images (pre-build)..."
+            echo "=================================================="
+            docker system prune -af
+            docker builder prune -af
+            df -h /
+
+            echo "=================================================="
             echo "🐳 Step 5: Building Production Docker Images..."
             echo "=================================================="
             COMMIT_SHA="\${TARGET_SHA}" docker compose -f "\${COMPOSE_FILE}" build --pull
