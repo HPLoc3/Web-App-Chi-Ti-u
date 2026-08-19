@@ -7,9 +7,9 @@ services:
     container_name: hophuloc_postgres_prod
     restart: always
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:?Error: POSTGRES_USER must be set in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Error: POSTGRES_PASSWORD must be set in .env}
-      POSTGRES_DB: ${POSTGRES_DB:?Error: POSTGRES_DB must be set in .env}
+      POSTGRES_USER: "${POSTGRES_USER:?Error: POSTGRES_USER must be set in .env}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Error: POSTGRES_PASSWORD must be set in .env}"
+      POSTGRES_DB: "${POSTGRES_DB:?Error: POSTGRES_DB must be set in .env}"
       TZ: "Asia/Ho_Chi_Minh"
     volumes:
       - postgres_prod_data:/var/lib/postgresql/data
@@ -47,9 +47,9 @@ services:
       GIT_COMMIT: ${COMMIT_SHA:-unknown}
       APP_URL: ${APP_URL:-https://hophuloc.online}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://hophuloc.online,https://www.hophuloc.online}
-      DATABASE_URL: ${DATABASE_URL:?Error: DATABASE_URL must be set in .env}
-      JWT_SECRET: ${JWT_SECRET:?Error: JWT_SECRET must be set in .env}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Error: JWT_REFRESH_SECRET must be set in .env}
+      DATABASE_URL: "${DATABASE_URL:?Error: DATABASE_URL must be set in .env}"
+      JWT_SECRET: "${JWT_SECRET:?Error: JWT_SECRET must be set in .env}"
+      JWT_REFRESH_SECRET: "${JWT_REFRESH_SECRET:?Error: JWT_REFRESH_SECRET must be set in .env}"
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
@@ -100,9 +100,9 @@ services:
     restart: always
     environment:
       POSTGRES_HOST: postgres
-      POSTGRES_DB: ${POSTGRES_DB:?Error: POSTGRES_DB must be set in .env}
-      POSTGRES_USER: ${POSTGRES_USER:?Error: POSTGRES_USER must be set in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Error: POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: "${POSTGRES_DB:?Error: POSTGRES_DB must be set in .env}"
+      POSTGRES_USER: "${POSTGRES_USER:?Error: POSTGRES_USER must be set in .env}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Error: POSTGRES_PASSWORD must be set in .env}"
       POSTGRES_EXTRA_OPTS: "-Z 9 --schema=public --blobs"
       SCHEDULE: "@daily"
       BACKUP_DIR: /backups

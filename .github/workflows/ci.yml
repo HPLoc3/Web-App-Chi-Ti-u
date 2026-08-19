@@ -55,3 +55,15 @@ jobs:
       - name: 🐳 Verify Docker Build
         run: |
           docker build --target runner -t expense-ledger:ci-test .
+
+      - name: 🐳 Validate Docker Compose Production Configuration
+        env:
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: ci_db
+          DATABASE_URL: "postgresql://ci_user:ci_password@localhost:5432/ci_db"
+          JWT_SECRET: "ci-test-access-token-jwt-secret-key-32chars"
+          JWT_REFRESH_SECRET: "ci-test-refresh-token-jwt-secret-key-32chars"
+        run: |
+          docker compose -f docker-compose.prod.yml config --quiet
+
