@@ -13,8 +13,5 @@ prisma/*.db-journal
 dev.db
 dev.db-journal
 .env
-.env.local
-.env.development
-.env.production
-.env.*.local
+.env.*
 !.env.example

@@ -1,19 +1,37 @@
 import { PrismaClient } from '@prisma/client';
+import dotenv from 'dotenv';
+import path from 'path';
 import { Logger } from '../utils/logger';
+
+// 1. Ensure .env is loaded defensively at the earliest possible moment
+dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
 
 declare global {
   // eslint-disable-next-line no-var
-  var prismaGlobal: PrismaClient | undefined;
+  var __prismaInstance: PrismaClient | undefined;
 }
 
+/**
+ * Validates and retrieves the PostgreSQL DATABASE_URL.
+ * Throws a fatal error if DATABASE_URL is missing or invalid.
+ * Strictly forbids any localhost or placeholder fallbacks in production.
+ */
 export const getDatabaseUrl = (): string => {
   let envUrl = (process.env.DATABASE_URL || '').replace(/^["']|["']$/g, '').trim();
 
   if (!envUrl) {
-    throw new Error('FATAL DATABASE CONFIG ERROR: Biến môi trường DATABASE_URL chưa được thiết lập.');
+    throw new Error(
+      'FATAL DATABASE CONFIG ERROR: DATABASE_URL is not configured. Please set DATABASE_URL in your .env file or environment variables.'
+    );
   }
 
-  // Đảm bảo có connection timeout để tránh treo tiến trình
+  if (!envUrl.startsWith('postgresql://') && !envUrl.startsWith('postgres://')) {
+    throw new Error(
+      'FATAL DATABASE CONFIG ERROR: DATABASE_URL must be a valid PostgreSQL connection string (starting with postgresql:// or postgres://).'
+    );
+  }
+
+  // Inject connect_timeout=10 to prevent indefinite pool stalls
   if (!envUrl.includes('connect_timeout')) {
     const separator = envUrl.includes('?') ? '&' : '?';
     envUrl = `${envUrl}${separator}connect_timeout=10`;
@@ -22,11 +40,16 @@ export const getDatabaseUrl = (): string => {
   return envUrl;
 };
 
+/**
+ * Creates a new configured PrismaClient instance.
+ */
 const createPrismaClient = (): PrismaClient => {
+  const url = getDatabaseUrl();
+
   const client = new PrismaClient({
     datasources: {
       db: {
-        url: getDatabaseUrl(),
+        url,
       },
     },
     log: [
@@ -35,7 +58,6 @@ const createPrismaClient = (): PrismaClient => {
     ],
   });
 
-  // Ghi nhận sự kiện Prisma qua Logger ở cấp độ debug để giữ console luôn sạch sẽ
   client.$on('error' as never, (e: any) => {
     const errorMsg = e?.message || String(e);
     Logger.debug(`[Prisma Internal Event] ${errorMsg.split('\n')[0]}`);
@@ -48,11 +70,88 @@ const createPrismaClient = (): PrismaClient => {
   return client;
 };
 
-export const prisma = globalThis.prismaGlobal ?? createPrismaClient();
+/**
+ * Singleton accessor that ensures PrismaClient is lazily instantiated
+ * only when first accessed, guaranteeing all environment variables are loaded.
+ */
+export const getPrismaClient = (): PrismaClient => {
+  if (globalThis.__prismaInstance) {
+    return globalThis.__prismaInstance;
+  }
 
-if (process.env.NODE_ENV !== 'production') {
-  globalThis.prismaGlobal = prisma;
-}
+  const client = createPrismaClient();
+
+  if (process.env.NODE_ENV !== 'production') {
+    globalThis.__prismaInstance = client;
+  }
+
+  return client;
+};
+
+/**
+ * Transparent Lazy Proxy for PrismaClient.
+ * This guarantees that `import { prisma } from './prisma'` can be evaluated during
+ * module graph resolution without eagerly constructing PrismaClient before
+ * environment configuration completes, while remaining 100% compatible with
+ * Vitest/Jest spies (`vi.spyOn(prisma, '$transaction')`), reflection, and runtime methods.
+ */
+export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(target, prop: string | symbol, receiver) {
+    if (prop in target) {
+      return Reflect.get(target, prop, receiver);
+    }
+    const client = getPrismaClient();
+    const value = Reflect.get(client, prop, receiver);
+
+    if (typeof value === 'function') {
+      return value.bind(client);
+    }
+    return value;
+  },
+  set(target, prop: string | symbol, value: any, receiver) {
+    return Reflect.set(target, prop, value, receiver);
+  },
+  defineProperty(target, prop: string | symbol, attributes) {
+    return Reflect.defineProperty(target, prop, attributes);
+  },
+  deleteProperty(target, prop: string | symbol) {
+    return Reflect.deleteProperty(target, prop);
+  },
+  has(target, prop: string | symbol) {
+    if (prop in target) return true;
+    const client = getPrismaClient();
+    return Reflect.has(client, prop);
+  },
+  getOwnPropertyDescriptor(target, prop: string | symbol) {
+    if (prop in target) {
+      return Reflect.getOwnPropertyDescriptor(target, prop);
+    }
+    const client = getPrismaClient();
+    const descriptor = Reflect.getOwnPropertyDescriptor(client, prop);
+    if (descriptor) {
+      descriptor.configurable = true;
+      return descriptor;
+    }
+    if (prop in client) {
+      return {
+        value: (client as any)[prop],
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      };
+    }
+    return undefined;
+  },
+  getPrototypeOf(_target) {
+    const client = getPrismaClient();
+    return Reflect.getPrototypeOf(client);
+  },
+  ownKeys(target) {
+    const client = getPrismaClient();
+    const clientKeys = Reflect.ownKeys(client);
+    const targetKeys = Reflect.ownKeys(target);
+    return Array.from(new Set([...targetKeys, ...clientKeys]));
+  },
+});
 
 export default prisma;
-

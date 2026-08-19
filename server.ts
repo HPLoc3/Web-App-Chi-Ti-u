@@ -1,11 +1,26 @@
+import dotenv from "dotenv";
+import path from "path";
+
+// 0. Load .env file before anything else
+dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: true });
+
 import express from "express";
 import http from "http";
-import path from "path";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import { createServer as createViteServer } from "vite";
-import dotenv from "dotenv";
+
+import { validateEnvironment } from "./src/config/env";
+import { getJwtSecret, getRefreshTokenSecret } from "./src/middleware/auth.middleware";
+import { requestIdMiddleware } from "./src/middleware/requestId.middleware";
+import { securityHeadersMiddleware } from "./src/middleware/securityHeaders.middleware";
+import { sanitizeInputMiddleware } from "./src/middleware/sanitize.middleware";
+import { csrfProtectionMiddleware } from "./src/middleware/csrf.middleware";
+import { apiRateLimiter } from "./src/middleware/rateLimiter.middleware";
+import { errorHandler, notFoundHandler } from "./src/middleware/errorHandler.middleware";
+import { Logger } from "./src/utils/logger";
+import { prisma } from "./src/lib/prisma";
 
 import authRoutes from "./src/modules/auth/auth.routes";
 import usersRoutes from "./src/modules/users/users.routes";
@@ -19,19 +34,6 @@ import reportsRoutes from "./src/modules/reports/reports.routes";
 import syncRoutes from "./src/modules/sync/sync.routes";
 import aiRoutes from "./src/modules/ai/ai.routes";
 import healthRoutes, { setDraining } from "./src/modules/health/health.routes";
-
-import { validateEnvironment } from "./src/config/env";
-import { getJwtSecret, getRefreshTokenSecret } from "./src/middleware/auth.middleware";
-import { requestIdMiddleware } from "./src/middleware/requestId.middleware";
-import { securityHeadersMiddleware } from "./src/middleware/securityHeaders.middleware";
-import { sanitizeInputMiddleware } from "./src/middleware/sanitize.middleware";
-import { csrfProtectionMiddleware } from "./src/middleware/csrf.middleware";
-import { apiRateLimiter } from "./src/middleware/rateLimiter.middleware";
-import { errorHandler, notFoundHandler } from "./src/middleware/errorHandler.middleware";
-import { Logger } from "./src/utils/logger";
-import { prisma } from "./src/lib/prisma";
-
-dotenv.config({ override: true });
 
 // 1. Khởi tạo và kiểm tra toàn vẹn biến môi trường khi server khởi động (Fail-fast)
 const envConfig = validateEnvironment();

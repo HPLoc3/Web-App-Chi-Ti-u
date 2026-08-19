@@ -1,17 +1,18 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
+import path from 'path';
 
-// Load .env file
-dotenv.config({ override: true });
+// Load .env file from process.cwd() with explicit fallback
+dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
 
-const envSchema = z.object({
+export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'staging', 'production']).default('development'),
   PORT: z.coerce.number().default(3000),
   APP_URL: z.string().url().default('http://localhost:3000'),
   ALLOWED_ORIGINS: z.string().optional().default('https://hophuloc.online,https://www.hophuloc.online,http://localhost:5173,http://localhost:3000'),
-  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required').refine(
+  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required and cannot be empty').refine(
     (url) => url.startsWith('postgresql://') || url.startsWith('postgres://'),
-    { message: 'DATABASE_URL must be a valid PostgreSQL connection string' }
+    { message: 'DATABASE_URL must be a valid PostgreSQL connection string starting with postgresql:// or postgres://' }
   ),
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters for security'),
   JWT_REFRESH_SECRET: z.string().min(16, 'JWT_REFRESH_SECRET must be at least 16 characters for security'),
@@ -23,12 +24,28 @@ const envSchema = z.object({
 
 export type EnvConfig = z.infer<typeof envSchema>;
 
-let validatedEnv: EnvConfig;
+let validatedEnv: EnvConfig | null = null;
+
+export function maskDatabaseUrl(url?: string): string {
+  if (!url) return '[NOT_SET]';
+  try {
+    const parsed = new URL(url);
+    if (parsed.password) {
+      parsed.password = '***';
+    }
+    return parsed.toString();
+  } catch {
+    return url.replace(/:([^:@]+)@/, ':***@');
+  }
+}
 
 export function validateEnvironment(): EnvConfig {
   if (validatedEnv) {
     return validatedEnv;
   }
+
+  // Ensure dotenv is executed
+  dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
 
   const rawEnv = {
     NODE_ENV: process.env.NODE_ENV,
@@ -47,7 +64,7 @@ export function validateEnvironment(): EnvConfig {
   const parsed = envSchema.safeParse(rawEnv);
 
   if (!parsed.success) {
-    console.error('❌ FATAL: Missing or Invalid Mandatory Environment Variables:');
+    console.error('❌ FATAL DATABASE/CONFIG ERROR: Missing or Invalid Mandatory Environment Variables:');
     parsed.error.issues.forEach((issue) => {
       console.error(`  - [${issue.path.join('.')}]: ${issue.message}`);
     });

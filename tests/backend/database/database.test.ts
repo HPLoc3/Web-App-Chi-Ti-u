@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { prisma } from '../../../src/lib/prisma';
+import { prisma, getDatabaseUrl } from '../../../src/lib/prisma';
+import { maskDatabaseUrl, envSchema } from '../../../src/config/env';
 import { Prisma } from '@prisma/client';
 import { TransactionsRepository } from '../../../src/modules/transactions/transactions.repository';
 import { WalletsRepository } from '../../../src/modules/wallets/wallets.repository';
@@ -12,6 +13,63 @@ describe('Database Tests: Schema, Atomicity & Entity Isolation', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+  });
+
+  describe('DATABASE_URL Configuration & Security Validation', () => {
+    it('should validate valid PostgreSQL connection URLs', () => {
+      const validUrl1 = 'postgresql://postgres:secret123@127.0.0.1:5432/hophuloc_expense_db?schema=public';
+      const validUrl2 = 'postgres://postgres:secret123@postgres:5432/hophuloc_expense_db';
+
+      const res1 = envSchema.shape.DATABASE_URL.safeParse(validUrl1);
+      const res2 = envSchema.shape.DATABASE_URL.safeParse(validUrl2);
+
+      expect(res1.success).toBe(true);
+      expect(res2.success).toBe(true);
+    });
+
+    it('should reject invalid or non-PostgreSQL database URLs', () => {
+      const invalidUrl1 = 'mysql://root:pass@localhost:3306/db';
+      const invalidUrl2 = 'mongodb://localhost:27017/db';
+      const invalidUrl3 = '';
+
+      const res1 = envSchema.shape.DATABASE_URL.safeParse(invalidUrl1);
+      const res2 = envSchema.shape.DATABASE_URL.safeParse(invalidUrl2);
+      const res3 = envSchema.shape.DATABASE_URL.safeParse(invalidUrl3);
+
+      expect(res1.success).toBe(false);
+      expect(res2.success).toBe(false);
+      expect(res3.success).toBe(false);
+    });
+
+    it('should properly mask passwords in DATABASE_URL for secure logging', () => {
+      const sensitiveUrl = 'postgresql://postgres:MySuperSecretPassword@127.0.0.1:5432/hophuloc_expense_db?schema=public';
+      const masked = maskDatabaseUrl(sensitiveUrl);
+
+      expect(masked).not.toContain('MySuperSecretPassword');
+      expect(masked).toContain('***');
+      expect(masked).toContain('127.0.0.1:5432');
+    });
+
+    it('should automatically append connect_timeout in getDatabaseUrl() if missing', () => {
+      const origEnv = process.env.DATABASE_URL;
+      try {
+        process.env.DATABASE_URL = 'postgresql://postgres:password@127.0.0.1:5432/test_db';
+        const url = getDatabaseUrl();
+        expect(url).toContain('connect_timeout=10');
+      } finally {
+        process.env.DATABASE_URL = origEnv;
+      }
+    });
+
+    it('should fail fast and throw fatal error if DATABASE_URL is not set', () => {
+      const origEnv = process.env.DATABASE_URL;
+      try {
+        delete process.env.DATABASE_URL;
+        expect(() => getDatabaseUrl()).toThrow(/FATAL DATABASE CONFIG ERROR/);
+      } finally {
+        process.env.DATABASE_URL = origEnv;
+      }
+    });
   });
 
   describe('Database Models & Type Safety', () => {

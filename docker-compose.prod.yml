@@ -6,6 +6,8 @@ services:
     image: postgres:16-alpine
     container_name: hophuloc_postgres_prod
     restart: always
+    ports:
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_USER: "${POSTGRES_USER:?Error: POSTGRES_USER must be set in .env}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Error: POSTGRES_PASSWORD must be set in .env}"
@@ -47,7 +49,7 @@ services:
       GIT_COMMIT: ${COMMIT_SHA:-unknown}
       APP_URL: ${APP_URL:-https://hophuloc.online}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://hophuloc.online,https://www.hophuloc.online}
-      DATABASE_URL: "${DATABASE_URL:?Error: DATABASE_URL must be set in .env}"
+      DATABASE_URL: "${DATABASE_URL_DOCKER:-postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public}"
       JWT_SECRET: "${JWT_SECRET:?Error: JWT_SECRET must be set in .env}"
       JWT_REFRESH_SECRET: "${JWT_REFRESH_SECRET:?Error: JWT_REFRESH_SECRET must be set in .env}"
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
