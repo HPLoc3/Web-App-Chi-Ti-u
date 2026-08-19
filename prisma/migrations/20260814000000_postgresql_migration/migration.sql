@@ -1,27 +1,19 @@
--- CreateSchema
-CREATE SCHEMA IF NOT EXISTS "public";
+-- 1. Alter existing Category table
+ALTER TABLE "Category" ALTER COLUMN "type" TYPE TEXT USING "type"::TEXT;
+ALTER TABLE "Category" ALTER COLUMN "type" SET DEFAULT 'EXPENSE';
+ALTER TABLE "Category" ADD COLUMN IF NOT EXISTS "isSystem" BOOLEAN NOT NULL DEFAULT false;
 
--- CreateEnum
-CREATE TYPE "TransactionType" AS ENUM ('INCOME', 'EXPENSE');
-CREATE TYPE "BudgetTemplate" AS ENUM ('FIFTY_THIRTY_TWENTY', 'SIX_JARS', 'CUSTOM');
-CREATE TYPE "AuthProvider" AS ENUM ('LOCAL', 'GOOGLE');
+-- 2. Alter existing Wallet table
+ALTER TABLE "Wallet" ALTER COLUMN "balance" TYPE DECIMAL(15,2);
+ALTER TABLE "Wallet" ADD COLUMN IF NOT EXISTS "isDefault" BOOLEAN NOT NULL DEFAULT false;
 
--- CreateTable: User
-CREATE TABLE "User" (
-    "id" TEXT NOT NULL,
-    "email" TEXT NOT NULL,
-    "name" TEXT,
-    "avatar" TEXT,
-    "password" TEXT,
-    "provider" TEXT NOT NULL DEFAULT 'local',
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
+-- 3. Alter existing Transaction table
+ALTER TABLE "Transaction" ALTER COLUMN "type" TYPE TEXT USING "type"::TEXT;
+ALTER TABLE "Transaction" ALTER COLUMN "type" SET DEFAULT 'EXPENSE';
+ALTER TABLE "Transaction" ALTER COLUMN "amount" TYPE DECIMAL(15,2);
 
-    CONSTRAINT "User_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable: Session
-CREATE TABLE "Session" (
+-- 4. Create new tables if they don't exist
+CREATE TABLE IF NOT EXISTS "Session" (
     "id" TEXT NOT NULL,
     "sessionToken" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -34,8 +26,7 @@ CREATE TABLE "Session" (
     CONSTRAINT "Session_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable: PasswordResetToken
-CREATE TABLE "PasswordResetToken" (
+CREATE TABLE IF NOT EXISTS "PasswordResetToken" (
     "id" TEXT NOT NULL,
     "token" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -46,8 +37,7 @@ CREATE TABLE "PasswordResetToken" (
     CONSTRAINT "PasswordResetToken_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable: RefreshToken
-CREATE TABLE "RefreshToken" (
+CREATE TABLE IF NOT EXISTS "RefreshToken" (
     "id" TEXT NOT NULL,
     "token" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
@@ -58,53 +48,7 @@ CREATE TABLE "RefreshToken" (
     CONSTRAINT "RefreshToken_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable: Category
-CREATE TABLE "Category" (
-    "id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "type" TEXT NOT NULL DEFAULT 'EXPENSE',
-    "icon" TEXT,
-    "color" TEXT,
-    "isSystem" BOOLEAN NOT NULL DEFAULT false,
-    "userId" TEXT,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Category_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable: Wallet
-CREATE TABLE "Wallet" (
-    "id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "balance" DECIMAL(15,2) NOT NULL DEFAULT 0,
-    "currency" TEXT NOT NULL DEFAULT 'VND',
-    "isDefault" BOOLEAN NOT NULL DEFAULT false,
-    "userId" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Wallet_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable: Transaction
-CREATE TABLE "Transaction" (
-    "id" TEXT NOT NULL,
-    "amount" DECIMAL(15,2) NOT NULL,
-    "type" TEXT NOT NULL DEFAULT 'EXPENSE',
-    "note" TEXT,
-    "date" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "walletId" TEXT NOT NULL,
-    "categoryId" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Transaction_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable: Budget
-CREATE TABLE "Budget" (
+CREATE TABLE IF NOT EXISTS "Budget" (
     "id" TEXT NOT NULL,
     "income" DECIMAL(15,2) NOT NULL DEFAULT 0,
     "budgetTemplate" TEXT NOT NULL DEFAULT '50_30_20',
@@ -119,8 +63,7 @@ CREATE TABLE "Budget" (
     CONSTRAINT "Budget_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable: BudgetLimit
-CREATE TABLE "BudgetLimit" (
+CREATE TABLE IF NOT EXISTS "BudgetLimit" (
     "id" TEXT NOT NULL,
     "budgetId" TEXT NOT NULL,
     "categoryId" TEXT NOT NULL,
@@ -131,8 +74,7 @@ CREATE TABLE "BudgetLimit" (
     CONSTRAINT "BudgetLimit_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable: Goal
-CREATE TABLE "Goal" (
+CREATE TABLE IF NOT EXISTS "Goal" (
     "id" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "targetAmount" DECIMAL(15,2) NOT NULL,
@@ -147,8 +89,7 @@ CREATE TABLE "Goal" (
     CONSTRAINT "Goal_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable: RecurringTransaction
-CREATE TABLE "RecurringTransaction" (
+CREATE TABLE IF NOT EXISTS "RecurringTransaction" (
     "id" TEXT NOT NULL,
     "amount" DECIMAL(15,2) NOT NULL,
     "type" TEXT NOT NULL DEFAULT 'EXPENSE',
@@ -164,8 +105,7 @@ CREATE TABLE "RecurringTransaction" (
     CONSTRAINT "RecurringTransaction_pkey" PRIMARY KEY ("id")
 );
 
--- CreateTable: AIUsage
-CREATE TABLE "AIUsage" (
+CREATE TABLE IF NOT EXISTS "AIUsage" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "prompt" TEXT NOT NULL,
@@ -176,71 +116,83 @@ CREATE TABLE "AIUsage" (
     CONSTRAINT "AIUsage_pkey" PRIMARY KEY ("id")
 );
 
--- Indices & Unique Constraints
-CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
-CREATE INDEX "User_email_idx" ON "User"("email");
-CREATE INDEX "User_createdAt_idx" ON "User"("createdAt");
+-- 5. Create Indices & Unique Constraints safely
+CREATE INDEX IF NOT EXISTS "User_email_idx" ON "User"("email");
+CREATE INDEX IF NOT EXISTS "User_createdAt_idx" ON "User"("createdAt");
 
-CREATE UNIQUE INDEX "Session_sessionToken_key" ON "Session"("sessionToken");
-CREATE INDEX "Session_userId_idx" ON "Session"("userId");
-CREATE INDEX "Session_sessionToken_idx" ON "Session"("sessionToken");
-CREATE INDEX "Session_expiresAt_idx" ON "Session"("expiresAt");
+CREATE UNIQUE INDEX IF NOT EXISTS "Session_sessionToken_key" ON "Session"("sessionToken");
+CREATE INDEX IF NOT EXISTS "Session_userId_idx" ON "Session"("userId");
+CREATE INDEX IF NOT EXISTS "Session_sessionToken_idx" ON "Session"("sessionToken");
+CREATE INDEX IF NOT EXISTS "Session_expiresAt_idx" ON "Session"("expiresAt");
 
-CREATE UNIQUE INDEX "PasswordResetToken_token_key" ON "PasswordResetToken"("token");
-CREATE INDEX "PasswordResetToken_userId_idx" ON "PasswordResetToken"("userId");
-CREATE INDEX "PasswordResetToken_token_idx" ON "PasswordResetToken"("token");
-CREATE INDEX "PasswordResetToken_expiresAt_idx" ON "PasswordResetToken"("expiresAt");
+CREATE UNIQUE INDEX IF NOT EXISTS "PasswordResetToken_token_key" ON "PasswordResetToken"("token");
+CREATE INDEX IF NOT EXISTS "PasswordResetToken_userId_idx" ON "PasswordResetToken"("userId");
+CREATE INDEX IF NOT EXISTS "PasswordResetToken_token_idx" ON "PasswordResetToken"("token");
+CREATE INDEX IF NOT EXISTS "PasswordResetToken_expiresAt_idx" ON "PasswordResetToken"("expiresAt");
 
-CREATE UNIQUE INDEX "RefreshToken_token_key" ON "RefreshToken"("token");
-CREATE INDEX "RefreshToken_userId_idx" ON "RefreshToken"("userId");
-CREATE INDEX "RefreshToken_token_idx" ON "RefreshToken"("token");
-CREATE INDEX "RefreshToken_expiresAt_idx" ON "RefreshToken"("expiresAt");
+CREATE UNIQUE INDEX IF NOT EXISTS "RefreshToken_token_key" ON "RefreshToken"("token");
+CREATE INDEX IF NOT EXISTS "RefreshToken_userId_idx" ON "RefreshToken"("userId");
+CREATE INDEX IF NOT EXISTS "RefreshToken_token_idx" ON "RefreshToken"("token");
+CREATE INDEX IF NOT EXISTS "RefreshToken_expiresAt_idx" ON "RefreshToken"("expiresAt");
 
-CREATE UNIQUE INDEX "Category_userId_name_type_key" ON "Category"("userId", "name", "type");
-CREATE INDEX "Category_userId_idx" ON "Category"("userId");
-CREATE INDEX "Category_userId_type_idx" ON "Category"("userId", "type");
-CREATE INDEX "Category_isSystem_idx" ON "Category"("isSystem");
+CREATE UNIQUE INDEX IF NOT EXISTS "Category_userId_name_type_key" ON "Category"("userId", "name", "type");
+CREATE INDEX IF NOT EXISTS "Category_userId_idx" ON "Category"("userId");
+CREATE INDEX IF NOT EXISTS "Category_userId_type_idx" ON "Category"("userId", "type");
+CREATE INDEX IF NOT EXISTS "Category_isSystem_idx" ON "Category"("isSystem");
 
-CREATE UNIQUE INDEX "Wallet_userId_name_key" ON "Wallet"("userId", "name");
-CREATE INDEX "Wallet_userId_idx" ON "Wallet"("userId");
-CREATE INDEX "Wallet_userId_isDefault_idx" ON "Wallet"("userId", "isDefault");
+CREATE UNIQUE INDEX IF NOT EXISTS "Wallet_userId_name_key" ON "Wallet"("userId", "name");
+CREATE INDEX IF NOT EXISTS "Wallet_userId_idx" ON "Wallet"("userId");
+CREATE INDEX IF NOT EXISTS "Wallet_userId_isDefault_idx" ON "Wallet"("userId", "isDefault");
 
-CREATE INDEX "Transaction_userId_date_idx" ON "Transaction"("userId", "date");
-CREATE INDEX "Transaction_userId_categoryId_idx" ON "Transaction"("userId", "categoryId");
-CREATE INDEX "Transaction_userId_type_idx" ON "Transaction"("userId", "type");
-CREATE INDEX "Transaction_walletId_idx" ON "Transaction"("walletId");
-CREATE INDEX "Transaction_categoryId_idx" ON "Transaction"("categoryId");
+CREATE INDEX IF NOT EXISTS "Transaction_userId_type_idx" ON "Transaction"("userId", "type");
 
-CREATE UNIQUE INDEX "Budget_userId_key" ON "Budget"("userId");
-CREATE INDEX "Budget_userId_idx" ON "Budget"("userId");
+CREATE UNIQUE INDEX IF NOT EXISTS "Budget_userId_key" ON "Budget"("userId");
+CREATE INDEX IF NOT EXISTS "Budget_userId_idx" ON "Budget"("userId");
 
-CREATE UNIQUE INDEX "BudgetLimit_budgetId_categoryId_key" ON "BudgetLimit"("budgetId", "categoryId");
-CREATE INDEX "BudgetLimit_budgetId_idx" ON "BudgetLimit"("budgetId");
-CREATE INDEX "BudgetLimit_categoryId_idx" ON "BudgetLimit"("categoryId");
+CREATE UNIQUE INDEX IF NOT EXISTS "BudgetLimit_budgetId_categoryId_key" ON "BudgetLimit"("budgetId", "categoryId");
+CREATE INDEX IF NOT EXISTS "BudgetLimit_budgetId_idx" ON "BudgetLimit"("budgetId");
+CREATE INDEX IF NOT EXISTS "BudgetLimit_categoryId_idx" ON "BudgetLimit"("categoryId");
 
-CREATE INDEX "Goal_userId_idx" ON "Goal"("userId");
-CREATE INDEX "Goal_userId_deadline_idx" ON "Goal"("userId", "deadline");
+CREATE INDEX IF NOT EXISTS "Goal_userId_idx" ON "Goal"("userId");
+CREATE INDEX IF NOT EXISTS "Goal_userId_deadline_idx" ON "Goal"("userId", "deadline");
 
-CREATE INDEX "RecurringTransaction_userId_idx" ON "RecurringTransaction"("userId");
-CREATE INDEX "RecurringTransaction_userId_isActive_idx" ON "RecurringTransaction"("userId", "isActive");
-CREATE INDEX "RecurringTransaction_dayOfMonth_isActive_idx" ON "RecurringTransaction"("dayOfMonth", "isActive");
+CREATE INDEX IF NOT EXISTS "RecurringTransaction_userId_idx" ON "RecurringTransaction"("userId");
+CREATE INDEX IF NOT EXISTS "RecurringTransaction_userId_isActive_idx" ON "RecurringTransaction"("userId", "isActive");
+CREATE INDEX IF NOT EXISTS "RecurringTransaction_dayOfMonth_isActive_idx" ON "RecurringTransaction"("dayOfMonth", "isActive");
 
-CREATE INDEX "AIUsage_userId_idx" ON "AIUsage"("userId");
-CREATE INDEX "AIUsage_userId_createdAt_idx" ON "AIUsage"("userId", "createdAt");
+CREATE INDEX IF NOT EXISTS "AIUsage_userId_idx" ON "AIUsage"("userId");
+CREATE INDEX IF NOT EXISTS "AIUsage_userId_createdAt_idx" ON "AIUsage"("userId", "createdAt");
 
--- Foreign Keys with Multi-Tenant & Referential Integrity
-ALTER TABLE "Session" ADD CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "PasswordResetToken" ADD CONSTRAINT "PasswordResetToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "RefreshToken" ADD CONSTRAINT "RefreshToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "Category" ADD CONSTRAINT "Category_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "Wallet" ADD CONSTRAINT "Wallet_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_walletId_fkey" FOREIGN KEY ("walletId") REFERENCES "Wallet"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "Category"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "Budget" ADD CONSTRAINT "Budget_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "BudgetLimit" ADD CONSTRAINT "BudgetLimit_budgetId_fkey" FOREIGN KEY ("budgetId") REFERENCES "Budget"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "BudgetLimit" ADD CONSTRAINT "BudgetLimit_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "Category"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "Goal" ADD CONSTRAINT "Goal_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "RecurringTransaction" ADD CONSTRAINT "RecurringTransaction_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "Category"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "RecurringTransaction" ADD CONSTRAINT "RecurringTransaction_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "AIUsage" ADD CONSTRAINT "AIUsage_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- 6. Add Foreign Keys safely for new tables
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='Session_userId_fkey') THEN
+        ALTER TABLE "Session" ADD CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='PasswordResetToken_userId_fkey') THEN
+        ALTER TABLE "PasswordResetToken" ADD CONSTRAINT "PasswordResetToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='RefreshToken_userId_fkey') THEN
+        ALTER TABLE "RefreshToken" ADD CONSTRAINT "RefreshToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='Budget_userId_fkey') THEN
+        ALTER TABLE "Budget" ADD CONSTRAINT "Budget_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='BudgetLimit_budgetId_fkey') THEN
+        ALTER TABLE "BudgetLimit" ADD CONSTRAINT "BudgetLimit_budgetId_fkey" FOREIGN KEY ("budgetId") REFERENCES "Budget"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='BudgetLimit_categoryId_fkey') THEN
+        ALTER TABLE "BudgetLimit" ADD CONSTRAINT "BudgetLimit_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "Category"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='Goal_userId_fkey') THEN
+        ALTER TABLE "Goal" ADD CONSTRAINT "Goal_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='RecurringTransaction_categoryId_fkey') THEN
+        ALTER TABLE "RecurringTransaction" ADD CONSTRAINT "RecurringTransaction_categoryId_fkey" FOREIGN KEY ("categoryId") REFERENCES "Category"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='RecurringTransaction_userId_fkey') THEN
+        ALTER TABLE "RecurringTransaction" ADD CONSTRAINT "RecurringTransaction_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name='AIUsage_userId_fkey') THEN
+        ALTER TABLE "AIUsage" ADD CONSTRAINT "AIUsage_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END $$;
