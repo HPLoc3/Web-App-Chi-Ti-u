@@ -3,8 +3,8 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { Logger } from '../utils/logger';
 
-// 1. Ensure .env is loaded defensively at the earliest possible moment
-dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
+// 1. Nạp .env làm fallback mà không ghi đè environment variables từ PM2 / OS / CI
+dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: false });
 
 declare global {
   // eslint-disable-next-line no-var
@@ -15,6 +15,7 @@ declare global {
  * Validates and retrieves the PostgreSQL DATABASE_URL.
  * Throws a fatal error if DATABASE_URL is missing or invalid.
  * Strictly forbids any localhost or placeholder fallbacks in production.
+ * Keeps URL-encoded characters intact for native Prisma parsing.
  */
 export const getDatabaseUrl = (): string => {
   let envUrl = (process.env.DATABASE_URL || '').replace(/^["']|["']$/g, '').trim();
@@ -31,7 +32,7 @@ export const getDatabaseUrl = (): string => {
     );
   }
 
-  // Inject connect_timeout=10 to prevent indefinite pool stalls
+  // Inject connect_timeout=10 to prevent indefinite pool stalls if not present
   if (!envUrl.includes('connect_timeout')) {
     const separator = envUrl.includes('?') ? '&' : '?';
     envUrl = `${envUrl}${separator}connect_timeout=10`;
@@ -43,7 +44,7 @@ export const getDatabaseUrl = (): string => {
 /**
  * Creates a new configured PrismaClient instance.
  */
-const createPrismaClient = (): PrismaClient => {
+export const createPrismaClient = (): PrismaClient => {
   const url = getDatabaseUrl();
 
   const client = new PrismaClient({
@@ -71,8 +72,8 @@ const createPrismaClient = (): PrismaClient => {
 };
 
 /**
- * Singleton accessor that ensures PrismaClient is lazily instantiated
- * only when first accessed, guaranteeing all environment variables are loaded.
+ * Singleton accessor that ensures exactly ONE PrismaClient instance exists
+ * across both production and development environments.
  */
 export const getPrismaClient = (): PrismaClient => {
   if (globalThis.__prismaInstance) {
@@ -80,20 +81,25 @@ export const getPrismaClient = (): PrismaClient => {
   }
 
   const client = createPrismaClient();
-
-  if (process.env.NODE_ENV !== 'production') {
-    globalThis.__prismaInstance = client;
-  }
+  globalThis.__prismaInstance = client;
 
   return client;
+};
+
+/**
+ * Reset function for testing environments
+ */
+export const resetPrismaInstanceForTesting = (): void => {
+  globalThis.__prismaInstance = undefined;
 };
 
 /**
  * Transparent Lazy Proxy for PrismaClient.
  * This guarantees that `import { prisma } from './prisma'` can be evaluated during
  * module graph resolution without eagerly constructing PrismaClient before
- * environment configuration completes, while remaining 100% compatible with
- * Vitest/Jest spies (`vi.spyOn(prisma, '$transaction')`), reflection, and runtime methods.
+ * environment configuration completes, while ensuring a true Singleton instance
+ * and 100% compatibility with Vitest/Jest spies (`vi.spyOn(prisma, '$transaction')`),
+ * reflection, and all runtime methods ($queryRaw, $connect, $disconnect, etc.).
  */
 export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
   get(target, prop: string | symbol, receiver) {

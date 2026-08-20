@@ -1,8 +1,8 @@
 import dotenv from "dotenv";
 import path from "path";
 
-// 0. Load .env file before anything else
-dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: true });
+// 0. Load .env file as fallback without overriding existing environment variables
+dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: false });
 
 import express from "express";
 import http from "http";

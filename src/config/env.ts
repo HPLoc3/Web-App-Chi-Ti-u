@@ -2,8 +2,8 @@ import { z } from 'zod';
 import dotenv from 'dotenv';
 import path from 'path';
 
-// Load .env file from process.cwd() with explicit fallback
-dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
+// Load .env file from process.cwd() as fallback without overriding existing environment variables
+dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: false });
 
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'staging', 'production']).default('development'),

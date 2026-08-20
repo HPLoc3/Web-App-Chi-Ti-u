@@ -217,4 +217,68 @@ describe('Database Tests: Schema, Atomicity & Entity Isolation', () => {
       expect(activeList[0].amount.toNumber()).toBe(250000);
     });
   });
+
+  describe('Prisma Lazy Singleton Initialization & Production Behavior', () => {
+    it('1. should throw clear fatal error when DATABASE_URL is not configured', async () => {
+      const { createPrismaClient } = await import('../../../src/lib/prisma');
+      const origUrl = process.env.DATABASE_URL;
+      try {
+        delete process.env.DATABASE_URL;
+        expect(() => createPrismaClient()).toThrow(/FATAL DATABASE CONFIG ERROR: DATABASE_URL is not configured/);
+      } finally {
+        process.env.DATABASE_URL = origUrl;
+      }
+    });
+
+    it('2. should create valid PrismaClient when DATABASE_URL is valid', async () => {
+      const { createPrismaClient } = await import('../../../src/lib/prisma');
+      const origUrl = process.env.DATABASE_URL;
+      try {
+        process.env.DATABASE_URL = 'postgresql://postgres:secret123@127.0.0.1:5432/hophuloc_expense_db?schema=public';
+        const client = createPrismaClient();
+        expect(client).toBeDefined();
+        expect(typeof client.$connect).toBe('function');
+      } finally {
+        process.env.DATABASE_URL = origUrl;
+      }
+    });
+
+    it('3. should return the exact same Singleton instance when getPrismaClient() is called multiple times', async () => {
+      const { getPrismaClient, resetPrismaInstanceForTesting } = await import('../../../src/lib/prisma');
+      resetPrismaInstanceForTesting();
+
+      const instance1 = getPrismaClient();
+      const instance2 = getPrismaClient();
+      const instance3 = getPrismaClient();
+
+      expect(instance1).toBe(instance2);
+      expect(instance2).toBe(instance3);
+    });
+
+    it('4. should maintain strict Singleton in PRODUCTION mode (process.env.NODE_ENV = "production")', async () => {
+      const { getPrismaClient, resetPrismaInstanceForTesting } = await import('../../../src/lib/prisma');
+      const origNodeEnv = process.env.NODE_ENV;
+
+      try {
+        process.env.NODE_ENV = 'production';
+        resetPrismaInstanceForTesting();
+
+        const prodInstance1 = getPrismaClient();
+        const prodInstance2 = getPrismaClient();
+
+        expect(prodInstance1).toBe(prodInstance2);
+        expect(prodInstance1 === prodInstance2).toBe(true);
+      } finally {
+        process.env.NODE_ENV = origNodeEnv;
+      }
+    });
+
+    it('5. should execute $queryRaw SELECT 1 successfully through the Proxy', async () => {
+      vi.spyOn(prisma, '$queryRaw').mockResolvedValue([{ '?column?': 1 }] as any);
+
+      const result = await prisma.$queryRaw`SELECT 1`;
+      expect(result).toBeDefined();
+      expect(Array.isArray(result)).toBe(true);
+    });
+  });
 });

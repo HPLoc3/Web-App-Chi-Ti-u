@@ -86,7 +86,9 @@ router.get('/ready', async (_req: Request, res: Response) => {
       uptime: Math.floor((Date.now() - startTime) / 1000),
     });
   } catch (error: any) {
-    Logger.warn('Readiness probe - Database disconnected or ping timeout:', error?.message || error);
+    const rawError = error?.message || String(error);
+    const sanitizedError = rawError.replace(/:\/\/[^:]+:([^@]+)@/g, '://***:***@');
+    Logger.error(`[READINESS] Database check failed: ${sanitizedError}`);
     return res.status(503).json({
       status: 'unavailable',
       database: 'disconnected',
