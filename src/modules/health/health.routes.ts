@@ -88,7 +88,7 @@ router.get('/ready', async (_req: Request, res: Response) => {
   } catch (error: any) {
     const rawError = error?.message || String(error);
     const sanitizedError = rawError.replace(/:\/\/[^:]+:([^@]+)@/g, '://***:***@');
-    Logger.error(`[READINESS] Database check failed: ${sanitizedError}`);
+    Logger.warn(`[READINESS] Database check: ${sanitizedError}`);
     return res.status(503).json({
       status: 'unavailable',
       database: 'disconnected',

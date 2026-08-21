@@ -1,9 +1,6 @@
-import dotenv from "dotenv";
+import "./src/config/loadEnv";
+
 import path from "path";
-
-// 0. Load .env file as fallback without overriding existing environment variables
-dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: false });
-
 import express from "express";
 import http from "http";
 import cors from "cors";

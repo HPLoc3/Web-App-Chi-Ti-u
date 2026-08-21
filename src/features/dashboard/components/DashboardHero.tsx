@@ -151,7 +151,7 @@ export const DashboardHero: React.FC<DashboardHeroProps> = ({
               </div>
 
               <div className="flex items-baseline gap-2 mt-1">
-                <span className="font-mono text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+                <span className="font-mono text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
                   {showBalance ? formatCurrency(totalBalance) : '•••••••• ₫'}
                 </span>
                 <span className="text-xs text-emerald-300/80 font-sans">
@@ -183,7 +183,7 @@ export const DashboardHero: React.FC<DashboardHeroProps> = ({
           </div>
 
           {/* Row 2: 4 Financial Core Pillars */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             {/* Pillar 1: Monthly Income */}
             <div className="bg-emerald-900/50 hover:bg-emerald-900/70 border border-emerald-700/50 rounded-xl p-3 sm:p-3.5 transition">
               <div className="flex items-center justify-between text-xs text-emerald-200/90 font-medium mb-1">

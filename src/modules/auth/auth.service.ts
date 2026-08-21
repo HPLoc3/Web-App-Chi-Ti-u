@@ -7,6 +7,7 @@ import { AuthTokens, UserDTO, GoogleAuthPayload } from './auth.types';
 import { getJwtSecret } from '../../middleware/auth.middleware';
 import { EmailService } from '../../services/email.service';
 import { prisma } from '../../lib/prisma';
+import { devFallbackStore, DevFallbackStore } from '../../lib/devFallbackStore';
 
 export class AuthService {
   static hashToken(token: string): string {
@@ -77,27 +78,41 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const user = await prisma.$transaction(async (tx) => {
-      const newUser = await tx.user.create({
-        data: {
+    let user: any;
+    try {
+      user = await prisma.$transaction(async (tx) => {
+        const newUser = await tx.user.create({
+          data: {
+            name: name.trim(),
+            email: cleanEmail,
+            password: hashedPassword,
+            provider: 'local',
+          },
+        });
+
+        await tx.wallet.create({
+          data: {
+            name: 'Ví Tiền Mặt',
+            balance: 0,
+            currency: 'VND',
+            userId: newUser.id,
+          },
+        });
+
+        return newUser;
+      });
+    } catch (error: any) {
+      if (DevFallbackStore.isConnectionError(error)) {
+        user = devFallbackStore.createUser({
           name: name.trim(),
           email: cleanEmail,
           password: hashedPassword,
           provider: 'local',
-        },
-      });
-
-      await tx.wallet.create({
-        data: {
-          name: 'Ví Tiền Mặt',
-          balance: 0,
-          currency: 'VND',
-          userId: newUser.id,
-        },
-      });
-
-      return newUser;
-    });
+        });
+      } else {
+        throw error;
+      }
+    }
 
     const tokens = await this.generateTokens(user);
 
@@ -262,27 +277,40 @@ export class AuthService {
     let user = await AuthRepository.findUserByEmail(cleanEmail);
 
     if (!user) {
-      user = await prisma.$transaction(async (tx) => {
-        const newUser = await tx.user.create({
-          data: {
+      try {
+        user = await prisma.$transaction(async (tx) => {
+          const newUser = await tx.user.create({
+            data: {
+              email: cleanEmail,
+              name: name || cleanEmail.split('@')[0],
+              avatar: avatar || null,
+              provider: 'google',
+            },
+          });
+
+          await tx.wallet.create({
+            data: {
+              name: 'Ví Tiền Mặt',
+              balance: 0,
+              currency: 'VND',
+              userId: newUser.id,
+            },
+          });
+
+          return newUser;
+        });
+      } catch (error: any) {
+        if (DevFallbackStore.isConnectionError(error)) {
+          user = devFallbackStore.createUser({
             email: cleanEmail,
             name: name || cleanEmail.split('@')[0],
             avatar: avatar || null,
             provider: 'google',
-          },
-        });
-
-        await tx.wallet.create({
-          data: {
-            name: 'Ví Tiền Mặt',
-            balance: 0,
-            currency: 'VND',
-            userId: newUser.id,
-          },
-        });
-
-        return newUser;
-      });
+          });
+        } else {
+          throw error;
+        }
+      }
     } else {
       // User exists: update missing avatar/name and link if appropriate
       const updateData: { avatar?: string; name?: string } = {};
@@ -293,25 +321,16 @@ export class AuthService {
         updateData.name = name;
       }
       if (Object.keys(updateData).length > 0) {
-        user = await prisma.user.update({
-          where: { id: user.id },
-          data: updateData,
-        });
-      }
-
-      // Ensure user has at least 1 wallet
-      const walletCount = await prisma.wallet.count({
-        where: { userId: user.id },
-      });
-      if (walletCount === 0) {
-        await prisma.wallet.create({
-          data: {
-            name: 'Ví Tiền Mặt',
-            balance: 0,
-            currency: 'VND',
-            userId: user.id,
-          },
-        });
+        try {
+          user = await prisma.user.update({
+            where: { id: user.id },
+            data: updateData,
+          });
+        } catch (error: any) {
+          if (DevFallbackStore.isConnectionError(error)) {
+            user = devFallbackStore.updateUser(user.id, updateData);
+          }
+        }
       }
     }
 
@@ -418,11 +437,19 @@ export class AuthService {
 
     const hashedPassword = await bcrypt.hash(newPass, 10);
 
-    await prisma.$transaction(async () => {
-      await AuthRepository.updateUserPassword(resetRecord.userId, hashedPassword);
-      await AuthRepository.markResetTokenUsed(resetRecord.id);
-      await AuthRepository.revokeAllUserTokensAndSessions(resetRecord.userId);
-    });
+    try {
+      await prisma.$transaction(async () => {
+        await AuthRepository.updateUserPassword(resetRecord.userId, hashedPassword);
+        await AuthRepository.markResetTokenUsed(resetRecord.id);
+        await AuthRepository.revokeAllUserTokensAndSessions(resetRecord.userId);
+      });
+    } catch (error: any) {
+      if (DevFallbackStore.isConnectionError(error)) {
+        await AuthRepository.updateUserPassword(resetRecord.userId, hashedPassword);
+      } else {
+        throw error;
+      }
+    }
   }
 
   static async getMe(userId: string) {

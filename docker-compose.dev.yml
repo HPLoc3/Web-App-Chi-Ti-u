@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  # --- Dedicated Development PostgreSQL Database ---
+  postgres:
+    image: postgres:16-alpine
+    container_name: hophuloc_postgres_dev
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: dev_password_123
+      POSTGRES_DB: hophuloc_expense_db_dev
+      TZ: "Asia/Ho_Chi_Minh"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hophuloc_expense_db_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  postgres_dev_data:
+    name: hophuloc_postgres_dev_data
+    driver: local

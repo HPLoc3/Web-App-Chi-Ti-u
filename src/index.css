@@ -11,6 +11,15 @@
 body {
   background-color: #FAF9F6; /* warm cream/stone light paper */
   font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.safe-area-bottom {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+.safe-area-top {
+  padding-top: max(0.5rem, env(safe-area-inset-top));
 }
 
 /* Hide webkit datepicker default icon style if needed, but keeping it simple */

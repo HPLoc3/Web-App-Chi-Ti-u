@@ -1,9 +1,17 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AppState, Expense, Goal, RecurringExpense } from '../types';
 import TabSkeleton from '../components/common/TabSkeleton';
-import OverviewTab from '../features/dashboard/components/OverviewTab';
+import { AppShell } from '../components/layout/AppShell';
+import { NavTabKey } from '../components/layout/AppSidebar';
 
-// Code-split heavy tabs with React.lazy to minimize initial JavaScript bundle
+// Core Tabs
+import OverviewTab from '../features/dashboard/components/OverviewTab';
+import { WalletsTab } from '../features/wallets/components/WalletsTab';
+import { RecurringTab } from '../features/recurring/components/RecurringTab';
+import { ReportsTab } from '../features/reports/components/ReportsTab';
+import { SettingsTab } from '../features/settings/components/SettingsTab';
+
+// Code-split heavy tabs with React.lazy
 const ChatbotTab = lazy(() => import('../features/ai/components/ChatbotTab'));
 const ExpensesTab = lazy(() => import('../features/transactions/components/ExpensesTab'));
 const BudgetTab = lazy(() => import('../features/budgets/components/BudgetTab'));
@@ -13,7 +21,6 @@ const InsightsTab = lazy(() => import('../features/insights/components/InsightsT
 
 import OnboardingModal from '../components/common/OnboardingModal';
 import QuickAddExpenseModal from '../features/transactions/components/QuickAddExpenseModal';
-import MobileBottomNav from '../components/layout/MobileBottomNav';
 import AuthModal from '../features/auth/components/AuthModal';
 import LandingPage from '../components/layout/LandingPage';
 import { useAuth } from '../context/AuthContext';
@@ -25,20 +32,6 @@ import {
   useBudgets, 
   useBackupRestore 
 } from '../hooks';
-import { 
-  BookOpen, 
-  MessageSquare, 
-  Receipt, 
-  Wallet, 
-  SlidersHorizontal,
-  PiggyBank,
-  LogIn,
-  LogOut,
-  Home,
-  Sparkles,
-  Activity,
-  Plus
-} from 'lucide-react';
 
 export function LedgerApp() {
   const { currentUser, loading: authLoading, logout } = useAuth();
@@ -50,7 +43,7 @@ export function LedgerApp() {
   const [resetTokenFromUrl, setResetTokenFromUrl] = useState<string>('');
   const [viewState, setViewState] = useState<'landing' | 'app'>('landing');
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'chatbot' | 'budget' | 'expenses' | 'goals' | 'insights' | 'about'>('overview');
+  const [activeTab, setActiveTab] = useState<NavTabKey>('overview');
 
   // Detect reset password URL query parameter
   useEffect(() => {
@@ -387,293 +380,140 @@ export function LedgerApp() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FAF9F6] text-stone-800 flex flex-col font-sans antialiased selection:bg-amber-200 selection:text-emerald-950 pb-16 md:pb-0">
-      {/* Header Band */}
-      <header className="sticky top-0 z-40 bg-emerald-950/95 backdrop-blur-md text-white border-b-4 border-amber-500 shadow-md">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={() => setViewState('landing')}
-              className="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center text-xl shadow font-serif font-black shrink-0 cursor-pointer hover:bg-amber-400 transition"
-              title="Về Trang chủ giới thiệu Web App"
-            >
-              📔
-            </button>
-            <div className="text-center sm:text-left">
-              <h1 
-                onClick={() => setViewState('landing')}
-                className="font-serif text-xl sm:text-2xl font-black tracking-wide text-amber-50 flex items-center gap-2 cursor-pointer hover:text-amber-300 transition"
-                title="Về Trang chủ giới thiệu Web App"
-              >
-                SỔ TAY CHI TIÊU THÔNG MINH
-              </h1>
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-[10px] sm:text-[11px] text-emerald-200/90 font-mono tracking-widest uppercase font-semibold">
-                  Bảng điều khiển tương tác AI
-                </p>
-              </div>
-            </div>
-          </div>
+    <AppShell
+      activeTab={activeTab}
+      onSelectTab={(tab) => setActiveTab(tab)}
+      currentUser={currentUser}
+      onLogout={handleLogout}
+      onOpenAuth={() => {
+        setAuthModalTab('login');
+        setIsAuthModalOpen(true);
+      }}
+      onOpenQuickAdd={() => setIsQuickAddOpen(true)}
+      onNavigateHome={() => setViewState('landing')}
+      onLoadSampleData={handleLoadSampleData}
+      stats={{
+        totalExpensesCount: state.expenses.length,
+        activeGoalsCount: state.goals.length,
+        activeRecurringCount: state.recurringExpenses.length,
+      }}
+    >
+      <Suspense fallback={<TabSkeleton />}>
+        {activeTab === 'overview' && (
+          <OverviewTab
+            expenses={state.expenses}
+            goals={state.goals}
+            income={state.income}
+            categoryLimits={state.categoryLimits}
+            recurringExpenses={state.recurringExpenses}
+            onUpdateIncome={handleUpdateIncome}
+            onAddGoal={handleAddGoal}
+            onUpdateGoalProgress={handleUpdateGoalProgress}
+            onDeleteGoal={handleDeleteGoal}
+            onQuickAdd={() => setIsQuickAddOpen(true)}
+            onNavigateTab={(tab) => setActiveTab(tab)}
+            onTriggerManualRecurringSync={handleTriggerManualRecurringSync}
+            onAddExpense={handleAddExpense}
+          />
+        )}
 
-          <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2">
-            <button
-              onClick={() => setIsQuickAddOpen(true)}
-              className="flex items-center gap-1 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold text-xs rounded-xl transition cursor-pointer shadow-sm min-h-[36px]"
-            >
-              <Plus size={15} />
-              <span className="hidden sm:inline">Ghi nhanh</span>
-            </button>
+        {activeTab === 'expenses' && (
+          <ExpensesTab
+            expenses={state.expenses}
+            onAddExpense={handleAddExpense}
+            onDeleteExpense={handleDeleteExpense}
+            onUpdateExpense={handleUpdateExpense}
+          />
+        )}
 
-            <button
-              onClick={() => setViewState('landing')}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-700/80 hover:border-emerald-600 bg-emerald-900/60 hover:bg-emerald-900/90 text-emerald-100 font-semibold text-xs rounded-xl transition cursor-pointer min-h-[36px]"
-              title="Quay lại Màn hình Giới thiệu"
-            >
-              <Home size={14} className="text-amber-400" />
-              <span className="hidden sm:inline">Giới thiệu</span>
-            </button>
+        {activeTab === 'wallets' && (
+          <WalletsTab
+            income={state.income}
+            totalExpenses={state.expenses.reduce((s, e) => s + e.amount, 0)}
+          />
+        )}
 
-            {currentUser ? (
-              <div className="flex items-center gap-2 bg-emerald-900/80 border border-emerald-700/80 px-3 py-1.5 rounded-xl text-xs text-emerald-100 shadow-xs">
-                {currentUser?.photoURL ? (
-                  <img 
-                    src={currentUser.photoURL} 
-                    alt="Avatar" 
-                    className="w-7 h-7 rounded-full object-cover border border-amber-400 shrink-0" 
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div className="w-7 h-7 rounded-full bg-amber-500 text-emerald-950 font-bold flex items-center justify-center text-xs shrink-0 shadow-xs">
-                    {(currentUser?.displayName || currentUser?.email || 'U').charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <div className="flex flex-col text-left max-w-[100px] sm:max-w-[150px]">
-                  <span className="font-semibold text-white truncate text-xs">
-                    {currentUser?.displayName || 'Người dùng'}
-                  </span>
-                </div>
-                <button
-                  onClick={handleLogout}
-                  className="ml-1 px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 rounded-lg transition cursor-pointer flex items-center gap-1 shrink-0"
-                  title="Đăng xuất"
-                >
-                  <LogOut size={13} />
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => {
-                  setAuthModalTab('login');
-                  setIsAuthModalOpen(true);
-                }}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold text-xs rounded-xl transition cursor-pointer shadow-sm min-h-[36px]"
-              >
-                <LogIn size={15} />
-                <span>Đăng nhập</span>
-              </button>
-            )}
+        {activeTab === 'budget' && (
+          <BudgetTab
+            expenses={state.expenses}
+            income={state.income}
+            budgetTemplate={state.budgetTemplate}
+            categoryLimits={state.categoryLimits}
+            recurringExpenses={state.recurringExpenses}
+            onUpdateTemplate={handleUpdateTemplate}
+            onUpdateCategoryLimit={handleUpdateCategoryLimit}
+            onAddRecurringExpense={handleAddRecurringExpense}
+            onDeleteRecurringExpense={handleDeleteRecurringExpense}
+            onTriggerManualRecurringSync={handleTriggerManualRecurringSync}
+          />
+        )}
 
-            <button
-              onClick={handleLoadSampleData}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-amber-500/80 hover:border-amber-400 bg-amber-600/30 hover:bg-amber-600/60 text-amber-100 text-xs rounded-xl transition font-medium cursor-pointer shadow-sm min-h-[36px]"
-              title="Nạp 3 tuần dữ liệu mẫu thực tế"
-            >
-              <Sparkles size={13} className="text-amber-300" />
-              <span>Dữ liệu mẫu</span>
-            </button>
-          </div>
-        </div>
-      </header>
+        {activeTab === 'goals' && (
+          <GoalsTab
+            expenses={state.expenses}
+            goals={state.goals}
+            income={state.income}
+            onUpdateIncome={handleUpdateIncome}
+            onAddGoal={handleAddGoal}
+            onUpdateGoalProgress={handleUpdateGoalProgress}
+            onDeleteGoal={handleDeleteGoal}
+          />
+        )}
 
-      {/* Main Container */}
-      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 space-y-4">
-        <div className="bg-[#FCFAF4] border-4 border-double border-[#E6DEC9] rounded-xl p-4 sm:p-7 shadow-sm min-h-[500px] flex flex-col gap-6">
-          
-          {/* Tabs Navigation */}
-          <div className="hidden md:flex flex-wrap border-b-2 border-emerald-900">
-            <button
-              onClick={() => setActiveTab('overview')}
-              className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-serif font-bold uppercase tracking-wider border-t-2 border-x-2 transition cursor-pointer ${
-                activeTab === 'overview'
-                  ? 'bg-[#FCFAF4] border-emerald-900 border-b-transparent text-emerald-950 -mb-[2px] relative z-10'
-                  : 'bg-stone-100/50 border-transparent text-stone-500 hover:text-emerald-900 hover:bg-stone-100'
-              }`}
-            >
-              <Wallet size={16} className={activeTab === 'overview' ? 'text-amber-600' : ''} />
-              Tổng quan
-            </button>
+        {activeTab === 'recurring' && (
+          <RecurringTab
+            recurringExpenses={state.recurringExpenses}
+            income={state.income}
+            onAddRecurringExpense={handleAddRecurringExpense}
+            onDeleteRecurringExpense={handleDeleteRecurringExpense}
+            onTriggerManualRecurringSync={handleTriggerManualRecurringSync}
+          />
+        )}
 
-            <button
-              onClick={() => setActiveTab('chatbot')}
-              className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-serif font-bold uppercase tracking-wider border-t-2 border-x-2 transition cursor-pointer ${
-                activeTab === 'chatbot'
-                  ? 'bg-[#FCFAF4] border-emerald-900 border-b-transparent text-emerald-950 -mb-[2px] relative z-10'
-                  : 'bg-stone-100/50 border-transparent text-stone-500 hover:text-emerald-900 hover:bg-stone-100'
-              }`}
-            >
-              <MessageSquare size={16} className={activeTab === 'chatbot' ? 'text-amber-600' : ''} />
-              Trợ lý AI
-            </button>
+        {activeTab === 'reports' && (
+          <ReportsTab state={state} />
+        )}
 
-            <button
-              onClick={() => setActiveTab('insights')}
-              className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-serif font-bold uppercase tracking-wider border-t-2 border-x-2 transition cursor-pointer ${
-                activeTab === 'insights'
-                  ? 'bg-[#FCFAF4] border-emerald-900 border-b-transparent text-emerald-950 -mb-[2px] relative z-10'
-                  : 'bg-stone-100/50 border-transparent text-stone-500 hover:text-emerald-900 hover:bg-stone-100'
-              }`}
-            >
-              <Activity size={16} className={activeTab === 'insights' ? 'text-amber-600' : ''} />
-              Sức khỏe AI
-            </button>
+        {activeTab === 'chatbot' && (
+          <ChatbotTab
+            expenses={state.expenses}
+            categoryLimits={state.categoryLimits}
+            goals={state.goals}
+            income={state.income}
+            recurringExpenses={state.recurringExpenses}
+            onAddExpense={handleAddExpense}
+            onUpdateExpense={handleUpdateExpense}
+            onDeleteExpense={handleDeleteExpense}
+            currentUser={currentUser}
+            onOpenAuthModal={() => {
+              setAuthModalTab('login');
+              setIsAuthModalOpen(true);
+            }}
+          />
+        )}
 
-            <button
-              onClick={() => setActiveTab('budget')}
-              className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-serif font-bold uppercase tracking-wider border-t-2 border-x-2 transition cursor-pointer ${
-                activeTab === 'budget'
-                  ? 'bg-[#FCFAF4] border-emerald-900 border-b-transparent text-emerald-950 -mb-[2px] relative z-10'
-                  : 'bg-stone-100/50 border-transparent text-stone-500 hover:text-emerald-900 hover:bg-stone-100'
-              }`}
-            >
-              <SlidersHorizontal size={16} className={activeTab === 'budget' ? 'text-amber-600' : ''} />
-              Ngân sách
-            </button>
+        {activeTab === 'settings' && (
+          <SettingsTab
+            currentUser={currentUser}
+            state={state}
+            onLogout={handleLogout}
+            onLoadSampleData={handleLoadSampleData}
+            onOpenAuth={() => {
+              setAuthModalTab('login');
+              setIsAuthModalOpen(true);
+            }}
+          />
+        )}
 
-            <button
-              onClick={() => setActiveTab('expenses')}
-              className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-serif font-bold uppercase tracking-wider border-t-2 border-x-2 transition cursor-pointer ${
-                activeTab === 'expenses'
-                  ? 'bg-[#FCFAF4] border-emerald-900 border-b-transparent text-emerald-950 -mb-[2px] relative z-10'
-                  : 'bg-stone-100/50 border-transparent text-stone-500 hover:text-emerald-900 hover:bg-stone-100'
-              }`}
-            >
-              <Receipt size={16} className={activeTab === 'expenses' ? 'text-amber-600' : ''} />
-              Chi tiêu
-            </button>
+        {activeTab === 'about' && (
+          <AboutTab
+            onGoToApp={() => setActiveTab('overview')}
+            onGoToChatbot={() => setActiveTab('chatbot')}
+          />
+        )}
+      </Suspense>
 
-            <button
-              onClick={() => setActiveTab('goals')}
-              className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-serif font-bold uppercase tracking-wider border-t-2 border-x-2 transition cursor-pointer ${
-                activeTab === 'goals'
-                  ? 'bg-[#FCFAF4] border-emerald-900 border-b-transparent text-emerald-950 -mb-[2px] relative z-10'
-                  : 'bg-stone-100/50 border-transparent text-stone-500 hover:text-emerald-900 hover:bg-stone-100'
-              }`}
-            >
-              <PiggyBank size={16} className={activeTab === 'goals' ? 'text-amber-600' : ''} />
-              Mục tiêu
-            </button>
-
-            <button
-              onClick={() => setActiveTab('about')}
-              className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-serif font-bold uppercase tracking-wider border-t-2 border-x-2 transition cursor-pointer ${
-                activeTab === 'about'
-                  ? 'bg-[#FCFAF4] border-emerald-900 border-b-transparent text-emerald-950 -mb-[2px] relative z-10'
-                  : 'bg-stone-100/50 border-transparent text-stone-500 hover:text-emerald-900 hover:bg-stone-100'
-              }`}
-            >
-              <BookOpen size={16} className={activeTab === 'about' ? 'text-amber-600' : ''} />
-              Giới thiệu
-            </button>
-          </div>
-
-          {/* Render Active Tab with Suspense */}
-          <div className="flex-1">
-            <Suspense fallback={<TabSkeleton />}>
-              {activeTab === 'overview' && (
-                <OverviewTab
-                  expenses={state.expenses}
-                  goals={state.goals}
-                  income={state.income}
-                  categoryLimits={state.categoryLimits}
-                  recurringExpenses={state.recurringExpenses}
-                  onUpdateIncome={handleUpdateIncome}
-                  onAddGoal={handleAddGoal}
-                  onUpdateGoalProgress={handleUpdateGoalProgress}
-                  onDeleteGoal={handleDeleteGoal}
-                  onQuickAdd={() => setIsQuickAddOpen(true)}
-                  onNavigateTab={(tab) => setActiveTab(tab)}
-                  onTriggerManualRecurringSync={handleTriggerManualRecurringSync}
-                  onAddExpense={handleAddExpense}
-                />
-              )}
-
-              {activeTab === 'chatbot' && (
-                <ChatbotTab
-                  expenses={state.expenses}
-                  categoryLimits={state.categoryLimits}
-                  goals={state.goals}
-                  income={state.income}
-                  recurringExpenses={state.recurringExpenses}
-                  onAddExpense={handleAddExpense}
-                  onUpdateExpense={handleUpdateExpense}
-                  onDeleteExpense={handleDeleteExpense}
-                  currentUser={currentUser}
-                  onOpenAuthModal={() => {
-                    setAuthModalTab('login');
-                    setIsAuthModalOpen(true);
-                  }}
-                />
-              )}
-
-              {activeTab === 'insights' && (
-                <InsightsTab state={state} />
-              )}
-
-              {activeTab === 'budget' && (
-                <BudgetTab
-                  expenses={state.expenses}
-                  income={state.income}
-                  budgetTemplate={state.budgetTemplate}
-                  categoryLimits={state.categoryLimits}
-                  recurringExpenses={state.recurringExpenses}
-                  onUpdateTemplate={handleUpdateTemplate}
-                  onUpdateCategoryLimit={handleUpdateCategoryLimit}
-                  onAddRecurringExpense={handleAddRecurringExpense}
-                  onDeleteRecurringExpense={handleDeleteRecurringExpense}
-                  onTriggerManualRecurringSync={handleTriggerManualRecurringSync}
-                />
-              )}
-
-              {activeTab === 'expenses' && (
-                <ExpensesTab
-                  expenses={state.expenses}
-                  onAddExpense={handleAddExpense}
-                  onDeleteExpense={handleDeleteExpense}
-                  onUpdateExpense={handleUpdateExpense}
-                />
-              )}
-
-              {activeTab === 'goals' && (
-                <GoalsTab
-                  expenses={state.expenses}
-                  goals={state.goals}
-                  income={state.income}
-                  onUpdateIncome={handleUpdateIncome}
-                  onAddGoal={handleAddGoal}
-                  onUpdateGoalProgress={handleUpdateGoalProgress}
-                  onDeleteGoal={handleDeleteGoal}
-                />
-              )}
-
-              {activeTab === 'about' && (
-                <AboutTab
-                  onGoToApp={() => setActiveTab('overview')}
-                  onGoToChatbot={() => setActiveTab('chatbot')}
-                />
-              )}
-            </Suspense>
-          </div>
-        </div>
-      </main>
-
-      {/* Mobile Navigation */}
-      <MobileBottomNav
-        activeTab={activeTab}
-        onChangeTab={(tab) => setActiveTab(tab)}
-        onOpenQuickAdd={() => setIsQuickAddOpen(true)}
-      />
-
-      {/* Quick Add Modal */}
+      {/* Quick Add Expense Modal */}
       <QuickAddExpenseModal
         isOpen={isQuickAddOpen}
         onClose={() => setIsQuickAddOpen(false)}
@@ -692,23 +532,10 @@ export function LedgerApp() {
       <OnboardingModal
         isOpen={isOnboardingOpen}
         onClose={() => setIsOnboardingOpen(false)}
-        onNavigateTab={(tab) => setActiveTab(tab)}
+        onNavigateTab={(tab) => setActiveTab(tab as NavTabKey)}
       />
-
-      {/* Footer */}
-      <footer className="border-t border-[#E6DEC9] bg-[#FAF7F0] py-4 text-center text-[11px] text-stone-400 font-sans shrink-0">
-        <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>© 2026 Sổ tay chi tiêu thông minh — Fullstack AI Platform</span>
-          <a
-            href="https://hophuloc.online"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-stone-700 transition underline decoration-stone-300"
-          >
-            hophuloc.online
-          </a>
-        </div>
-      </footer>
-    </div>
+    </AppShell>
   );
 }
+
+export default LedgerApp;

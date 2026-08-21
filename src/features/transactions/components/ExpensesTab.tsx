@@ -76,6 +76,7 @@ export default function ExpensesTab({
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+  const [mobileTab, setMobileTab] = useState<'form' | 'list'>('list');
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,6 +98,7 @@ export default function ExpensesTab({
       showToast('Đã thêm giao dịch chi tiêu mới thành công!', 'success');
       setAmount('');
       setNote('');
+      setMobileTab('list');
     } catch (err: any) {
       showToast(err?.message || 'Lỗi thêm chi tiêu', 'error');
     }
@@ -225,105 +227,138 @@ export default function ExpensesTab({
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start pb-12">
-      {/* LEFT COLUMN: Manual Add Form */}
-      <div className="lg:col-span-5 bg-[#FAF7F0] border border-[#E6DEC9] p-5 rounded-2xl shadow-md">
-        <h3 className="font-serif text-lg font-bold text-emerald-950 mb-3 pb-2 border-b border-[#E6DEC9] flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <span className="w-1.5 h-4 bg-emerald-900 rounded-full inline-block"></span>
-            <span>Thêm khoản chi thủ công</span>
-          </div>
-          <button
-            onClick={() => setIsImportModalOpen(true)}
-            className="flex items-center gap-1 text-xs font-sans font-semibold text-amber-700 hover:text-amber-800 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20"
-          >
-            <FileSpreadsheet size={13} />
-            <span>Nhập sao kê</span>
-          </button>
-        </h3>
-
-        <form onSubmit={handleAddSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-stone-500 mb-1">SỐ TIỀN (₫) *</label>
-            <div className="relative">
-              <input
-                type="text"
-                required
-                value={amount}
-                onChange={(e) => {
-                  const raw = e.target.value.replace(/[^\d]/g, '');
-                  setAmount(raw ? parseInt(raw, 10).toLocaleString('vi-VN') : '');
-                }}
-                placeholder="Ví dụ: 50.000"
-                className="w-full bg-white border border-[#E6DEC9] rounded-xl pl-3 pr-10 py-2.5 text-sm font-mono font-bold text-emerald-950 focus:outline-none focus:border-emerald-700"
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-stone-400 font-serif font-bold">₫</span>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-stone-500 mb-1">DANH MỤC *</label>
-            <div className="grid grid-cols-2 gap-1.5">
-              {CATEGORIES.map((cat) => {
-                const isSelected = categoryId === cat.id;
-                return (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => setCategoryId(cat.id)}
-                    className={`flex items-center gap-1.5 p-2 rounded-xl border text-xs cursor-pointer transition ${
-                      isSelected
-                        ? 'bg-emerald-900 text-white border-emerald-950 shadow-sm'
-                        : 'bg-white text-stone-700 border-stone-200 hover:border-stone-400'
-                    }`}
-                  >
-                    <span
-                      className="p-1 rounded-md bg-white/10 shrink-0 flex items-center justify-center"
-                      style={{ color: isSelected ? '#ffffff' : cat.color }}
-                    >
-                      <CategoryIcon name={cat.iconName} size={13} />
-                    </span>
-                    <span className="truncate font-medium">{cat.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-stone-500 mb-1">NGÀY GIAO DỊCH *</label>
-            <input
-              type="date"
-              required
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full bg-white border border-[#E6DEC9] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-emerald-700 font-mono"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-stone-500 mb-1">GHI CHÚ / CHI TIẾT</label>
-            <input
-              type="text"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Ví dụ: Ăn bún chả, mua sách..."
-              className="w-full bg-white border border-[#E6DEC9] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-emerald-700"
-            />
-          </div>
-
-          <button
-            type="submit"
-            className="w-full bg-emerald-900 hover:bg-emerald-850 text-white py-2.5 px-4 rounded-xl text-sm font-semibold transition shadow-md flex items-center justify-center gap-1.5"
-          >
-            <Plus size={16} />
-            <span>Lưu khoản chi ngay</span>
-          </button>
-        </form>
+    <div className="space-y-4 pb-12">
+      {/* Tablet / Mobile View Switcher (< 1024px) */}
+      <div className="lg:hidden flex items-center bg-[#FCFAF4] border border-[#E6DEC9] p-1 rounded-xl">
+        <button
+          type="button"
+          onClick={() => setMobileTab('form')}
+          className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+            mobileTab === 'form'
+              ? 'bg-emerald-950 text-amber-300 shadow-xs'
+              : 'text-stone-600 hover:text-emerald-950'
+          }`}
+        >
+          <Plus size={14} />
+          <span>Nhập khoản chi</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobileTab('list')}
+          className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+            mobileTab === 'list'
+              ? 'bg-emerald-950 text-amber-300 shadow-xs'
+              : 'text-stone-600 hover:text-emerald-950'
+          }`}
+        >
+          <Receipt size={14} />
+          <span>Sổ giao dịch ({filteredExpenses.length})</span>
+        </button>
       </div>
 
-      {/* RIGHT COLUMN: Detailed Ledger & Advanced Filters */}
-      <div className="lg:col-span-7 bg-[#FAF7F0] border border-[#E6DEC9] p-5 rounded-2xl shadow-md space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* LEFT COLUMN: Manual Add Form */}
+        <div className={`lg:col-span-5 bg-[#FAF7F0] border border-[#E6DEC9] p-5 rounded-2xl shadow-md ${
+          mobileTab === 'form' ? 'block' : 'hidden lg:block'
+        }`}>
+          <h3 className="font-serif text-lg font-bold text-emerald-950 mb-3 pb-2 border-b border-[#E6DEC9] flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-4 bg-emerald-900 rounded-full inline-block"></span>
+              <span>Thêm khoản chi thủ công</span>
+            </div>
+            <button
+              onClick={() => setIsImportModalOpen(true)}
+              className="flex items-center gap-1 text-xs font-sans font-semibold text-amber-700 hover:text-amber-800 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20"
+            >
+              <FileSpreadsheet size={13} />
+              <span>Nhập sao kê</span>
+            </button>
+          </h3>
+
+          <form onSubmit={handleAddSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-stone-500 mb-1">SỐ TIỀN (₫) *</label>
+              <div className="relative">
+                <input
+                  type="text"
+                  required
+                  value={amount}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^\d]/g, '');
+                    setAmount(raw ? parseInt(raw, 10).toLocaleString('vi-VN') : '');
+                  }}
+                  placeholder="Ví dụ: 50.000"
+                  className="w-full bg-white border border-[#E6DEC9] rounded-xl pl-3 pr-10 py-2.5 text-sm font-mono font-bold text-emerald-950 focus:outline-none focus:border-emerald-700"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-stone-400 font-serif font-bold">₫</span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-stone-500 mb-1">DANH MỤC *</label>
+              <div className="grid grid-cols-2 gap-1.5">
+                {CATEGORIES.map((cat) => {
+                  const isSelected = categoryId === cat.id;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setCategoryId(cat.id)}
+                      className={`flex items-center gap-1.5 p-2 rounded-xl border text-xs cursor-pointer transition ${
+                        isSelected
+                          ? 'bg-emerald-900 text-white border-emerald-950 shadow-sm'
+                          : 'bg-white text-stone-700 border-stone-200 hover:border-stone-400'
+                      }`}
+                    >
+                      <span
+                        className="p-1 rounded-md bg-white/10 shrink-0 flex items-center justify-center"
+                        style={{ color: isSelected ? '#ffffff' : cat.color }}
+                      >
+                        <CategoryIcon name={cat.iconName} size={13} />
+                      </span>
+                      <span className="truncate font-medium">{cat.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-stone-500 mb-1">NGÀY GIAO DỊCH *</label>
+              <input
+                type="date"
+                required
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full bg-white border border-[#E6DEC9] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-emerald-700 font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-stone-500 mb-1">GHI CHÚ / CHI TIẾT</label>
+              <input
+                type="text"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Ví dụ: Ăn bún chả, mua sách..."
+                className="w-full bg-white border border-[#E6DEC9] rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-emerald-700"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full bg-emerald-900 hover:bg-emerald-850 text-white py-2.5 px-4 rounded-xl text-sm font-semibold transition shadow-md flex items-center justify-center gap-1.5"
+            >
+              <Plus size={16} />
+              <span>Lưu khoản chi ngay</span>
+            </button>
+          </form>
+        </div>
+
+        {/* RIGHT COLUMN: Detailed Ledger & Advanced Filters */}
+        <div className={`lg:col-span-7 bg-[#FAF7F0] border border-[#E6DEC9] p-5 rounded-2xl shadow-md space-y-4 ${
+          mobileTab === 'list' ? 'block' : 'hidden lg:block'
+        }`}>
         {/* Header bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#E6DEC9]">
           <div>
@@ -516,6 +551,7 @@ export default function ExpensesTab({
             <span>Không tìm thấy giao dịch nào phù hợp với bộ lọc.</span>
           </div>
         )}
+        </div>
       </div>
 
       {/* Edit Expense Modal */}

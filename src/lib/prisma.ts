@@ -1,10 +1,6 @@
 import { PrismaClient } from '@prisma/client';
-import dotenv from 'dotenv';
-import path from 'path';
+import '../config/loadEnv';
 import { Logger } from '../utils/logger';
-
-// 1. Nạp .env làm fallback mà không ghi đè environment variables từ PM2 / OS / CI
-dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: false });
 
 declare global {
   // eslint-disable-next-line no-var

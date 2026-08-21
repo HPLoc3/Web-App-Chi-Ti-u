@@ -168,7 +168,7 @@ export default function BudgetTab({
   return (
     <div className="space-y-6 pb-12">
       {/* SECTION 1: Subscriptions & Recurring Expense Dashboard (Priority 8 Upgrade) */}
-      <div className="p-6 rounded-2xl bg-gradient-to-r from-emerald-950 via-emerald-900 to-emerald-950 border border-emerald-800/80 shadow-xl text-emerald-50">
+      <div className="p-5 sm:p-6 rounded-2xl bg-gradient-to-r from-emerald-950 via-emerald-900 to-emerald-950 border border-emerald-800/80 shadow-xl text-emerald-50">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
           <div>
             <div className="flex items-center gap-2 mb-1">

@@ -36,6 +36,8 @@ export class AuthController {
         {
           message: 'Đăng ký tài khoản thành công.',
           user,
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
         }
       );
     } catch (error: any) {
@@ -58,6 +60,8 @@ export class AuthController {
         {
           message: 'Đăng nhập thành công.',
           user,
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
         }
       );
     } catch (error: any) {
@@ -79,6 +83,8 @@ export class AuthController {
         {
           message: 'Đăng nhập Google thành công.',
           user,
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
         }
       );
     } catch (error: any) {
@@ -108,6 +114,8 @@ export class AuthController {
         {
           message: 'Làm mới phiên đăng nhập thành công.',
           user,
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
         }
       );
     } catch (error: any) {
