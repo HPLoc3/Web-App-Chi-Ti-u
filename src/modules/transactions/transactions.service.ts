@@ -5,6 +5,8 @@ import { TransactionDTO, GetTransactionsQuery, CreateTransactionInput, UpdateTra
 import { resolveCategoryId } from '../../services/category.helper';
 import { AppError } from '../../middleware/errorHandler.middleware';
 import { getBusinessDate, parseBusinessDate } from '../../utils/dateParser';
+import { FinancialMath } from '../../utils/financialMath';
+import { FinancialAuditLogger } from '../../utils/financialAudit';
 
 export class TransactionsService {
   private static formatTransaction(tx: any): TransactionDTO {
@@ -115,7 +117,7 @@ export class TransactionsService {
   }
 
   static async createTransaction(userId: string, input: CreateTransactionInput) {
-    const numAmount = new Prisma.Decimal(input.amount || 0);
+    const numAmount = FinancialMath.toDecimal(input.amount);
     if (numAmount.lessThanOrEqualTo(0)) {
       throw new AppError('Số tiền phải lớn hơn 0.', 400, 'INVALID_AMOUNT');
     }
@@ -149,6 +151,17 @@ export class TransactionsService {
       balanceChange
     );
 
+    FinancialAuditLogger.log({
+      userId,
+      action: 'TRANSACTION_CREATE',
+      entity: 'Transaction',
+      entityId: result.transaction.id,
+      walletId: targetWalletId,
+      amount: numAmount,
+      delta: balanceChange,
+      metadata: { type: transactionType, categoryId: validCategoryId },
+    });
+
     return {
       transaction: this.formatTransaction(result.transaction),
       wallet: result.wallet,
@@ -176,10 +189,10 @@ export class TransactionsService {
       date: Date;
     }[] = [];
 
-    let netWalletBalanceAdjustment = new Prisma.Decimal(0);
+    const walletBalanceAdjustments = new Map<string, Prisma.Decimal>();
 
     for (const item of items) {
-      const numAmount = new Prisma.Decimal(item.amount || 0);
+      const numAmount = FinancialMath.toDecimal(item.amount);
       if (numAmount.lessThanOrEqualTo(0)) continue;
 
       const transactionType = (item.type as 'EXPENSE' | 'INCOME') || 'EXPENSE';
@@ -197,30 +210,37 @@ export class TransactionsService {
         date: isNaN(itemDate.getTime()) ? new Date() : itemDate,
       });
 
-      if (targetWalletId === defaultWalletId) {
-        if (transactionType === 'INCOME') {
-          netWalletBalanceAdjustment = netWalletBalanceAdjustment.plus(numAmount);
-        } else {
-          netWalletBalanceAdjustment = netWalletBalanceAdjustment.minus(numAmount);
-        }
-      }
+      const currentAdjustment = walletBalanceAdjustments.get(targetWalletId) || new Prisma.Decimal(0);
+      const delta = transactionType === 'INCOME' ? numAmount : numAmount.negated();
+      walletBalanceAdjustments.set(targetWalletId, currentAdjustment.add(delta));
     }
 
     if (validItems.length === 0) {
       return [];
     }
 
-    // Atomic execution in a single database transaction
+    // Atomic execution in a single database transaction across all affected wallets
     await prisma.$transaction(async (tx) => {
-      if (!netWalletBalanceAdjustment.isZero()) {
-        await tx.wallet.update({
-          where: { id: defaultWalletId },
-          data: { balance: { increment: netWalletBalanceAdjustment } },
-        });
+      for (const [wId, adjustment] of walletBalanceAdjustments.entries()) {
+        if (!adjustment.isZero()) {
+          await tx.wallet.update({
+            where: { id: wId },
+            data: { balance: { increment: adjustment } },
+          });
+        }
       }
+
       await tx.transaction.createMany({
         data: validItems,
       });
+    });
+
+    FinancialAuditLogger.log({
+      userId,
+      action: 'TRANSACTION_BULK_CREATE',
+      entity: 'Transaction',
+      entityId: `bulk-${validItems.length}`,
+      metadata: { count: validItems.length },
     });
 
     // Return the newly created transactions
@@ -249,12 +269,13 @@ export class TransactionsService {
       targetCategoryId = await resolveCategoryId(input.categoryId, userId, (input.type || existing.type) as 'EXPENSE' | 'INCOME');
     }
 
+    const existingAmount = FinancialMath.toDecimal(existing.amount);
     const oldRevertChange = existing.type === 'INCOME'
-      ? (existing.amount as Prisma.Decimal).negated()
-      : (existing.amount as Prisma.Decimal);
+      ? existingAmount.negated()
+      : existingAmount;
 
     const newType = input.type || existing.type;
-    const newAmount = input.amount !== undefined ? new Prisma.Decimal(input.amount) : existing.amount;
+    const newAmount = input.amount !== undefined ? FinancialMath.toDecimal(input.amount) : existingAmount;
     const newApplyChange = newType === 'INCOME' ? newAmount : newAmount.negated();
 
     const result = await TransactionsRepository.updateWithWalletAdjustment(
@@ -274,6 +295,21 @@ export class TransactionsService {
       }
     );
 
+    FinancialAuditLogger.log({
+      userId,
+      action: 'TRANSACTION_UPDATE',
+      entity: 'Transaction',
+      entityId: id,
+      walletId: targetWalletId,
+      amount: newAmount,
+      metadata: {
+        oldWalletId: existing.walletId,
+        newWalletId: targetWalletId,
+        oldAmount: existingAmount.toString(),
+        newAmount: newAmount.toString(),
+      },
+    });
+
     return {
       transaction: this.formatTransaction(result.updatedTransaction),
       wallet: result.updatedWallet,
@@ -286,17 +322,38 @@ export class TransactionsService {
       throw new AppError('Giao dịch không tồn tại hoặc bạn không có quyền xóa.', 404, 'TRANSACTION_NOT_FOUND');
     }
 
+    const existingAmount = FinancialMath.toDecimal(existing.amount);
     const revertChange = existing.type === 'INCOME'
-      ? (existing.amount as Prisma.Decimal).negated()
-      : (existing.amount as Prisma.Decimal);
+      ? existingAmount.negated()
+      : existingAmount;
 
     await TransactionsRepository.deleteWithWalletAdjustment(id, existing.walletId, revertChange);
+
+    FinancialAuditLogger.log({
+      userId,
+      action: 'TRANSACTION_DELETE',
+      entity: 'Transaction',
+      entityId: id,
+      walletId: existing.walletId,
+      amount: existingAmount,
+      delta: revertChange,
+    });
   }
 
   static async deleteBulkTransactions(ids: string[], userId: string): Promise<number> {
     if (!Array.isArray(ids) || ids.length === 0) {
       throw new AppError('Danh sách ID không hợp lệ.', 400, 'INVALID_IDS');
     }
-    return TransactionsRepository.deleteMany(ids, userId);
+    const count = await TransactionsRepository.deleteMany(ids, userId);
+
+    FinancialAuditLogger.log({
+      userId,
+      action: 'TRANSACTION_BULK_DELETE',
+      entity: 'Transaction',
+      entityId: `bulk-del-${ids.length}`,
+      metadata: { requestedCount: ids.length, deletedCount: count },
+    });
+
+    return count;
   }
 }

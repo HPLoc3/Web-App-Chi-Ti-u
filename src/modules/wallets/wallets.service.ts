@@ -2,6 +2,8 @@ import { Prisma } from '@prisma/client';
 import { WalletsRepository } from './wallets.repository';
 import { WalletDTO, CreateWalletInput, UpdateWalletInput } from './wallets.types';
 import { AppError } from '../../middleware/errorHandler.middleware';
+import { FinancialMath } from '../../utils/financialMath';
+import { FinancialAuditLogger } from '../../utils/financialAudit';
 
 export class WalletsService {
   private static formatWallet(w: any): WalletDTO {
@@ -46,12 +48,23 @@ export class WalletsService {
       await WalletsRepository.clearDefaults(userId);
     }
 
+    const initialBalance = FinancialMath.toDecimal(input.balance);
+
     const wallet = await WalletsRepository.create({
       name: input.name,
-      balance: new Prisma.Decimal(input.balance || 0),
+      balance: initialBalance,
       currency: input.currency || 'VND',
       isDefault: input.isDefault || false,
       user: { connect: { id: userId } },
+    });
+
+    FinancialAuditLogger.log({
+      userId,
+      action: 'WALLET_CREATE',
+      entity: 'Wallet',
+      entityId: wallet.id,
+      amount: initialBalance,
+      metadata: { name: wallet.name, isDefault: wallet.isDefault },
     });
 
     return this.formatWallet(wallet);
@@ -67,11 +80,23 @@ export class WalletsService {
       await WalletsRepository.clearDefaults(userId);
     }
 
+    const newBalance = input.balance !== undefined ? FinancialMath.toDecimal(input.balance) : undefined;
+
     const updated = await WalletsRepository.update(id, {
       ...(input.name !== undefined ? { name: input.name } : {}),
-      ...(input.balance !== undefined ? { balance: new Prisma.Decimal(input.balance) } : {}),
+      ...(newBalance !== undefined ? { balance: newBalance } : {}),
       ...(input.currency !== undefined ? { currency: input.currency } : {}),
       ...(input.isDefault !== undefined ? { isDefault: input.isDefault } : {}),
+    });
+
+    FinancialAuditLogger.log({
+      userId,
+      action: 'WALLET_UPDATE',
+      entity: 'Wallet',
+      entityId: id,
+      previousBalance: existing.balance,
+      newBalance: updated.balance,
+      metadata: { name: updated.name },
     });
 
     return this.formatWallet(updated);
@@ -89,5 +114,54 @@ export class WalletsService {
     }
 
     await WalletsRepository.delete(id);
+
+    FinancialAuditLogger.log({
+      userId,
+      action: 'WALLET_DELETE',
+      entity: 'Wallet',
+      entityId: id,
+      previousBalance: existing.balance,
+    });
+  }
+
+  static async transferBetweenWallets(
+    userId: string,
+    fromWalletId: string,
+    toWalletId: string,
+    amount: number | string | Prisma.Decimal,
+    note?: string
+  ): Promise<{ fromWallet: WalletDTO; toWallet: WalletDTO }> {
+    if (fromWalletId === toWalletId) {
+      throw new AppError('Ví nguồn và ví đích không được trùng nhau.', 400, 'SAME_WALLET_TRANSFER');
+    }
+
+    const decAmount = FinancialMath.toDecimal(amount);
+    if (decAmount.lessThanOrEqualTo(0)) {
+      throw new AppError('Số tiền chuyển phải lớn hơn 0.', 400, 'INVALID_AMOUNT');
+    }
+
+    try {
+      const result = await WalletsRepository.transfer(userId, fromWalletId, toWalletId, decAmount);
+
+      FinancialAuditLogger.log({
+        userId,
+        action: 'WALLET_TRANSFER',
+        entity: 'Wallet',
+        entityId: fromWalletId,
+        targetWalletId: toWalletId,
+        amount: decAmount,
+        metadata: { note: note || '' },
+      });
+
+      return {
+        fromWallet: this.formatWallet(result.fromWallet),
+        toWallet: this.formatWallet(result.toWallet),
+      };
+    } catch (error: any) {
+      if (error.message === 'FROM_WALLET_NOT_FOUND' || error.message === 'TO_WALLET_NOT_FOUND') {
+        throw new AppError('Không tìm thấy ví nguồn hoặc ví đích hợp lệ.', 404, 'WALLET_NOT_FOUND');
+      }
+      throw error;
+    }
   }
 }

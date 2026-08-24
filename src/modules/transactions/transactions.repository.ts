@@ -154,15 +154,31 @@ export class TransactionsRepository {
   ) {
     try {
       return await prisma.$transaction(async (tx) => {
-        await tx.wallet.update({
-          where: { id: oldWalletId },
-          data: { balance: { increment: oldBalanceAdjustment } },
-        });
+        if (oldWalletId === newWalletId) {
+          // Same wallet: compute net adjustment in one atomic update
+          const netAdjustment = oldBalanceAdjustment.add(newBalanceAdjustment);
+          if (!netAdjustment.isZero()) {
+            await tx.wallet.update({
+              where: { id: oldWalletId },
+              data: { balance: { increment: netAdjustment } },
+            });
+          }
+        } else {
+          // Different wallets: update in alphabetical ID order to prevent deadlock
+          const [firstId, secondId] = [oldWalletId, newWalletId].sort();
+          const firstDelta = firstId === oldWalletId ? oldBalanceAdjustment : newBalanceAdjustment;
+          const secondDelta = secondId === oldWalletId ? oldBalanceAdjustment : newBalanceAdjustment;
 
-        const updatedWallet = await tx.wallet.update({
-          where: { id: newWalletId },
-          data: { balance: { increment: newBalanceAdjustment } },
-        });
+          await tx.wallet.update({
+            where: { id: firstId },
+            data: { balance: { increment: firstDelta } },
+          });
+
+          await tx.wallet.update({
+            where: { id: secondId },
+            data: { balance: { increment: secondDelta } },
+          });
+        }
 
         const updatedTransaction = await tx.transaction.update({
           where: { id: transactionId },
@@ -177,11 +193,41 @@ export class TransactionsRepository {
           },
         });
 
+        const updatedWallet = await tx.wallet.findUnique({
+          where: { id: newWalletId },
+        });
+
         return { updatedTransaction, updatedWallet };
       });
     } catch (error) {
       if (DevFallbackStore.isConnectionError(error)) {
         const tx = devFallbackStore.transactions.get(transactionId);
+        if (tx) {
+          if (updateData.amount) tx.amount = new Prisma.Decimal(updateData.amount.toString());
+          if (updateData.type) tx.type = updateData.type as any;
+          if (updateData.note !== undefined) tx.note = updateData.note as any;
+          if (updateData.date) tx.date = new Date(updateData.date as any);
+          if (newWalletId !== oldWalletId) {
+            const oldW = devFallbackStore.wallets.get(oldWalletId);
+            if (oldW) {
+              oldW.balance = oldW.balance.add(oldBalanceAdjustment);
+              devFallbackStore.wallets.set(oldW.id, oldW);
+            }
+            const newW = devFallbackStore.wallets.get(newWalletId);
+            if (newW) {
+              newW.balance = newW.balance.add(newBalanceAdjustment);
+              devFallbackStore.wallets.set(newW.id, newW);
+            }
+            tx.walletId = newWalletId;
+          } else {
+            const w = devFallbackStore.wallets.get(oldWalletId);
+            if (w) {
+              w.balance = w.balance.add(oldBalanceAdjustment).add(newBalanceAdjustment);
+              devFallbackStore.wallets.set(w.id, w);
+            }
+          }
+          devFallbackStore.transactions.set(transactionId, tx);
+        }
         const updatedWallet = devFallbackStore.wallets.get(newWalletId);
         return { updatedTransaction: tx, updatedWallet };
       }
@@ -207,7 +253,15 @@ export class TransactionsRepository {
       });
     } catch (error) {
       if (DevFallbackStore.isConnectionError(error)) {
-        devFallbackStore.transactions.delete(transactionId);
+        const tx = devFallbackStore.transactions.get(transactionId);
+        if (tx) {
+          const w = devFallbackStore.wallets.get(walletId);
+          if (w) {
+            w.balance = w.balance.add(revertChange);
+            devFallbackStore.wallets.set(w.id, w);
+          }
+          devFallbackStore.transactions.delete(transactionId);
+        }
         return;
       }
       throw error;
@@ -216,14 +270,58 @@ export class TransactionsRepository {
 
   static async deleteMany(ids: string[], userId: string): Promise<number> {
     try {
-      const result = await prisma.transaction.deleteMany({
-        where: { id: { in: ids }, userId },
+      return await prisma.$transaction(async (tx) => {
+        // 1. Fetch transactions to calculate balance revert per wallet
+        const txsToDelete = await tx.transaction.findMany({
+          where: { id: { in: ids }, userId },
+          select: { id: true, amount: true, type: true, walletId: true },
+        });
+
+        if (txsToDelete.length === 0) return 0;
+
+        // 2. Group revert adjustments by walletId
+        const walletRevertMap = new Map<string, Prisma.Decimal>();
+        for (const item of txsToDelete) {
+          const itemAmt = item.amount as Prisma.Decimal;
+          const revertDelta = item.type === 'INCOME' ? itemAmt.negated() : itemAmt;
+          const currentTotal = walletRevertMap.get(item.walletId) || new Prisma.Decimal(0);
+          walletRevertMap.set(item.walletId, currentTotal.add(revertDelta));
+        }
+
+        // 3. Atomically update every affected wallet
+        for (const [wId, delta] of walletRevertMap.entries()) {
+          if (!delta.isZero()) {
+            await tx.wallet.update({
+              where: { id: wId },
+              data: { balance: { increment: delta } },
+            });
+          }
+        }
+
+        // 4. Delete the transactions
+        const result = await tx.transaction.deleteMany({
+          where: { id: { in: ids }, userId },
+        });
+
+        return result.count;
       });
-      return result.count;
     } catch (error) {
       if (DevFallbackStore.isConnectionError(error)) {
-        ids.forEach((id) => devFallbackStore.transactions.delete(id));
-        return ids.length;
+        let count = 0;
+        for (const id of ids) {
+          const tx = devFallbackStore.transactions.get(id);
+          if (tx && tx.userId === userId) {
+            const revertDelta = tx.type === 'INCOME' ? tx.amount.negated() : tx.amount;
+            const w = devFallbackStore.wallets.get(tx.walletId);
+            if (w) {
+              w.balance = w.balance.add(revertDelta);
+              devFallbackStore.wallets.set(w.id, w);
+            }
+            devFallbackStore.transactions.delete(id);
+            count++;
+          }
+        }
+        return count;
       }
       throw error;
     }

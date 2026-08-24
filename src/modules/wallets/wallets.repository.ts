@@ -97,5 +97,64 @@ export class WalletsRepository {
       throw error;
     }
   }
+
+  static async transfer(
+    userId: string,
+    fromWalletId: string,
+    toWalletId: string,
+    amount: Prisma.Decimal
+  ): Promise<{ fromWallet: Wallet; toWallet: Wallet }> {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const fromW = await tx.wallet.findFirst({
+          where: { id: fromWalletId, userId },
+        });
+        if (!fromW) {
+          throw new Error('FROM_WALLET_NOT_FOUND');
+        }
+
+        const toW = await tx.wallet.findFirst({
+          where: { id: toWalletId, userId },
+        });
+        if (!toW) {
+          throw new Error('TO_WALLET_NOT_FOUND');
+        }
+
+        // Lock in sorted ID order to prevent deadlock
+        const [firstId, secondId] = [fromWalletId, toWalletId].sort();
+        const firstDelta = firstId === fromWalletId ? amount.negated() : amount;
+        const secondDelta = secondId === fromWalletId ? amount.negated() : amount;
+
+        const updatedFirst = await tx.wallet.update({
+          where: { id: firstId },
+          data: { balance: { increment: firstDelta } },
+        });
+
+        const updatedSecond = await tx.wallet.update({
+          where: { id: secondId },
+          data: { balance: { increment: secondDelta } },
+        });
+
+        return {
+          fromWallet: fromWalletId === firstId ? updatedFirst : updatedSecond,
+          toWallet: toWalletId === firstId ? updatedFirst : updatedSecond,
+        };
+      });
+    } catch (error) {
+      if (DevFallbackStore.isConnectionError(error)) {
+        const fromW = devFallbackStore.wallets.get(fromWalletId);
+        const toW = devFallbackStore.wallets.get(toWalletId);
+        if (!fromW || fromW.userId !== userId) throw new Error('FROM_WALLET_NOT_FOUND');
+        if (!toW || toW.userId !== userId) throw new Error('TO_WALLET_NOT_FOUND');
+
+        fromW.balance = fromW.balance.sub(amount);
+        toW.balance = toW.balance.add(amount);
+        devFallbackStore.wallets.set(fromWalletId, fromW);
+        devFallbackStore.wallets.set(toWalletId, toW);
+        return { fromWallet: fromW, toWallet: toW };
+      }
+      throw error;
+    }
+  }
 }
 

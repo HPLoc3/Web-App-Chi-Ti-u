@@ -77,4 +77,24 @@ export class WalletsController {
       sendError(res, error.statusCode || 500, error.code || 'DELETE_WALLET_ERROR', error.message, undefined, req.id);
     }
   }
+
+  static async transferWallets(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        sendError(res, 401, 'UNAUTHORIZED', 'Chưa xác thực người dùng.', undefined, req.id);
+        return;
+      }
+
+      const { fromWalletId, toWalletId, amount, note } = req.body;
+      const result = await WalletsService.transferBetweenWallets(userId, fromWalletId, toWalletId, amount, note);
+      sendSuccess(res, 200, result, undefined, {
+        message: 'Chuyển tiền giữa các ví thành công.',
+        fromWallet: result.fromWallet,
+        toWallet: result.toWallet,
+      });
+    } catch (error: any) {
+      sendError(res, error.statusCode || 500, error.code || 'TRANSFER_ERROR', error.message, undefined, req.id);
+    }
+  }
 }

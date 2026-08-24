@@ -1,7 +1,10 @@
 import { Prisma } from '@prisma/client';
+import { prisma } from '../../lib/prisma';
 import { SyncRepository } from './sync.repository';
 import { SyncClientStateInput, SyncClientStateResult } from './sync.types';
 import { resolveCategoryId } from '../../services/category.helper';
+import { FinancialMath } from '../../utils/financialMath';
+import { FinancialAuditLogger } from '../../utils/financialAudit';
 
 export class SyncService {
   static async syncClientState(userId: string, input: SyncClientStateInput): Promise<SyncClientStateResult> {
@@ -15,25 +18,49 @@ export class SyncService {
     }
 
     let insertedExpensesCount = 0;
+    const expenseTxList: Prisma.TransactionCreateManyInput[] = [];
+    let netExpenseAmount = new Prisma.Decimal(0);
+
     if (Array.isArray(input.expenses) && input.expenses.length > 0) {
       for (const exp of input.expenses) {
-        const numAmt = new Prisma.Decimal(exp.amount || 0);
+        const numAmt = FinancialMath.toDecimal(exp.amount);
         if (numAmt.lessThanOrEqualTo(0)) continue;
 
         const validCatId = await resolveCategoryId(exp.categoryId, userId, 'EXPENSE');
         const expDate = exp.date ? new Date(exp.date) : new Date();
 
-        await SyncRepository.createTransaction({
+        expenseTxList.push({
           amount: numAmt,
           type: 'EXPENSE',
           note: exp.note ? String(exp.note).slice(0, 500) : '',
-          date: expDate,
-          wallet: { connect: { id: wallet.id } },
-          category: { connect: { id: validCatId } },
-          user: { connect: { id: userId } },
+          date: isNaN(expDate.getTime()) ? new Date() : expDate,
+          walletId: wallet.id,
+          categoryId: validCatId,
+          userId,
         });
-        insertedExpensesCount++;
+
+        netExpenseAmount = netExpenseAmount.add(numAmt);
       }
+    }
+
+    // Atomic execution for transactions creation and wallet balance adjustment
+    if (expenseTxList.length > 0) {
+      await SyncRepository.createTransactionsWithWalletAdjustment(
+        wallet.id,
+        expenseTxList,
+        netExpenseAmount.negated()
+      );
+      insertedExpensesCount = expenseTxList.length;
+
+      FinancialAuditLogger.log({
+        userId,
+        action: 'TRANSACTION_BULK_CREATE',
+        entity: 'Transaction',
+        entityId: `sync-${insertedExpensesCount}`,
+        walletId: wallet.id,
+        amount: netExpenseAmount,
+        delta: netExpenseAmount.negated(),
+      });
     }
 
     let insertedGoalsCount = 0;
@@ -42,8 +69,8 @@ export class SyncService {
         if (!g.name) continue;
         await SyncRepository.createGoal({
           name: String(g.name).trim(),
-          targetAmount: new Prisma.Decimal(g.target || g.targetAmount || 0),
-          currentAmount: new Prisma.Decimal(g.current || g.currentAmount || 0),
+          targetAmount: FinancialMath.toDecimal(g.target || g.targetAmount),
+          currentAmount: FinancialMath.toDecimal(g.current || g.currentAmount),
           deadline: g.deadline ? new Date(g.deadline) : null,
           color: g.color || '#F59E0B',
           user: { connect: { id: userId } },
@@ -55,7 +82,7 @@ export class SyncService {
     let insertedRecurringCount = 0;
     if (Array.isArray(input.recurringExpenses) && input.recurringExpenses.length > 0) {
       for (const r of input.recurringExpenses) {
-        const numAmt = new Prisma.Decimal(r.amount || 0);
+        const numAmt = FinancialMath.toDecimal(r.amount);
         if (numAmt.lessThanOrEqualTo(0)) continue;
 
         const validCatId = await resolveCategoryId(r.categoryId, userId, 'EXPENSE');

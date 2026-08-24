@@ -13,3 +13,11 @@ export const updateWalletSchema = z.object({
   currency: z.string().optional(),
   isDefault: z.boolean().optional(),
 });
+
+export const transferWalletSchema = z.object({
+  fromWalletId: z.string({ message: 'Ví nguồn là bắt buộc' }).min(1, 'Ví nguồn không được để trống'),
+  toWalletId: z.string({ message: 'Ví đích là bắt buộc' }).min(1, 'Ví đích không được để trống'),
+  amount: z.number({ message: 'Số tiền là bắt buộc' }).positive('Số tiền chuyển phải lớn hơn 0'),
+  note: z.string().max(500).optional(),
+});
+

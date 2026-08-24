@@ -455,6 +455,34 @@ export class DevFallbackStore {
     return null;
   }
 
+  public upsertBudget(userId: string, income?: number, budgetTemplate?: string, categoryLimits?: Record<string, number>): any {
+    let budget = this.findBudgetByUserId(userId);
+    if (budget) {
+      if (income !== undefined) budget.income = new Prisma.Decimal(Math.max(Number(income) || 0, 0));
+      if (budgetTemplate) budget.budgetTemplate = budgetTemplate;
+      if (categoryLimits) budget.categoryLimits = JSON.stringify(categoryLimits);
+      budget.updatedAt = new Date();
+      this.budgets.set(budget.id, budget);
+      return budget;
+    }
+
+    const id = `dev-budget-${Date.now()}`;
+    const newBudget = {
+      id,
+      income: new Prisma.Decimal(Math.max(Number(income) || 25000000, 0)),
+      budgetTemplate: budgetTemplate || '50_30_20',
+      needsPercent: 50,
+      wantsPercent: 30,
+      savingsPercent: 20,
+      categoryLimits: categoryLimits ? JSON.stringify(categoryLimits) : '{}',
+      userId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.budgets.set(id, newBudget as any);
+    return newBudget;
+  }
+
   // Goals methods
   public getUserGoals(userId: string): Goal[] {
     const list: Goal[] = [];
@@ -462,6 +490,24 @@ export class DevFallbackStore {
       if (g.userId === userId) list.push(g);
     }
     return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  public createGoal(data: any): Goal {
+    const id = `dev-goal-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const goal: Goal = {
+      id,
+      name: data.name,
+      targetAmount: new Prisma.Decimal(data.targetAmount ? data.targetAmount.toString() : '0'),
+      currentAmount: new Prisma.Decimal(data.currentAmount ? data.currentAmount.toString() : '0'),
+      deadline: data.deadline ? new Date(data.deadline) : null,
+      color: data.color || '#F59E0B',
+      icon: data.icon || 'Target',
+      userId: data.userId || data.user?.connect?.id || 'dev-user',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.goals.set(id, goal);
+    return goal;
   }
 
   // Recurring methods
@@ -474,6 +520,37 @@ export class DevFallbackStore {
       }
     }
     return list.sort((a, b) => a.dayOfMonth - b.dayOfMonth);
+  }
+
+  public createRecurring(data: any): any {
+    const id = `dev-recurring-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const rec = {
+      id,
+      amount: new Prisma.Decimal(data.amount ? data.amount.toString() : '0'),
+      type: data.type || 'EXPENSE',
+      note: data.note || '',
+      dayOfMonth: Number(data.dayOfMonth) || 1,
+      categoryId: data.categoryId || data.category?.connect?.id || 'an_uong',
+      userId: data.userId || data.user?.connect?.id || 'dev-user',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.recurring.set(id, rec as any);
+    const cat = this.categories.get(rec.categoryId) || DEFAULT_SYSTEM_CATEGORIES[0];
+    return { ...rec, category: cat };
+  }
+
+  public reset(): void {
+    this.transactions.clear();
+    this.wallets.clear();
+    this.budgets.clear();
+    this.budgetLimits.clear();
+    this.goals.clear();
+    this.recurring.clear();
+    this.refreshTokens.clear();
+    this.sessions.clear();
+    this.resetTokens.clear();
+    DEFAULT_SYSTEM_CATEGORIES.forEach((cat) => this.categories.set(cat.id, cat));
   }
 }
 

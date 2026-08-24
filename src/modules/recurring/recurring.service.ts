@@ -3,6 +3,8 @@ import { RecurringRepository } from './recurring.repository';
 import { RecurringDTO, CreateRecurringInput, UpdateRecurringInput } from './recurring.types';
 import { resolveCategoryId } from '../../services/category.helper';
 import { AppError } from '../../middleware/errorHandler.middleware';
+import { FinancialMath } from '../../utils/financialMath';
+import { FinancialAuditLogger } from '../../utils/financialAudit';
 
 export class RecurringService {
   private static formatRecurring(item: any): RecurringDTO {
@@ -27,7 +29,7 @@ export class RecurringService {
   }
 
   static async createRecurring(userId: string, input: CreateRecurringInput): Promise<RecurringDTO> {
-    const numAmount = new Prisma.Decimal(input.amount || 0);
+    const numAmount = FinancialMath.toDecimal(input.amount);
     if (numAmount.lessThanOrEqualTo(0)) {
       throw new AppError('Số tiền phải lớn hơn 0.', 400, 'INVALID_AMOUNT');
     }
@@ -57,7 +59,7 @@ export class RecurringService {
     const dataToUpdate: Prisma.RecurringTransactionUpdateInput = {};
 
     if (input.amount !== undefined) {
-      dataToUpdate.amount = new Prisma.Decimal(input.amount);
+      dataToUpdate.amount = FinancialMath.toDecimal(input.amount);
     }
 
     if (input.categoryId !== undefined) {
@@ -129,15 +131,34 @@ export class RecurringService {
       );
 
       if (!isAlreadyGenerated) {
-        await RecurringRepository.createTransaction({
-          amount: item.amount,
-          type: item.type,
-          note: `${item.note} (Tự động định kỳ)`,
-          date: targetDate,
-          wallet: { connect: { id: wallet.id } },
-          category: { connect: { id: item.categoryId } },
-          user: { connect: { id: userId } },
+        const itemAmount = FinancialMath.toDecimal(item.amount);
+        const balanceDelta = item.type === 'INCOME' ? itemAmount : itemAmount.negated();
+
+        const { transaction } = await RecurringRepository.createTransactionWithWalletUpdate(
+          {
+            amount: itemAmount,
+            type: item.type,
+            note: `${item.note} (Tự động định kỳ)`,
+            date: targetDate,
+            wallet: { connect: { id: wallet.id } },
+            category: { connect: { id: item.categoryId } },
+            user: { connect: { id: userId } },
+          },
+          wallet.id,
+          balanceDelta
+        );
+
+        FinancialAuditLogger.log({
+          userId,
+          action: 'RECURRING_SYNC',
+          entity: 'Transaction',
+          entityId: transaction.id,
+          walletId: wallet.id,
+          amount: itemAmount,
+          delta: balanceDelta,
+          metadata: { recurringId: item.id, dayOfMonth: item.dayOfMonth },
         });
+
         createdCount++;
       }
     }

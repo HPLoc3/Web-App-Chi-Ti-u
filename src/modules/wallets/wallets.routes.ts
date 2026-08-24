@@ -2,11 +2,18 @@ import { Router } from 'express';
 import { WalletsController } from './wallets.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { validateRequest } from '../../middleware/validate.middleware';
-import { createWalletSchema, updateWalletSchema } from './wallets.schema';
+import { createWalletSchema, updateWalletSchema, transferWalletSchema } from './wallets.schema';
 
 const router = Router();
 
 router.use(authMiddleware);
+
+// POST /api/v1/wallets/transfer
+router.post(
+  '/transfer',
+  validateRequest(transferWalletSchema, 'body'),
+  WalletsController.transferWallets
+);
 
 // GET /api/v1/wallets
 router.get('/', WalletsController.getWallets);

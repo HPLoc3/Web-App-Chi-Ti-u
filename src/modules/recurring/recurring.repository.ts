@@ -177,14 +177,36 @@ export class RecurringRepository {
     }
   }
 
-  static async createTransaction(data: Prisma.TransactionCreateInput) {
+  static async createTransactionWithWalletUpdate(
+    data: Prisma.TransactionCreateInput,
+    walletId: string,
+    balanceChange: Prisma.Decimal
+  ) {
     try {
-      return await prisma.transaction.create({ data });
+      return await prisma.$transaction(async (tx) => {
+        const wallet = await tx.wallet.update({
+          where: { id: walletId },
+          data: { balance: { increment: balanceChange } },
+        });
+
+        const transaction = await tx.transaction.create({
+          data,
+          include: {
+            category: { select: { id: true, name: true, icon: true, color: true } },
+            wallet: { select: { id: true, name: true, balance: true, currency: true } },
+          },
+        });
+
+        return { transaction, wallet };
+      });
     } catch (error) {
       if (DevFallbackStore.isConnectionError(error)) {
-        return devFallbackStore.createTransaction(data);
+        const tx = devFallbackStore.createTransaction(data);
+        const w = devFallbackStore.wallets.get(walletId);
+        return { transaction: tx, wallet: w };
       }
       throw error;
     }
   }
 }
+
