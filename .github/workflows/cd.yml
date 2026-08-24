@@ -179,10 +179,20 @@ jobs:
           echo "PM2 path    : $(command -v pm2)"
 
           echo "=================================================="
-          echo "📥 Step 2: Fetching origin/main & Resetting..."
+          echo "📥 Step 2: Fetching TARGET_SHA & Resetting..."
           echo "=================================================="
-          git fetch origin main
-          git reset --hard origin/main
+          git fetch --all --prune
+
+          if ! git cat-file -e "${TARGET_SHA}^{commit}" 2>/dev/null; then
+            git fetch --all --prune
+          fi
+
+          if ! git cat-file -e "${TARGET_SHA}^{commit}" 2>/dev/null; then
+            echo "❌ FATAL: Target commit ${TARGET_SHA} is unavailable on VPS"
+            exit 1
+          fi
+
+          git reset --hard "${TARGET_SHA}"
 
           VPS_SHA=$(git rev-parse HEAD)
           echo "Expected Commit SHA : ${TARGET_SHA}"
@@ -193,6 +203,9 @@ jobs:
             exit 1
           fi
           echo "✅ Verified commit SHA on VPS: ${VPS_SHA}"
+
+          export COMMIT_SHA="${TARGET_SHA}"
+          export GIT_COMMIT="${TARGET_SHA}"
 
           echo "=================================================="
           echo "🛡️ Step 3: Verifying Production .env..."
