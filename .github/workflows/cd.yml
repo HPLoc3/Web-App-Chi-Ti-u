@@ -134,149 +134,149 @@ jobs:
           echo "🌐 Connecting to VPS [${SSH_USER}@${SSH_HOST}:${SSH_PORT}]..."
 
           ssh -p "${SSH_PORT}" -o StrictHostKeyChecking=accept-new "${SSH_USER}@${SSH_HOST}" "bash -s -- '${TARGET_COMMIT}'" << 'EOF'
-            set -eo pipefail
+          set -eo pipefail
 
-            APP_DIR="/var/www/app-chi-tieu"
-            TARGET_SHA="$1"
+          APP_DIR="/var/www/app-chi-tieu"
+          TARGET_SHA="$1"
 
-            echo "=================================================="
-            echo "📂 Step 1: Navigating to ${APP_DIR}..."
-            echo "=================================================="
-            cd "${APP_DIR}"
+          echo "=================================================="
+          echo "📂 Step 1: Navigating to ${APP_DIR}..."
+          echo "=================================================="
+          cd "${APP_DIR}"
 
-            echo "=================================================="
-            echo "📥 Step 2: Fetching origin/main & Resetting..."
-            echo "=================================================="
-            git fetch origin main
-            git reset --hard origin/main
+          echo "=================================================="
+          echo "📥 Step 2: Fetching origin/main & Resetting..."
+          echo "=================================================="
+          git fetch origin main
+          git reset --hard origin/main
 
-            VPS_SHA=$(git rev-parse HEAD)
-            echo "Expected Commit SHA : ${TARGET_SHA}"
-            echo "Actual VPS Commit   : ${VPS_SHA}"
+          VPS_SHA=$(git rev-parse HEAD)
+          echo "Expected Commit SHA : ${TARGET_SHA}"
+          echo "Actual VPS Commit   : ${VPS_SHA}"
 
-            if [ "${VPS_SHA}" != "${TARGET_SHA}" ]; then
-              echo "❌ FATAL: VPS commit SHA mismatch! Expected ${TARGET_SHA}, got ${VPS_SHA}"
-              exit 1
+          if [ "${VPS_SHA}" != "${TARGET_SHA}" ]; then
+            echo "❌ FATAL: VPS commit SHA mismatch! Expected ${TARGET_SHA}, got ${VPS_SHA}"
+            exit 1
+          fi
+          echo "✅ Verified commit SHA on VPS: ${VPS_SHA}"
+
+          echo "=================================================="
+          echo "🛡️ Step 3: Verifying Production .env..."
+          echo "=================================================="
+          if [ ! -f .env ]; then
+            echo "❌ FATAL: Production .env file not found at ${APP_DIR}/.env!"
+            echo "Deployment aborted. .env must be maintained on VPS."
+            exit 1
+          fi
+          echo "✅ Production .env exists."
+
+          echo "=================================================="
+          echo "💾 Step 3.5: Checking Disk Space..."
+          echo "=================================================="
+          df -h /
+          AVAILABLE_KB=$(df -k / | awk 'NR==2 {print $4}')
+          MIN_REQUIRED_KB=2097152 # 2 GB in KB
+          if [ "${AVAILABLE_KB}" -lt "${MIN_REQUIRED_KB}" ]; then
+            echo "❌ FATAL: Available disk space is below 2GB (${AVAILABLE_KB} KB available)!"
+            exit 1
+          fi
+          echo "✅ Disk space is sufficient (> 2GB available)."
+
+          echo "=================================================="
+          echo "🐘 Step 4: Ensuring PostgreSQL Container is Healthy..."
+          echo "=================================================="
+          docker compose -f docker-compose.prod.yml up -d postgres
+
+          PG_READY=0
+          for i in {1..15}; do
+            if docker exec hophuloc_postgres_prod pg_isready -U postgres -d hophuloc_expense_db > /dev/null 2>&1; then
+              PG_READY=1
+              echo "✅ PostgreSQL database container is healthy and accepting connections."
+              break
             fi
-            echo "✅ Verified commit SHA on VPS: ${VPS_SHA}"
+            echo "⏳ Waiting for PostgreSQL container to become ready (${i}/15)..."
+            sleep 2
+          done
 
-            echo "=================================================="
-            echo "🛡️ Step 3: Verifying Production .env..."
-            echo "=================================================="
-            if [ ! -f .env ]; then
-              echo "❌ FATAL: Production .env file not found at ${APP_DIR}/.env!"
-              echo "Deployment aborted. .env must be maintained on VPS."
-              exit 1
-            fi
-            echo "✅ Production .env exists."
+          if [ "${PG_READY}" -ne 1 ]; then
+            echo "❌ FATAL: PostgreSQL container failed health check!"
+            docker compose -f docker-compose.prod.yml ps postgres
+            exit 1
+          fi
 
-            echo "=================================================="
-            echo "💾 Step 3.5: Checking Disk Space..."
-            echo "=================================================="
-            df -h /
-            AVAILABLE_KB=$(df -k / | awk 'NR==2 {print $4}')
-            MIN_REQUIRED_KB=2097152 # 2 GB in KB
-            if [ "${AVAILABLE_KB}" -lt "${MIN_REQUIRED_KB}" ]; then
-              echo "❌ FATAL: Available disk space is below 2GB (${AVAILABLE_KB} KB available)!"
-              exit 1
-            fi
-            echo "✅ Disk space is sufficient (> 2GB available)."
+          echo "=================================================="
+          echo "📦 Step 5: Checking Registry & Installing Dependencies with npm ci..."
+          echo "=================================================="
+          CURRENT_REGISTRY=$(npm config get registry)
+          echo "NPM Registry: ${CURRENT_REGISTRY}"
 
-            echo "=================================================="
-            echo "🐘 Step 4: Ensuring PostgreSQL Container is Healthy..."
-            echo "=================================================="
-            docker compose -f docker-compose.prod.yml up -d postgres
+          npm ci \
+            --fetch-retries=5 \
+            --fetch-retry-factor=2 \
+            --fetch-retry-mintimeout=2000 \
+            --fetch-retry-maxtimeout=30000
 
-            PG_READY=0
-            for i in {1..15}; do
-              if docker exec hophuloc_postgres_prod pg_isready -U postgres -d hophuloc_expense_db > /dev/null 2>&1; then
-                PG_READY=1
-                echo "✅ PostgreSQL database container is healthy and accepting connections."
-                break
-              fi
-              echo "⏳ Waiting for PostgreSQL container to become ready (${i}/15)..."
-              sleep 2
-            done
+          echo "=================================================="
+          echo "🗄️ Step 6: Generating Prisma Client..."
+          echo "=================================================="
+          npx prisma generate
 
-            if [ "${PG_READY}" -ne 1 ]; then
-              echo "❌ FATAL: PostgreSQL container failed health check!"
-              docker compose -f docker-compose.prod.yml ps postgres
-              exit 1
-            fi
+          echo "=================================================="
+          echo "🏗️ Step 7: Build before PM2 reload..."
+          echo "=================================================="
+          export COMMIT_SHA="${TARGET_SHA}"
+          export GIT_COMMIT="${TARGET_SHA}"
+          npm run build
 
-            echo "=================================================="
-            echo "📦 Step 5: Checking Registry & Installing Dependencies with npm ci..."
-            echo "=================================================="
-            CURRENT_REGISTRY=$(npm config get registry)
-            echo "NPM Registry: ${CURRENT_REGISTRY}"
+          echo "=================================================="
+          echo "🚀 Step 8: Executing Prisma Database Migrations..."
+          echo "=================================================="
+          # NOTE: Production migrations must be backward compatible with the currently running application.
+          npx prisma migrate deploy
 
-            npm ci \
-              --fetch-retries=5 \
-              --fetch-retry-factor=2 \
-              --fetch-retry-mintimeout=2000 \
-              --fetch-retry-maxtimeout=30000
+          echo "=================================================="
+          echo "⚡ Step 9: Reloading Application via PM2..."
+          echo "=================================================="
+          export COMMIT_SHA="${TARGET_SHA}"
+          export GIT_COMMIT="${TARGET_SHA}"
+          pm2 startOrReload ecosystem.config.cjs --update-env
+          pm2 save
 
-            echo "=================================================="
-            echo "🗄️ Step 6: Generating Prisma Client..."
-            echo "=================================================="
-            npx prisma generate
+          echo "=================================================="
+          echo "📊 Step 10: Verifying PM2 Status & Local Health Gate..."
+          echo "=================================================="
+          pm2 status
 
-            echo "=================================================="
-            echo "🏗️ Step 7: Build before PM2 reload..."
-            echo "=================================================="
-            export COMMIT_SHA="${TARGET_SHA}"
-            export GIT_COMMIT="${TARGET_SHA}"
-            npm run build
+          sleep 3
 
-            echo "=================================================="
-            echo "🚀 Step 8: Executing Prisma Database Migrations..."
-            echo "=================================================="
-            # NOTE: Production migrations must be backward compatible with the currently running application.
-            npx prisma migrate deploy
+          echo "Testing local liveness (http://127.0.0.1:3000/health/live)..."
+          curl -fsS http://127.0.0.1:3000/health/live
+          echo ""
 
-            echo "=================================================="
-            echo "⚡ Step 9: Reloading Application via PM2..."
-            echo "=================================================="
-            export COMMIT_SHA="${TARGET_SHA}"
-            export GIT_COMMIT="${TARGET_SHA}"
-            pm2 startOrReload ecosystem.config.cjs --update-env
-            pm2 save
+          echo "Testing local readiness (http://127.0.0.1:3000/health/ready)..."
+          curl -fsS http://127.0.0.1:3000/health/ready
+          echo ""
 
-            echo "=================================================="
-            echo "📊 Step 10: Verifying PM2 Status & Local Health Gate..."
-            echo "=================================================="
-            pm2 status
+          echo "Testing local version (http://127.0.0.1:3000/health/version)..."
+          LOCAL_VERSION_JSON=$(curl -fsS http://127.0.0.1:3000/health/version)
+          echo "Local version response: ${LOCAL_VERSION_JSON}"
 
-            sleep 3
+          LOCAL_COMMIT=$(node -e 'try { const data = JSON.parse(process.argv[1]); console.log(data.commit || ""); } catch { console.log(""); }' "${LOCAL_VERSION_JSON}")
+          echo "Local reported commit: ${LOCAL_COMMIT}"
 
-            echo "Testing local liveness (http://127.0.0.1:3000/health/live)..."
-            curl -fsS http://127.0.0.1:3000/health/live
-            echo ""
+          if [ -z "${LOCAL_COMMIT}" ] || [ "${LOCAL_COMMIT}" = "unknown" ]; then
+            echo "❌ FATAL: Local /health/version returned invalid or unknown commit SHA: '${LOCAL_COMMIT}'"
+            exit 1
+          fi
 
-            echo "Testing local readiness (http://127.0.0.1:3000/health/ready)..."
-            curl -fsS http://127.0.0.1:3000/health/ready
-            echo ""
+          TARGET_SHORT="${TARGET_SHA:0:7}"
+          if [ "${LOCAL_COMMIT}" != "${TARGET_SHA}" ] && [ "${LOCAL_COMMIT}" != "${TARGET_SHORT}" ]; then
+            echo "❌ FATAL: Local commit SHA mismatch! Expected ${TARGET_SHA} (${TARGET_SHORT}), got ${LOCAL_COMMIT}"
+            exit 1
+          fi
 
-            echo "Testing local version (http://127.0.0.1:3000/health/version)..."
-            LOCAL_VERSION_JSON=$(curl -fsS http://127.0.0.1:3000/health/version)
-            echo "Local version response: ${LOCAL_VERSION_JSON}"
-
-            LOCAL_COMMIT=$(node -e 'try { const data = JSON.parse(process.argv[1]); console.log(data.commit || ""); } catch { console.log(""); }' "${LOCAL_VERSION_JSON}")
-            echo "Local reported commit: ${LOCAL_COMMIT}"
-
-            if [ -z "${LOCAL_COMMIT}" ] || [ "${LOCAL_COMMIT}" = "unknown" ]; then
-              echo "❌ FATAL: Local /health/version returned invalid or unknown commit SHA: '${LOCAL_COMMIT}'"
-              exit 1
-            fi
-
-            TARGET_SHORT="${TARGET_SHA:0:7}"
-            if [ "${LOCAL_COMMIT}" != "${TARGET_SHA}" ] && [ "${LOCAL_COMMIT}" != "${TARGET_SHORT}" ]; then
-              echo "❌ FATAL: Local commit SHA mismatch! Expected ${TARGET_SHA} (${TARGET_SHORT}), got ${LOCAL_COMMIT}"
-              exit 1
-            fi
-
-            echo "✅ Local PM2 health, readiness, and version checks passed with exact commit match."
-  EOF
+          echo "✅ Local PM2 health, readiness, and version checks passed with exact commit match."
+          EOF
 
       - name: "🩺 Step 11: Verify External Production Health & Readiness"
         run: |
