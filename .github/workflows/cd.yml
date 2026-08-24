@@ -158,17 +158,24 @@ jobs:
             exit 1
           fi
 
-          nvm use default
+          nvm use 20 || nvm use default
 
-          echo "Verifying Node.js, npm, npx, and pm2 binaries..."
+          echo "Verifying Node.js, npm, and npx binaries..."
           command -v node >/dev/null 2>&1 || { echo "❌ FATAL: node command not found"; exit 1; }
           command -v npm >/dev/null 2>&1 || { echo "❌ FATAL: npm command not found"; exit 1; }
           command -v npx >/dev/null 2>&1 || { echo "❌ FATAL: npx command not found"; exit 1; }
-          command -v pm2 >/dev/null 2>&1 || { echo "❌ FATAL: pm2 command not found on VPS"; exit 1; }
+
+          if ! command -v pm2 >/dev/null 2>&1; then
+            echo "⚠️ PM2 not found in current Node environment. Installing PM2 globally via npm..."
+            npm install -g pm2
+          fi
+
+          command -v pm2 >/dev/null 2>&1 || { echo "❌ FATAL: pm2 command not found on VPS after installation"; exit 1; }
 
           echo "Node version: $(node --version)"
           echo "NPM version : $(npm --version)"
           echo "NPX version : $(npx --version)"
+          echo "PM2 version : $(pm2 --version)"
           echo "PM2 path    : $(command -v pm2)"
 
           echo "=================================================="
@@ -273,6 +280,7 @@ jobs:
           echo "📊 Step 10: Verifying PM2 Status & Local Health Gate..."
           echo "=================================================="
           pm2 status
+          pm2 describe app-chi-tieu
 
           sleep 3
 
