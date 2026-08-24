@@ -295,6 +295,31 @@ jobs:
           pm2 status
           pm2 describe app-chi-tieu
 
+          echo "Inspecting PM2 active environment variables..."
+          PM2_ENV_JSON=$(pm2 jlist)
+          PM2_GIT_COMMIT=$(node -e '
+            try {
+              const list = JSON.parse(process.argv[1]);
+              const app = list.find(a => a.name === "app-chi-tieu") || list[0];
+              const env = (app && app.pm2_env) ? app.pm2_env : {};
+              console.log(env.GIT_COMMIT || env.COMMIT_SHA || "");
+            } catch (e) {
+              console.log("");
+            }
+          ' "${PM2_ENV_JSON}")
+
+          echo "PM2 Loaded GIT_COMMIT: ${PM2_GIT_COMMIT}"
+          if [ -z "${PM2_GIT_COMMIT}" ] || [ "${PM2_GIT_COMMIT}" = "unknown" ]; then
+            echo "❌ FATAL: PM2 environment variable GIT_COMMIT is missing or unknown!"
+            exit 1
+          fi
+
+          if [ "${PM2_GIT_COMMIT}" != "${TARGET_SHA}" ]; then
+            echo "❌ FATAL: PM2 GIT_COMMIT environment mismatch! Expected ${TARGET_SHA}, got ${PM2_GIT_COMMIT}"
+            exit 1
+          fi
+          echo "✅ PM2 process successfully loaded TARGET_SHA environment variable."
+
           sleep 3
 
           echo "Testing local liveness (http://127.0.0.1:3000/health/live)..."

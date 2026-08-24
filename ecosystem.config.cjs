@@ -26,6 +26,8 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 3000,
+        COMMIT_SHA: process.env.COMMIT_SHA || 'unknown',
+        GIT_COMMIT: process.env.GIT_COMMIT || 'unknown',
       },
     },
   ],
