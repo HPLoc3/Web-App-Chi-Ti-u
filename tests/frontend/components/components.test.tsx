@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { QuickAddExpenseModal } from '../../../src/features/transactions/components/QuickAddExpenseModal';
 import ExpensesTab from '../../../src/features/transactions/components/ExpensesTab';
 import BudgetTab from '../../../src/features/budgets/components/BudgetTab';
@@ -269,7 +269,7 @@ describe('Frontend Component Tests', () => {
   });
 
   describe('ChatbotTab Component', () => {
-    it('should render Financial Copilot welcome message and suggestions', () => {
+    it('should render Financial Copilot welcome message and accessible input', () => {
       render(
         <ToastProvider>
           <ChatbotTab
@@ -283,7 +283,153 @@ describe('Frontend Component Tests', () => {
       );
 
       expect(screen.getAllByText(/Financial Copilot/i).length).toBeGreaterThan(0);
-      expect(screen.getByPlaceholderText(/Nhập chi tiêu hoặc câu hỏi/i)).toBeInTheDocument();
+      const input = screen.getByRole('textbox', {
+        name: /financial copilot|nhập yêu cầu/i,
+      });
+      expect(input).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /gửi yêu cầu/i })).toBeInTheDocument();
+    });
+
+    it('should parse multi-transaction input and render multiple pending action cards', async () => {
+      render(
+        <ToastProvider>
+          <ChatbotTab
+            expenses={[]}
+            categoryLimits={{}}
+            onAddExpense={vi.fn()}
+            currentUser={null}
+            onOpenAuthModal={vi.fn()}
+          />
+        </ToastProvider>
+      );
+
+      const input = screen.getByRole('textbox', {
+        name: /financial copilot|nhập yêu cầu/i,
+      });
+
+      fireEvent.change(input, { target: { value: 'Hôm nay mua sữa hết 15k, mua cafe hết 25k' } });
+      const submitBtn = screen.getByRole('button', { name: /gửi yêu cầu/i });
+      fireEvent.click(submitBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Danh sách 2 giao dịch/i)).toBeInTheDocument();
+      });
+
+      expect(screen.getAllByText(/15\.000/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/25\.000/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/mua sữa/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/mua cafe/i).length).toBeGreaterThan(0);
+      expect(screen.getByRole('button', { name: /xác nhận lưu tất cả/i })).toBeInTheDocument();
+    });
+
+    it('should confirm all multi-transactions when clicking confirm all button', async () => {
+      const handleAddBulk = vi.fn();
+      const handleAddSingle = vi.fn();
+
+      render(
+        <ToastProvider>
+          <ChatbotTab
+            expenses={[]}
+            categoryLimits={{}}
+            onAddExpense={handleAddSingle}
+            onAddBulkExpenses={handleAddBulk}
+            currentUser={null}
+            onOpenAuthModal={vi.fn()}
+          />
+        </ToastProvider>
+      );
+
+      const input = screen.getByRole('textbox', {
+        name: /financial copilot|nhập yêu cầu/i,
+      });
+
+      fireEvent.change(input, { target: { value: 'Hôm nay mua sữa hết 15k, mua cafe hết 25k' } });
+      const submitBtn = screen.getByRole('button', { name: /gửi yêu cầu/i });
+      fireEvent.click(submitBtn);
+
+      const confirmAllBtn = await screen.findByRole('button', { name: /xác nhận lưu tất cả/i });
+      fireEvent.click(confirmAllBtn);
+
+      await waitFor(() => {
+        expect(handleAddBulk).toHaveBeenCalledTimes(1);
+      });
+
+      const calledWith = handleAddBulk.mock.calls[0][0];
+      expect(calledWith).toHaveLength(2);
+      expect(calledWith[0].amount).toBe(15000);
+      expect(calledWith[0].note).toMatch(/mua sữa/i);
+      expect(calledWith[1].amount).toBe(25000);
+      expect(calledWith[1].note).toMatch(/mua cafe/i);
+    });
+
+    it('should handle single transaction backward compatibility', async () => {
+      const handleAddSingle = vi.fn();
+
+      render(
+        <ToastProvider>
+          <ChatbotTab
+            expenses={[]}
+            categoryLimits={{}}
+            onAddExpense={handleAddSingle}
+            currentUser={null}
+            onOpenAuthModal={vi.fn()}
+          />
+        </ToastProvider>
+      );
+
+      const input = screen.getByRole('textbox', {
+        name: /financial copilot|nhập yêu cầu/i,
+      });
+
+      fireEvent.change(input, { target: { value: 'Hôm nay ăn cơm 15k' } });
+      const submitBtn = screen.getByRole('button', { name: /gửi yêu cầu/i });
+      fireEvent.click(submitBtn);
+
+      const confirmBtn = await screen.findByRole('button', { name: /xác nhận lưu vào sổ/i });
+      expect(confirmBtn).toBeInTheDocument();
+      expect(screen.getAllByText(/15\.000/i).length).toBeGreaterThan(0);
+
+      fireEvent.click(confirmBtn);
+
+      await waitFor(() => {
+        expect(handleAddSingle).toHaveBeenCalledTimes(1);
+      });
+
+      expect(handleAddSingle).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 15000,
+          note: expect.stringMatching(/ăn cơm/i),
+        })
+      );
+    });
+
+    it('should handle query regression without creating pending transactions', async () => {
+      render(
+        <ToastProvider>
+          <ChatbotTab
+            expenses={[]}
+            categoryLimits={{}}
+            onAddExpense={vi.fn()}
+            currentUser={null}
+            onOpenAuthModal={vi.fn()}
+          />
+        </ToastProvider>
+      );
+
+      const input = screen.getByRole('textbox', {
+        name: /financial copilot|nhập yêu cầu/i,
+      });
+
+      fireEvent.change(input, { target: { value: 'Tháng này tôi tiêu bao nhiêu?' } });
+      const submitBtn = screen.getByRole('button', { name: /gửi yêu cầu/i });
+      fireEvent.click(submitBtn);
+
+      await waitFor(() => {
+        expect(screen.getByText(/tổng chi tiêu/i)).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole('button', { name: /xác nhận lưu/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /xác nhận lưu tất cả/i })).not.toBeInTheDocument();
     });
   });
 });

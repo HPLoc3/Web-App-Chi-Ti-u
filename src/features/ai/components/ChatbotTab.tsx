@@ -1059,12 +1059,14 @@ export default function ChatbotTab({
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          aria-label="Nhập yêu cầu cho Financial Copilot"
           placeholder='Nhập chi tiêu (VD: "Hôm nay mua sữa 15k, mua cafe 25k", "Hôm qua ăn cơm 15k")...'
           className="flex-1 bg-white border border-stone-300 rounded-xl px-3.5 py-2 text-xs sm:text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-700/50"
           disabled={isProcessing}
         />
         <button
           type="submit"
+          aria-label="Gửi yêu cầu"
           disabled={!input.trim() || isProcessing}
           className="bg-emerald-900 hover:bg-emerald-950 disabled:opacity-40 text-amber-300 font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5 text-xs sm:text-sm shadow-xs cursor-pointer disabled:cursor-not-allowed"
         >
