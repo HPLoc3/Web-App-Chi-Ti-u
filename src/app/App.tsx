@@ -146,6 +146,22 @@ export function LedgerApp() {
     showToast('Đã thêm giao dịch thành công!', 'success');
   };
 
+  const handleAddBulkExpenses = async (newExpenses: Omit<Expense, 'id'>[]) => {
+    if (userId) {
+      await apiAddBulkExpenses(newExpenses);
+    } else {
+      const expensesWithId: Expense[] = newExpenses.map((exp, idx) => ({
+        ...exp,
+        id: `exp-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 4)}`,
+      }));
+      setLocalState(prev => ({
+        ...prev,
+        expenses: [...expensesWithId, ...prev.expenses],
+      }));
+    }
+    showToast(`Đã thêm ${newExpenses.length} giao dịch thành công!`, 'success');
+  };
+
   const handleUpdateExpense = async (expense: Expense) => {
     if (userId) {
       await apiUpdateExpense(expense);
@@ -482,6 +498,7 @@ export function LedgerApp() {
             income={state.income}
             recurringExpenses={state.recurringExpenses}
             onAddExpense={handleAddExpense}
+            onAddBulkExpenses={handleAddBulkExpenses}
             onUpdateExpense={handleUpdateExpense}
             onDeleteExpense={handleDeleteExpense}
             currentUser={currentUser}

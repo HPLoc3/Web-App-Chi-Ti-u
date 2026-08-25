@@ -11,7 +11,7 @@ import { AiQuotaManager } from './ai.quota';
 import { AiLogger } from './ai.logger';
 import { AiFactsAggregator } from './ai.aggregator';
 import { getBusinessDate, parseVietnameseDate } from '../../utils/dateParser';
-import { parseTransactionText } from '../../utils/parser';
+import { parseTransactionText, parseMultipleTransactions } from '../../utils/parser';
 
 const CATEGORIES_MAP: Record<string, string> = {
   an_uong: 'Ăn uống',
@@ -142,16 +142,22 @@ export class AiService {
     // 4. Gemini Prompt with Guardrails, Timezone awareness & Deterministic Facts
     const systemInstruction = `Bạn là Financial Copilot chuyên nghiệp cho ứng dụng Quản lý Tài chính Cá nhân "Sổ Tay Chi Tiêu Thông Minh".
 QUY TẮC BẢO MẬT & VẬN HÀNH BẮT BUỘC:
-1. Bạn KHÔNG ĐƯỢC tự ý ghi dữ liệu vào database. Với mọi thao tác thêm/sửa/xóa (CREATE_EXPENSE, UPDATE_EXPENSE, DELETE_EXPENSE), bạn PHẢI tạo cấu trúc "action" để người dùng xác nhận trên Preview Card [Hủy] / [Xác nhận].
-2. NGUYÊN TẮC XÁC ĐỊNH NGÀY GIAO DỊCH (QUAN TRỌNG NHẤT):
+1. Bạn KHÔNG ĐƯỢC tự ý ghi dữ liệu vào database. Với mọi thao tác thêm/sửa/xóa (CREATE_EXPENSE, UPDATE_EXPENSE, DELETE_EXPENSE), bạn PHẢI tạo cấu trúc "actions" (danh sách các action) để người dùng xem trước và xác nhận trên UI [Hủy] / [Xác nhận].
+2. HỖ TRỢ ĐA GIAO DỊCH TRONG 1 CÂU (QUAN TRỌNG):
+   - Nếu câu chứa nhiều khoản chi tiêu (Ví dụ: "Hôm nay mua sữa hết 15k, mua cafe hết 25k", "Ăn sáng 20k, mua sách 120k", "Mua áo 300k và giày 800k"):
+     * BẮT BUỘC trả về mảng "actions" chứa TỪNG giao dịch độc lập tương ứng.
+     * KHÔNG ĐƯỢC gộp chung thành 1 giao dịch duy nhất.
+     * Từng giao dịch phải có số tiền (amount), danh mục (category), ghi chú (note), và ngày (date) chính xác.
+     * Nếu các vế sau không ghi ngày, kế thừa ngày từ vế trước hoặc ngày hiện tại.
+3. NGUYÊN TẮC XÁC ĐỊNH NGÀY GIAO DỊCH (QUAN TRỌNG NHẤT):
    - Múi giờ chuẩn: Asia/Ho_Chi_Minh (UTC+7).
    - Ngày hiện tại mốc (businessCurrentDate): ${businessCurrentDate}.
    - Nếu câu của người dùng có đề cập thời gian tương đối hoặc tuyệt đối ("hôm qua", "hôm kia", "thứ 2 tuần trước", "15/08", "ngày mai", "3 ngày trước"):
      * BẮT BUỘC tính toán chính xác ngày giao dịch theo YYYY-MM-DD dựa trên ngày mốc ${businessCurrentDate}.
      * KHÔNG ĐƯỢC mặc định lấy ngày hiện tại nếu người dùng đã ghi rõ ngày ("hôm qua" -> lấy ngày trước ${businessCurrentDate}).
    - Nếu câu KHÔNG đề cập ngày tháng nào: lấy ngày hiện tại ${businessCurrentDate}.
-3. Với các câu hỏi tài chính (QUERY_FINANCE, ANALYZE_SPENDING, BUDGET_ADVICE, GOAL_FORECAST, CASHFLOW_FORECAST), bạn KHÔNG TỰ BỊA ĐẶT HAY TỰ TÍNH TOÁN LẠI SỐ LIỆU. Bạn PHẢI DỰA 100% vào bảng AGGREGATED_FINANCIAL_FACTS được cung cấp bên dưới.
-4. Khi phân tích hoặc đưa ra lời khuyên, hãy luôn cấu trúc câu trả lời rõ ràng:
+4. Với các câu hỏi tài chính (QUERY_FINANCE, ANALYZE_SPENDING, BUDGET_ADVICE, GOAL_FORECAST, CASHFLOW_FORECAST), bạn KHÔNG TỰ BỊA ĐẶT HAY TỰ TÍNH TOÁN LẠI SỐ LIỆU. Bạn PHẢI DỰA 100% vào bảng AGGREGATED_FINANCIAL_FACTS được cung cấp bên dưới.
+5. Khi phân tích hoặc đưa ra lời khuyên, hãy luôn cấu trúc câu trả lời rõ ràng:
    - 📊 **Hiện trạng & Con số thực tế**
    - ⚠️ **Đánh giá rủi ro / Điểm cần lưu ý**
    - 💡 **"Vậy tôi nên làm gì?"** (Khuyến nghị hành động định lượng cụ thể).
@@ -174,7 +180,7 @@ DANH MỤC HỢP LỆ:
 - khac (Chi tiêu khác)
 
 CÁC INTENT ĐƯỢC HỖ TRỢ:
-- CREATE_EXPENSE: Người dùng muốn ghi một khoản chi mới (Ví dụ: "Hôm qua ăn cơm 15k", "Đổ xăng 70k hôm qua", "Thứ 2 tuần trước ăn lẩu 200k").
+- CREATE_EXPENSE: Người dùng muốn ghi một hoặc nhiều khoản chi mới (Ví dụ: "Hôm qua ăn cơm 15k", "Hôm nay mua sữa hết 15k, mua cafe hết 25k", "Đổ xăng 70k hôm qua").
 - UPDATE_EXPENSE: Người dùng muốn sửa khoản chi (Ví dụ: "Sửa tiền phở sáng nay thành 45k", "Đổi khoản cafe hôm qua thành 30k").
 - DELETE_EXPENSE: Người dùng muốn xóa khoản chi (Ví dụ: "Xóa khoản ăn tối 120k", "Bỏ khoản grab vừa ghi").
 - QUERY_FINANCE: Truy vấn thông tin tài chính cơ bản.
@@ -200,9 +206,47 @@ CÁC INTENT ĐƯỢC HỖ TRỢ:
                 description:
                   'CREATE_EXPENSE, UPDATE_EXPENSE, DELETE_EXPENSE, QUERY_FINANCE, ANALYZE_SPENDING, BUDGET_ADVICE, GOAL_FORECAST, CASHFLOW_FORECAST, hoặc GENERAL_CHAT',
               },
+              actions: {
+                type: Type.ARRAY,
+                description: 'Danh sách các action tương ứng (nếu người dùng nhập 1 hoặc nhiều giao dịch)',
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    type: {
+                      type: Type.STRING,
+                      description: 'CREATE_EXPENSE, UPDATE_EXPENSE, DELETE_EXPENSE, hoặc NONE',
+                    },
+                    expense: {
+                      type: Type.OBJECT,
+                      properties: {
+                        amount: { type: Type.NUMBER, description: 'Số tiền VNĐ' },
+                        currency: { type: Type.STRING, description: 'VND' },
+                        category: { type: Type.STRING, description: 'Category ID' },
+                        categoryName: { type: Type.STRING, description: 'Tên tiếng Việt của danh mục' },
+                        date: { type: Type.STRING, description: 'YYYY-MM-DD' },
+                        dateExpression: { type: Type.STRING, description: 'Cụm từ ngày gốc' },
+                        dateType: { type: Type.STRING, description: 'EXACT, RELATIVE, INFERRED, DEFAULT' },
+                        note: { type: Type.STRING, description: 'Ghi chú khoản chi' },
+                      },
+                    },
+                    targetSummary: {
+                      type: Type.STRING,
+                      description: 'Tóm tắt giao dịch đích nếu là UPDATE hoặc DELETE',
+                    },
+                    confidence: {
+                      type: Type.NUMBER,
+                      description: 'Độ tin cậy 0.0 - 1.0',
+                    },
+                    explanation: {
+                      type: Type.STRING,
+                      description: 'Giải thích tóm lược',
+                    },
+                  },
+                },
+              },
               action: {
                 type: Type.OBJECT,
-                description: 'Cấu trúc lệnh thao tác tài chính (nếu intent là CREATE/UPDATE/DELETE)',
+                description: 'Cấu trúc lệnh đơn (backward compatibility)',
                 properties: {
                   type: {
                     type: Type.STRING,
@@ -216,22 +260,19 @@ CÁC INTENT ĐƯỢC HỖ TRỢ:
                       category: { type: Type.STRING, description: 'Category ID' },
                       categoryName: { type: Type.STRING, description: 'Tên tiếng Việt của danh mục' },
                       date: { type: Type.STRING, description: 'YYYY-MM-DD' },
-                      dateExpression: { type: Type.STRING, description: 'Cụm từ ngày gốc (ví dụ: hôm qua, hôm kia)' },
+                      dateExpression: { type: Type.STRING, description: 'Cụm từ ngày gốc' },
                       dateType: { type: Type.STRING, description: 'EXACT, RELATIVE, INFERRED, DEFAULT' },
                       note: { type: Type.STRING, description: 'Ghi chú khoản chi' },
                     },
                   },
                   targetSummary: {
                     type: Type.STRING,
-                    description: 'Tóm tắt giao dịch đích nếu là UPDATE hoặc DELETE',
                   },
                   confidence: {
                     type: Type.NUMBER,
-                    description: 'Độ tin cậy 0.0 - 1.0',
                   },
                   explanation: {
                     type: Type.STRING,
-                    description: 'Giải thích tóm lược',
                   },
                 },
               },
@@ -261,76 +302,93 @@ CÁC INTENT ĐƯỢC HỖ TRỢ:
       const parsedData = JSON.parse(responseText);
 
       const intent = (parsedData.intent || 'GENERAL_CHAT') as FinancialIntent;
-      let action: StructuredAction | undefined = undefined;
+      const actions: StructuredAction[] = [];
 
-      if (
-        (intent === 'CREATE_EXPENSE' || intent === 'UPDATE_EXPENSE' || intent === 'DELETE_EXPENSE') &&
-        parsedData.action?.expense
-      ) {
-        const rawExpense = parsedData.action.expense;
-        const validAmount = Number(rawExpense.amount) || 0;
-        const catKey = rawExpense.category || 'khac';
-        const catName = CATEGORIES_MAP[catKey] || rawExpense.categoryName || 'Chi tiêu khác';
+      // Check if multi-actions returned from Gemini or single action
+      const rawActionList = Array.isArray(parsedData.actions) && parsedData.actions.length > 0
+        ? parsedData.actions
+        : parsedData.action?.expense
+        ? [parsedData.action]
+        : [];
 
-        // Check if matching transaction exists for update/delete
-        let matchedExpense: any = undefined;
-        if (intent === 'UPDATE_EXPENSE' || intent === 'DELETE_EXPENSE') {
-          const noteQuery = (rawExpense.note || '').toLowerCase();
-          matchedExpense = expenses.find((e) => {
-            const eNote = (e.note || '').toLowerCase();
-            return (
-              (eNote && noteQuery && (eNote.includes(noteQuery) || noteQuery.includes(eNote))) ||
-              (validAmount > 0 && e.amount === validAmount) ||
-              e.categoryId === catKey
-            );
+      for (const act of rawActionList) {
+        if (act && act.expense) {
+          const rawExpense = act.expense;
+          const validAmount = Number(rawExpense.amount) || 0;
+          const catKey = rawExpense.category || 'khac';
+          const catName = CATEGORIES_MAP[catKey] || rawExpense.categoryName || 'Chi tiêu khác';
+
+          let matchedExpense: any = undefined;
+          if (intent === 'UPDATE_EXPENSE' || intent === 'DELETE_EXPENSE') {
+            const noteQuery = (rawExpense.note || '').toLowerCase();
+            matchedExpense = expenses.find((e) => {
+              const eNote = (e.note || '').toLowerCase();
+              return (
+                (eNote && noteQuery && (eNote.includes(noteQuery) || noteQuery.includes(eNote))) ||
+                (validAmount > 0 && e.amount === validAmount) ||
+                e.categoryId === catKey
+              );
+            });
+          }
+
+          const finalNormalizedDate = rawExpense.date || deterministicDateResult.normalizedDate || businessCurrentDate;
+          const finalDateType = rawExpense.dateType || (deterministicDateResult.matched ? deterministicDateResult.dateType : 'DEFAULT');
+          const finalDateExpr = rawExpense.dateExpression || (deterministicDateResult.matched ? deterministicDateResult.originalExpression : 'hôm nay');
+
+          actions.push({
+            type: (act.type || intent) as any,
+            expense: {
+              id: matchedExpense?.id,
+              amount: validAmount > 0 ? validAmount : (matchedExpense?.amount || 0),
+              currency: 'VND',
+              category: catKey,
+              categoryName: catName,
+              date: finalNormalizedDate,
+              dateExpression: finalDateExpr,
+              dateType: finalDateType as any,
+              note: rawExpense.note || matchedExpense?.note || catName,
+              originalExpense: matchedExpense ? {
+                id: matchedExpense.id,
+                amount: matchedExpense.amount,
+                category: matchedExpense.categoryId,
+                categoryName: CATEGORIES_MAP[matchedExpense.categoryId] || 'Khác',
+                date: matchedExpense.date,
+                note: matchedExpense.note,
+              } : undefined,
+            },
+            targetExpenseId: matchedExpense?.id,
+            targetSummary: act.targetSummary || (matchedExpense ? `${matchedExpense.note} (${matchedExpense.amount?.toLocaleString('vi-VN')}₫)` : undefined),
+            confidence: act.confidence || 0.95,
+            explanation: act.explanation,
+            requiresConfirmation: true,
           });
         }
+      }
 
-        // Apply Deterministic Date Guardrail: If user input had an explicit date expression, enforce deterministic date
-        const finalNormalizedDate = deterministicDateResult.matched
-          ? deterministicDateResult.normalizedDate
-          : (rawExpense.date || businessCurrentDate);
-
-        const finalDateType = deterministicDateResult.matched
-          ? deterministicDateResult.dateType
-          : (rawExpense.dateType || 'DEFAULT');
-
-        const finalDateExpr = deterministicDateResult.matched
-          ? deterministicDateResult.originalExpression
-          : (rawExpense.dateExpression || 'hôm nay');
-
-        const finalConfidence = Math.max(
-          parsedData.action.confidence || 0.9,
-          deterministicDateResult.confidence
-        );
-
-        action = {
-          type: intent,
-          expense: {
-            id: matchedExpense?.id,
-            amount: validAmount > 0 ? validAmount : (matchedExpense?.amount || 0),
-            currency: 'VND',
-            category: catKey,
-            categoryName: catName,
-            date: finalNormalizedDate,
-            dateExpression: finalDateExpr,
-            dateType: finalDateType,
-            note: rawExpense.note || matchedExpense?.note || catName,
-            originalExpense: matchedExpense ? {
-              id: matchedExpense.id,
-              amount: matchedExpense.amount,
-              category: matchedExpense.categoryId,
-              categoryName: CATEGORIES_MAP[matchedExpense.categoryId] || 'Khác',
-              date: matchedExpense.date,
-              note: matchedExpense.note,
-            } : undefined,
-          },
-          targetExpenseId: matchedExpense?.id,
-          targetSummary: parsedData.action.targetSummary || (matchedExpense ? `${matchedExpense.note} (${matchedExpense.amount?.toLocaleString('vi-VN')}₫)` : undefined),
-          confidence: finalConfidence,
-          explanation: parsedData.action.explanation || (deterministicDateResult.matched ? deterministicDateResult.explanation : undefined),
-          requiresConfirmation: true,
-        };
+      // If intent is CREATE_EXPENSE and Gemini returned 0 or 1 action but input has multiple amounts, check parser
+      if (intent === 'CREATE_EXPENSE' && actions.length <= 1) {
+        const localMulti = parseMultipleTransactions(rawCleanMessage, businessCurrentDate);
+        if (localMulti.length > actions.length && localMulti.length > 1) {
+          actions.length = 0; // Clear and replace with accurate local multi-parser
+          for (const item of localMulti) {
+            actions.push({
+              type: 'CREATE_EXPENSE',
+              expense: {
+                amount: item.amount,
+                currency: 'VND',
+                category: item.categoryId,
+                categoryName: item.categoryName,
+                date: item.date,
+                dateExpression: item.dateExpression,
+                dateType: item.dateType,
+                note: item.note,
+              },
+              confidence: item.confidence,
+              explanation: item.message,
+              requiresConfirmation: true,
+            });
+          }
+        }
       }
 
       AiLogger.logRequest({
@@ -346,7 +404,8 @@ CÁC INTENT ĐƯỢC HỖ TRỢ:
         success: true,
         data: {
           intent,
-          action,
+          actions: actions.length > 0 ? actions : undefined,
+          action: actions[0] || undefined,
           financialSummary: parsedData.financialSummary,
           reply: parsedData.reply || 'Dưới đây là phản hồi từ Financial Copilot:',
           confidence: parsedData.confidence || 0.95,
@@ -442,33 +501,45 @@ CÁC INTENT ĐƯỢC HỖ TRỢ:
       }
     }
 
-    // 2. CREATE_EXPENSE with deterministic date normalization
-    const parsedTx = parseTransactionText(message, businessCurrentDate);
+    // 2. CREATE_EXPENSE with deterministic date normalization & multi-transaction support
+    const parsedList = parseMultipleTransactions(message, businessCurrentDate);
 
-    if (parsedTx.success && parsedTx.amount > 0 && !lower.includes('bao nhiêu') && !lower.includes('thế nào') && !lower.includes('dự báo')) {
-      const displayDateNote = parsedTx.dateLabel ? ` vào ${parsedTx.dateLabel}` : '';
+    if (parsedList.length > 0 && !lower.includes('bao nhiêu') && !lower.includes('thế nào') && !lower.includes('dự báo')) {
+      const actions: StructuredAction[] = parsedList.map((parsedTx) => ({
+        type: 'CREATE_EXPENSE',
+        expense: {
+          amount: parsedTx.amount,
+          currency: 'VND',
+          category: parsedTx.categoryId,
+          categoryName: parsedTx.categoryName,
+          date: parsedTx.date,
+          dateExpression: parsedTx.dateExpression,
+          dateType: parsedTx.dateType,
+          note: parsedTx.note,
+        },
+        confidence: parsedTx.confidence,
+        explanation: `Đã nhận diện: ${parsedTx.categoryName} - ${parsedTx.amount.toLocaleString('vi-VN')}₫ (${parsedTx.date})`,
+        requiresConfirmation: true,
+      }));
+
+      let reply = '';
+      if (actions.length === 1) {
+        const p = parsedList[0];
+        const displayDateNote = p.dateLabel ? ` vào ${p.dateLabel}` : '';
+        reply = `Tôi đã nhận diện khoản chi: **${p.note}** với số tiền **${p.amount.toLocaleString('vi-VN')}₫**${displayDateNote} (Ngày **${p.date}**). Bạn có muốn lưu vào sổ tay chi tiêu không?`;
+      } else {
+        const totalAmount = actions.reduce((sum, a) => sum + (a.expense?.amount || 0), 0);
+        reply = `Tôi đã nhận diện **${actions.length} giao dịch** (Tổng số tiền: **${totalAmount.toLocaleString('vi-VN')}₫**). Bạn có muốn thêm các giao dịch này vào sổ không?`;
+      }
+
       return {
         success: true,
         data: {
           intent: 'CREATE_EXPENSE',
-          action: {
-            type: 'CREATE_EXPENSE',
-            expense: {
-              amount: parsedTx.amount,
-              currency: 'VND',
-              category: parsedTx.categoryId,
-              categoryName: parsedTx.categoryName,
-              date: parsedTx.date,
-              dateExpression: parsedTx.dateExpression,
-              dateType: parsedTx.dateType,
-              note: parsedTx.note,
-            },
-            confidence: parsedTx.confidence,
-            explanation: `Đã nhận diện: ${parsedTx.categoryName} - ${parsedTx.amount.toLocaleString('vi-VN')}₫ (${parsedTx.date})`,
-            requiresConfirmation: true,
-          },
-          reply: `Tôi đã nhận diện khoản chi: **${parsedTx.note}** với số tiền **${parsedTx.amount.toLocaleString('vi-VN')}₫**${displayDateNote} (Ngày **${parsedTx.date}**). Bạn có muốn lưu vào sổ tay chi tiêu không?`,
-          confidence: parsedTx.confidence,
+          actions,
+          action: actions[0],
+          reply,
+          confidence: actions[0].confidence,
         },
       };
     }

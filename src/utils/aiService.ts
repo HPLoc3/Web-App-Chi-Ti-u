@@ -1,6 +1,6 @@
 import { Expense, Goal } from '../types';
 import { CATEGORIES } from '../constants/categories';
-import { parseTransactionText } from './parser';
+import { parseTransactionText, parseMultipleTransactions } from './parser';
 import { getBusinessDate, formatVietnameseDisplayDate, DateConfidenceType } from './dateParser';
 import { apiClient } from '../lib/apiClient';
 
@@ -53,6 +53,7 @@ export interface FinancialSummary {
 
 export interface AIResponseData {
   intent: FinancialIntent;
+  actions?: StructuredAction[];
   action?: StructuredAction;
   financialSummary?: FinancialSummary;
   reply: string;
@@ -219,36 +220,45 @@ export async function sendToAIAssistant(
         const aiData = response.data.data;
         const intent = (aiData.intent || 'GENERAL_CHAT') as FinancialIntent;
 
-        let action: StructuredAction | undefined = undefined;
-        if (aiData.action && aiData.action.type && aiData.action.type !== 'NONE') {
-          const rawExp = aiData.action.expense || {};
-          const catObj = CATEGORIES.find((c) => c.id === rawExp.category) || CATEGORIES[CATEGORIES.length - 1];
+        const actions: StructuredAction[] = [];
+        const rawActionList = Array.isArray(aiData.actions) && aiData.actions.length > 0
+          ? aiData.actions
+          : aiData.action?.expense
+          ? [aiData.action]
+          : [];
 
-          action = {
-            type: aiData.action.type,
-            targetExpenseId: aiData.action.targetExpenseId,
-            targetSummary: aiData.action.targetSummary,
-            confidence: aiData.action.confidence || 0.95,
-            explanation: aiData.action.explanation,
-            requiresConfirmation: true, // ALWAYS require explicit confirmation before write
-            expense: {
-              id: rawExp.id,
-              amount: Number(rawExp.amount) || 0,
-              currency: 'VND',
-              category: catObj.id,
-              categoryName: catObj.name,
-              date: rawExp.date || runtimeCurrentDate,
-              dateExpression: rawExp.dateExpression,
-              dateType: rawExp.dateType,
-              note: rawExp.note || catObj.name,
-              originalExpense: rawExp.originalExpense,
-            },
-          };
+        for (const act of rawActionList) {
+          if (act && act.expense && act.type && act.type !== 'NONE') {
+            const rawExp = act.expense;
+            const catObj = CATEGORIES.find((c) => c.id === rawExp.category) || CATEGORIES[CATEGORIES.length - 1];
+
+            actions.push({
+              type: act.type,
+              targetExpenseId: act.targetExpenseId,
+              targetSummary: act.targetSummary,
+              confidence: act.confidence || 0.95,
+              explanation: act.explanation,
+              requiresConfirmation: true, // ALWAYS require explicit confirmation before write
+              expense: {
+                id: rawExp.id,
+                amount: Number(rawExp.amount) || 0,
+                currency: 'VND',
+                category: catObj.id,
+                categoryName: catObj.name,
+                date: rawExp.date || runtimeCurrentDate,
+                dateExpression: rawExp.dateExpression,
+                dateType: rawExp.dateType,
+                note: rawExp.note || catObj.name,
+                originalExpense: rawExp.originalExpense,
+              },
+            });
+          }
         }
 
         return {
           intent,
-          action,
+          actions: actions.length > 0 ? actions : undefined,
+          action: actions[0] || undefined,
           financialSummary: aiData.financialSummary,
           reply: aiData.reply || 'Financial Copilot đã xử lý yêu cầu của bạn.',
           confidence: aiData.confidence || 0.95,
@@ -278,24 +288,27 @@ export async function sendToAIAssistant(
     const matched = context.expenses[0];
     if (matched) {
       const catObj = CATEGORIES.find((c) => c.id === matched.categoryId) || CATEGORIES[CATEGORIES.length - 1];
+      const deleteAction: StructuredAction = {
+        type: 'DELETE_EXPENSE',
+        targetExpenseId: matched.id,
+        targetSummary: `${matched.note} (${matched.amount.toLocaleString('vi-VN')}₫)`,
+        requiresConfirmation: true,
+        confidence: 0.9,
+        expense: {
+          id: matched.id,
+          amount: matched.amount,
+          currency: 'VND',
+          category: matched.categoryId,
+          categoryName: catObj.name,
+          date: matched.date,
+          note: matched.note,
+        },
+      };
+
       return {
         intent: 'DELETE_EXPENSE',
-        action: {
-          type: 'DELETE_EXPENSE',
-          targetExpenseId: matched.id,
-          targetSummary: `${matched.note} (${matched.amount.toLocaleString('vi-VN')}₫)`,
-          requiresConfirmation: true,
-          confidence: 0.9,
-          expense: {
-            id: matched.id,
-            amount: matched.amount,
-            currency: 'VND',
-            category: matched.categoryId,
-            categoryName: catObj.name,
-            date: matched.date,
-            note: matched.note,
-          },
-        },
+        actions: [deleteAction],
+        action: deleteAction,
         reply: 'Bạn có muốn xóa giao dịch này khỏi sổ tay chi tiêu không?',
         confidence: 0.9,
         isFallback: true,
@@ -336,30 +349,42 @@ export async function sendToAIAssistant(
     };
   }
 
-  // 3. Otherwise try rule-based expense parser with deterministic date engine
-  const parsed = parseTransactionText(trimmedMessage, runtimeCurrentDate);
+  // 3. Otherwise try rule-based expense parser with deterministic multi-transaction engine
+  const parsedList = parseMultipleTransactions(trimmedMessage, runtimeCurrentDate);
 
-  if (parsed.success && parsed.amount > 0) {
+  if (parsedList.length > 0) {
+    const actions: StructuredAction[] = parsedList.map((parsed) => ({
+      type: 'CREATE_EXPENSE',
+      requiresConfirmation: true,
+      confidence: parsed.confidence,
+      explanation: parsed.message,
+      expense: {
+        amount: parsed.amount,
+        currency: 'VND',
+        category: parsed.categoryId,
+        categoryName: parsed.categoryName,
+        date: parsed.date,
+        dateExpression: parsed.dateExpression,
+        dateType: parsed.dateType,
+        note: parsed.note,
+      },
+    }));
+
+    let reply = '';
+    if (actions.length === 1) {
+      const p = parsedList[0];
+      reply = `Tôi đã nhận diện giao dịch: **${p.note}** (${p.amount.toLocaleString('vi-VN')}₫) vào ngày **${p.date}**. Bạn có muốn lưu vào sổ không?`;
+    } else {
+      const totalAmount = actions.reduce((sum, a) => sum + (a.expense?.amount || 0), 0);
+      reply = `Tôi đã nhận diện **${actions.length} giao dịch** (Tổng số tiền: **${totalAmount.toLocaleString('vi-VN')}₫**). Bạn có muốn thêm các giao dịch này vào sổ không?`;
+    }
+
     return {
       intent: 'CREATE_EXPENSE',
-      action: {
-        type: 'CREATE_EXPENSE',
-        requiresConfirmation: true,
-        confidence: parsed.confidence,
-        explanation: parsed.message,
-        expense: {
-          amount: parsed.amount,
-          currency: 'VND',
-          category: parsed.categoryId,
-          categoryName: parsed.categoryName,
-          date: parsed.date,
-          dateExpression: parsed.dateExpression,
-          dateType: parsed.dateType,
-          note: parsed.note,
-        },
-      },
-      reply: `Tôi đã nhận diện giao dịch: **${parsed.note}** (${parsed.amount.toLocaleString('vi-VN')}₫) vào ngày **${parsed.date}**. Bạn có muốn lưu vào sổ không?`,
-      confidence: parsed.confidence,
+      actions,
+      action: actions[0],
+      reply,
+      confidence: actions[0].confidence,
       isFallback: true,
       isLowConfidence: false,
     };

@@ -120,6 +120,7 @@ export interface AiAssistantResult {
   success: boolean;
   data?: {
     intent: FinancialIntent;
+    actions?: StructuredAction[];
     action?: StructuredAction;
     financialSummary?: AiFinancialSummary;
     reply: string;
