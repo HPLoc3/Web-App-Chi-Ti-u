@@ -57,9 +57,17 @@ export default function ExpensesTab({
 
   // Form states
   const [amount, setAmount] = useState('');
+  const [isAmountFocused, setIsAmountFocused] = useState(false);
   const [categoryId, setCategoryId] = useState(CATEGORIES[0].id);
   const [date, setDate] = useState(getBusinessDate());
   const [note, setNote] = useState('');
+
+  // Display value: unformatted raw while focused for native caret precision; formatted on blur
+  const displayAmount = isAmountFocused
+    ? amount
+    : amount
+      ? parseInt(amount, 10).toLocaleString('vi-VN')
+      : '';
 
   // Search & Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -80,8 +88,8 @@ export default function ExpensesTab({
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const numericAmount = parseFloat(amount.replace(/[.,\s]/g, ''));
-    if (isNaN(numericAmount) || numericAmount <= 0) {
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
       showToast('Vui lòng nhập số tiền hợp lệ lớn hơn 0.', 'warning');
       return;
     }
@@ -280,11 +288,14 @@ export default function ExpensesTab({
               <div className="relative">
                 <input
                   type="text"
+                  inputMode="numeric"
                   required
-                  value={amount}
+                  value={displayAmount}
+                  onFocus={() => setIsAmountFocused(true)}
+                  onBlur={() => setIsAmountFocused(false)}
                   onChange={(e) => {
-                    const raw = e.target.value.replace(/[^\d]/g, '');
-                    setAmount(raw ? parseInt(raw, 10).toLocaleString('vi-VN') : '');
+                    const raw = e.target.value.replace(/\D/g, '');
+                    setAmount(raw);
                   }}
                   placeholder="Ví dụ: 50.000"
                   className="w-full bg-white border border-[#E6DEC9] rounded-xl pl-3 pr-10 py-2.5 text-sm font-mono font-bold text-emerald-950 focus:outline-none focus:border-emerald-700"

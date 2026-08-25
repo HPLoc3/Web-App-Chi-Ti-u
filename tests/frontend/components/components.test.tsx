@@ -1,12 +1,156 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { QuickAddExpenseModal } from '../../../src/features/transactions/components/QuickAddExpenseModal';
+import ExpensesTab from '../../../src/features/transactions/components/ExpensesTab';
 import BudgetTab from '../../../src/features/budgets/components/BudgetTab';
 import ChatbotTab from '../../../src/features/ai/components/ChatbotTab';
 import { ToastProvider } from '../../../src/context/ToastContext';
 
 describe('Frontend Component Tests', () => {
+  describe('ExpensesTab Currency Input & Caret Management', () => {
+    it('should maintain raw value on focus and format with vi-VN on blur', () => {
+      const handleAdd = vi.fn();
+      render(
+        <ToastProvider>
+          <ExpensesTab
+            expenses={[]}
+            onAddExpense={handleAdd}
+            onUpdateExpense={vi.fn()}
+            onDeleteExpense={vi.fn()}
+          />
+        </ToastProvider>
+      );
+
+      const input = screen.getByPlaceholderText(/Ví dụ: 50.000/i) as HTMLInputElement;
+
+      // Focus -> shows raw input
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: '15000' } });
+      expect(input.value).toBe('15000');
+
+      // Blur -> displays formatted currency
+      fireEvent.blur(input);
+      expect(input.value).toBe((15000).toLocaleString('vi-VN'));
+
+      // Re-focus -> returns to raw 15000 for effortless caret editing
+      fireEvent.focus(input);
+      expect(input.value).toBe('15000');
+    });
+
+    it('should correctly handle incremental typing without injecting extra digits (15000 -> 115000 -> 1000000)', () => {
+      const handleAdd = vi.fn();
+      render(
+        <ToastProvider>
+          <ExpensesTab
+            expenses={[]}
+            onAddExpense={handleAdd}
+            onUpdateExpense={vi.fn()}
+            onDeleteExpense={vi.fn()}
+          />
+        </ToastProvider>
+      );
+
+      const input = screen.getByPlaceholderText(/Ví dụ: 50.000/i) as HTMLInputElement;
+      fireEvent.focus(input);
+
+      const sequence = ['1', '15', '150', '1500', '15000', '115000', '1000000', '999999999'];
+      for (const val of sequence) {
+        fireEvent.change(input, { target: { value: val } });
+        expect(input.value).toBe(val);
+      }
+
+      fireEvent.blur(input);
+      expect(input.value).toBe((999999999).toLocaleString('vi-VN'));
+    });
+
+    it('should sanitize pasted inputs containing dots, commas, spaces and currency symbols', () => {
+      const handleAdd = vi.fn();
+      render(
+        <ToastProvider>
+          <ExpensesTab
+            expenses={[]}
+            onAddExpense={handleAdd}
+            onUpdateExpense={vi.fn()}
+            onDeleteExpense={vi.fn()}
+          />
+        </ToastProvider>
+      );
+
+      const input = screen.getByPlaceholderText(/Ví dụ: 50.000/i) as HTMLInputElement;
+      fireEvent.focus(input);
+
+      // Paste "15.000"
+      fireEvent.change(input, { target: { value: '15.000' } });
+      expect(input.value).toBe('15000');
+
+      // Paste "15,000"
+      fireEvent.change(input, { target: { value: '15,000' } });
+      expect(input.value).toBe('15000');
+
+      // Paste "15 000"
+      fireEvent.change(input, { target: { value: '15 000' } });
+      expect(input.value).toBe('15000');
+
+      // Paste "115.000 ₫"
+      fireEvent.change(input, { target: { value: '115.000 ₫' } });
+      expect(input.value).toBe('115000');
+    });
+
+    it('should submit exact numeric amount (number type, not formatted string)', async () => {
+      const handleAdd = vi.fn().mockResolvedValue(undefined);
+      render(
+        <ToastProvider>
+          <ExpensesTab
+            expenses={[]}
+            onAddExpense={handleAdd}
+            onUpdateExpense={vi.fn()}
+            onDeleteExpense={vi.fn()}
+          />
+        </ToastProvider>
+      );
+
+      const input = screen.getByPlaceholderText(/Ví dụ: 50.000/i) as HTMLInputElement;
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: '115000' } });
+
+      const submitBtn = screen.getByRole('button', { name: /Lưu khoản chi ngay/i });
+      await act(async () => {
+        fireEvent.click(submitBtn);
+      });
+
+      expect(handleAdd).toHaveBeenCalledTimes(1);
+      expect(handleAdd).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 115000,
+        })
+      );
+    });
+
+    it('should reject non-positive amounts and not trigger onAddExpense', () => {
+      const handleAdd = vi.fn();
+      render(
+        <ToastProvider>
+          <ExpensesTab
+            expenses={[]}
+            onAddExpense={handleAdd}
+            onUpdateExpense={vi.fn()}
+            onDeleteExpense={vi.fn()}
+          />
+        </ToastProvider>
+      );
+
+      const input = screen.getByPlaceholderText(/Ví dụ: 50.000/i) as HTMLInputElement;
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: '0' } });
+
+      const submitBtn = screen.getByRole('button', { name: /Lưu khoản chi ngay/i });
+      fireEvent.click(submitBtn);
+
+      expect(handleAdd).not.toHaveBeenCalled();
+    });
+  });
+
   describe('QuickAddExpenseModal Component', () => {
     it('should render form fields when isOpen is true', () => {
       render(
