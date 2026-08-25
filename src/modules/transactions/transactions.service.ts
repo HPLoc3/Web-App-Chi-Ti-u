@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { TransactionsRepository } from './transactions.repository';
+import { WalletsRepository } from '../wallets/wallets.repository';
 import { TransactionDTO, GetTransactionsQuery, CreateTransactionInput, UpdateTransactionInput } from './transactions.types';
 import { resolveCategoryId } from '../../services/category.helper';
 import { AppError } from '../../middleware/errorHandler.middleware';
@@ -133,6 +134,11 @@ export class TransactionsService {
         wallet = await TransactionsRepository.createDefaultWallet(userId);
       }
       targetWalletId = wallet.id;
+    } else {
+      const wallet = await WalletsRepository.findByIdAndUserId(targetWalletId, userId);
+      if (!wallet) {
+        throw new AppError('Ví thanh toán không tồn tại hoặc bạn không có quyền sử dụng.', 404, 'WALLET_NOT_FOUND');
+      }
     }
 
     const balanceChange = transactionType === 'INCOME' ? numAmount : numAmount.negated();
@@ -264,6 +270,12 @@ export class TransactionsService {
     }
 
     const targetWalletId = input.walletId || existing.walletId;
+    if (input.walletId && input.walletId !== existing.walletId) {
+      const wallet = await WalletsRepository.findByIdAndUserId(input.walletId, userId);
+      if (!wallet) {
+        throw new AppError('Ví thanh toán không tồn tại hoặc bạn không có quyền sử dụng.', 404, 'WALLET_NOT_FOUND');
+      }
+    }
     let targetCategoryId = existing.categoryId;
     if (input.categoryId && input.categoryId !== existing.categoryId) {
       targetCategoryId = await resolveCategoryId(input.categoryId, userId, (input.type || existing.type) as 'EXPENSE' | 'INCOME');

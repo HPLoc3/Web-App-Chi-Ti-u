@@ -393,9 +393,71 @@ describe('E2E Full Scenarios (16 Key Workflows)', () => {
     expect(parsed.categoryId).toBe('an_uong');
     expect(parsed.note).toContain('phở bò');
 
-    const parsedGrab = parseNaturalExpense('Đi Grab 85 nghìn hôm qua');
+    const parsedGrab = parseNaturalExpense('Đi Grab 85k hôm kia');
     expect(parsedGrab.amount).toBe(85000);
     expect(parsedGrab.categoryId).toBe('di_chuyen');
+    expect(parsedGrab.note).toContain('Grab');
+  });
+
+  it('Scenario 12b: Full E2E Flow for "Đi Grab 85k hôm kia" parsing & database transaction', async () => {
+    const parsed = parseNaturalExpense('Đi Grab 85k hôm kia');
+    expect(parsed.amount).toBe(85000);
+    expect(parsed.categoryId).toBe('di_chuyen');
+
+    vi.spyOn(TransactionsRepository, 'findDefaultWallet').mockResolvedValue({
+      id: 'w-default',
+      name: 'Ví Chính',
+      balance: new Prisma.Decimal(5000000),
+      currency: 'VND',
+      isDefault: true,
+      userId: USER_A.id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    vi.spyOn(TransactionsRepository, 'createWithWalletUpdate').mockResolvedValue({
+      transaction: {
+        id: 'tx-grab-85k',
+        amount: new Prisma.Decimal(parsed.amount),
+        categoryId: parsed.categoryId,
+        category: { id: 'di_chuyen', name: 'Di chuyển', icon: 'Car', color: '#0369A1', type: 'EXPENSE' },
+        type: 'EXPENSE',
+        note: parsed.note,
+        date: new Date(parsed.date),
+        walletId: 'w-default',
+        wallet: { id: 'w-default', name: 'Ví Chính', balance: new Prisma.Decimal(4915000), currency: 'VND' },
+        userId: USER_A.id,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as any,
+      wallet: {
+        id: 'w-default',
+        name: 'Ví Chính',
+        balance: new Prisma.Decimal(4915000),
+        currency: 'VND',
+        isDefault: true,
+        userId: USER_A.id,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+
+    const res = await request(app)
+      .post('/api/v1/transactions')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({
+        amount: parsed.amount,
+        categoryId: parsed.categoryId,
+        note: parsed.note,
+        date: parsed.date,
+        type: 'EXPENSE',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.amount).toBe(85000);
+    expect(res.body.data.categoryId).toBe('di_chuyen');
+    expect(Number(res.body.wallet.balance)).toBe(4915000);
   });
 
   // Scenario 13: Backup Data Flow

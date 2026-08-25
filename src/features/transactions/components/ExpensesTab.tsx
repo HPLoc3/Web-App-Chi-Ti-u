@@ -95,12 +95,11 @@ export default function ExpensesTab({
 
     try {
       await onAddExpense(newExpense);
-      showToast('Đã thêm giao dịch chi tiêu mới thành công!', 'success');
       setAmount('');
       setNote('');
       setMobileTab('list');
     } catch (err: any) {
-      showToast(err?.message || 'Lỗi thêm chi tiêu', 'error');
+      showToast(err?.response?.data?.message || err?.message || 'Không thể lưu giao dịch. Vui lòng thử lại.', 'error');
     }
   };
 

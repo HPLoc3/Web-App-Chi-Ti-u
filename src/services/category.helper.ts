@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
+import { DevFallbackStore } from '../lib/devFallbackStore';
 
 export const SYSTEM_CATEGORIES = [
   { id: 'an_uong', name: 'Ăn uống', type: 'EXPENSE', icon: 'Utensils', color: '#B45309' },
@@ -23,30 +24,42 @@ const SYSTEM_CATEGORY_NAME_MAP = new Map(SYSTEM_CATEGORIES.map((c) => [c.name.to
 const categoryResolutionCache = new Map<string, { id: string; cachedAt: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+let systemCategoriesSeeded = false;
+
 /**
  * Đảm bảo các System Categories luôn tồn tại trong PostgreSQL
  */
 export async function ensureSystemCategoriesExist() {
-  for (const cat of SYSTEM_CATEGORIES) {
-    await prisma.category.upsert({
-      where: { id: cat.id },
-      update: {
-        name: cat.name,
-        type: cat.type,
-        icon: cat.icon,
-        color: cat.color,
-        isSystem: true,
-      },
-      create: {
-        id: cat.id,
-        name: cat.name,
-        type: cat.type,
-        icon: cat.icon,
-        color: cat.color,
-        isSystem: true,
-        userId: null,
-      },
-    });
+  if (systemCategoriesSeeded) return;
+  try {
+    for (const cat of SYSTEM_CATEGORIES) {
+      await prisma.category.upsert({
+        where: { id: cat.id },
+        update: {
+          name: cat.name,
+          type: cat.type,
+          icon: cat.icon,
+          color: cat.color,
+          isSystem: true,
+        },
+        create: {
+          id: cat.id,
+          name: cat.name,
+          type: cat.type,
+          icon: cat.icon,
+          color: cat.color,
+          isSystem: true,
+          userId: null,
+        },
+      });
+    }
+    systemCategoriesSeeded = true;
+  } catch (error) {
+    if (DevFallbackStore.isConnectionError(error)) {
+      systemCategoriesSeeded = true;
+      return;
+    }
+    // Non-fatal, will retry on next request
   }
 }
 
@@ -58,6 +71,9 @@ export async function resolveCategoryId(
   userId: string,
   type: 'EXPENSE' | 'INCOME' = 'EXPENSE'
 ): Promise<string> {
+  // Always guarantee system categories are populated in PostgreSQL
+  await ensureSystemCategoriesExist();
+
   if (!categoryIdOrName) {
     return 'khac';
   }
@@ -82,34 +98,41 @@ export async function resolveCategoryId(
     return cached.id;
   }
 
-  // 4. Kiểm tra theo ID chính xác (System Category ID hoặc UUID)
-  const byId = await prisma.category.findFirst({
-    where: {
-      id: trimmed,
-      OR: [{ userId: null }, { userId }],
-    },
-    select: { id: true },
-  });
-  if (byId) {
-    categoryResolutionCache.set(cacheKey, { id: byId.id, cachedAt: Date.now() });
-    return byId.id;
-  }
+  try {
+    // 4. Kiểm tra theo ID chính xác (System Category ID hoặc UUID của User)
+    const byId = await prisma.category.findFirst({
+      where: {
+        id: trimmed,
+        OR: [{ userId: null }, { userId }],
+      },
+      select: { id: true },
+    });
+    if (byId) {
+      categoryResolutionCache.set(cacheKey, { id: byId.id, cachedAt: Date.now() });
+      return byId.id;
+    }
 
-  // 5. Tìm theo tên
-  const byName = await prisma.category.findFirst({
-    where: {
-      name: { equals: trimmed, mode: 'insensitive' },
-      OR: [{ userId: null }, { userId }],
-    },
-    select: { id: true },
-  });
-  if (byName) {
-    categoryResolutionCache.set(cacheKey, { id: byName.id, cachedAt: Date.now() });
-    return byName.id;
+    // 5. Tìm theo tên
+    const byName = await prisma.category.findFirst({
+      where: {
+        name: { equals: trimmed, mode: 'insensitive' },
+        OR: [{ userId: null }, { userId }],
+      },
+      select: { id: true },
+    });
+    if (byName) {
+      categoryResolutionCache.set(cacheKey, { id: byName.id, cachedAt: Date.now() });
+      return byName.id;
+    }
+  } catch (error) {
+    if (DevFallbackStore.isConnectionError(error)) {
+      return 'khac';
+    }
   }
 
   // 6. Fallback: Nếu không tìm thấy, trả về category 'khac'
   categoryResolutionCache.set(cacheKey, { id: 'khac', cachedAt: Date.now() });
   return 'khac';
 }
+
 
