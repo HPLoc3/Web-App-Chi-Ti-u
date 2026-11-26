@@ -243,3 +243,12 @@ model AIUsage {
   @@index([userId])
   @@index([userId, createdAt])
 }
+
+// Bộ đếm rate limit dùng chung mọi instance (xem src/middleware/pgRateLimitStore.ts)
+model RateLimit {
+  key     String   @id
+  hits    Int      @default(0)
+  resetAt DateTime @db.Timestamptz(3)
+
+  @@index([resetAt])
+}

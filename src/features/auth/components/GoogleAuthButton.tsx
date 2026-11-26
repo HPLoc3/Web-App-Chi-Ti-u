@@ -14,9 +14,9 @@ interface GoogleAuthButtonProps {
 export const GoogleAuthButton: React.FC<GoogleAuthButtonProps> = ({
   onSuccess,
   onError,
-  text = 'continue_with',
-  shape = 'rectangular',
-  size = 'large',
+  text = 'continue_with' as const,
+  shape = 'rectangular' as const,
+  size = 'large' as const,
 }) => {
   const { loginWithGoogleToken } = useAuth();
   const [isLoading, setIsLoading] = useState(false);

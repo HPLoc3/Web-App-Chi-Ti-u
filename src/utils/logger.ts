@@ -25,6 +25,7 @@ const SENSITIVE_KEYS = new Set([
   'jwt_refresh_secret',
   'apikey',
   'gemini_api_key',
+  'resend_api_key',
   'clientsecret',
   'google_client_secret',
   'database_url',

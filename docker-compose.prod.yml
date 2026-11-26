@@ -47,8 +47,8 @@ services:
       PORT: 3000
       COMMIT_SHA: ${COMMIT_SHA:-unknown}
       GIT_COMMIT: ${COMMIT_SHA:-unknown}
-      APP_URL: ${APP_URL:-https://hophuloc.online}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://hophuloc.online,https://www.hophuloc.online}
+      APP_URL: ${APP_URL:-https://chitieu.hophuloc.online}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://chitieu.hophuloc.online}
       DATABASE_URL: "${DATABASE_URL_DOCKER:-postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public}"
       JWT_SECRET: "${JWT_SECRET:?Error: JWT_SECRET must be set in .env}"
       JWT_REFRESH_SECRET: "${JWT_REFRESH_SECRET:?Error: JWT_REFRESH_SECRET must be set in .env}"

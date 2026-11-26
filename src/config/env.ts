@@ -8,7 +8,7 @@ export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'staging', 'production']).default('development'),
   PORT: z.coerce.number().default(3000),
   APP_URL: z.string().url().default('http://localhost:3000'),
-  ALLOWED_ORIGINS: z.string().optional().default('https://hophuloc.online,https://www.hophuloc.online,http://localhost:5173,http://localhost:3000'),
+  ALLOWED_ORIGINS: z.string().optional().default('http://localhost:5173,http://localhost:3000'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required and cannot be empty').refine(
     (url) => url.startsWith('postgresql://') || url.startsWith('postgres://'),
     { message: 'DATABASE_URL must be a valid PostgreSQL connection string starting with postgresql:// or postgres://' }
@@ -18,12 +18,27 @@ export const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().optional(),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  TRUST_PROXY_HOPS: z.string().optional(),
+  DEBUG_CLIENT_IP: z.string().optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;
 
 let validatedEnv: EnvConfig | null = null;
+
+/**
+ * Số lớp proxy tin cậy cho Express "trust proxy". Chỉ nhận số nguyên 0..10, giá trị khác dùng 1.
+ * Luôn trả về số, không bao giờ `true` (tin mọi proxy sẽ cho phép giả X-Forwarded-For).
+ */
+export function parseTrustProxyHops(value?: string): number {
+  const trimmed = (value ?? '').trim();
+  if (!/^[0-9]+$/.test(trimmed)) return 1;
+  const hops = Number(trimmed);
+  return hops <= 10 ? hops : 1;
+}
 
 export function maskDatabaseUrl(url?: string): string {
   if (!url) return '[NOT_SET]';
@@ -56,7 +71,11 @@ export function validateEnvironment(): EnvConfig {
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    RESEND_API_KEY: process.env.RESEND_API_KEY,
+    EMAIL_FROM: process.env.EMAIL_FROM,
     LOG_LEVEL: process.env.LOG_LEVEL,
+    TRUST_PROXY_HOPS: process.env.TRUST_PROXY_HOPS,
+    DEBUG_CLIENT_IP: process.env.DEBUG_CLIENT_IP,
   };
 
   const parsed = envSchema.safeParse(rawEnv);

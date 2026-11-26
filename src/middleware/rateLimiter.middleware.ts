@@ -1,8 +1,28 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit, { Options } from 'express-rate-limit';
+import { PgRateLimitStore } from './pgRateLimitStore';
+
+/**
+ * Chọn nơi lưu bộ đếm:
+ * - Mặc định: PostgreSQL (đúng khi chạy nhiều instance / serverless như Vercel).
+ * - Môi trường test, hoặc RATE_LIMIT_STORE=memory: bộ nhớ trong tiến trình.
+ * Nếu DB lỗi, limiter cho request đi qua (fail-open) thay vì làm sập API.
+ */
+const useMemoryStore = (): boolean =>
+  process.env.NODE_ENV === 'test' || process.env.VITEST === 'true' || process.env.RATE_LIMIT_STORE === 'memory';
+
+const createDbBackedLimiter = (prefix: string, options: Partial<Options>) =>
+  rateLimit({
+    standardHeaders: true,
+    legacyHeaders: false,
+    ...options,
+    ...(useMemoryStore() ? {} : { store: new PgRateLimitStore(prefix), passOnStoreError: true }),
+  });
 
 /**
  * Rate limiter chung cho toàn bộ API routes (/api/*)
- * Giới hạn 300 requests / 15 phút mỗi IP
+ * Giới hạn 300 requests / 15 phút mỗi IP.
+ * Cố ý dùng bộ nhớ trong tiến trình để không tốn 1 truy vấn DB cho mọi request;
+ * đây chỉ là lớp chặn thô, các endpoint nhạy cảm bên dưới dùng bộ đếm trong DB.
  */
 export const apiRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -20,11 +40,9 @@ export const apiRateLimiter = rateLimit({
  * Rate limiter cho endpoint đăng nhập (Login & Google Auth)
  * Giới hạn tối đa 15 lần thử trong 15 phút chống brute-force mật khẩu
  */
-export const loginRateLimiter = rateLimit({
+export const loginRateLimiter = createDbBackedLimiter('login', {
   windowMs: 15 * 60 * 1000,
   max: 15,
-  standardHeaders: true,
-  legacyHeaders: false,
   message: {
     success: false,
     code: 'TOO_MANY_LOGIN_ATTEMPTS',
@@ -36,11 +54,9 @@ export const loginRateLimiter = rateLimit({
  * Rate limiter cho đăng ký tài khoản mới (Register)
  * Giới hạn tối đa 10 tài khoản / 1 giờ mỗi IP chống bot tạo tài khoản rác
  */
-export const registerRateLimiter = rateLimit({
+export const registerRateLimiter = createDbBackedLimiter('register', {
   windowMs: 60 * 60 * 1000,
   max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
   message: {
     success: false,
     code: 'TOO_MANY_REGISTRATIONS',
@@ -52,11 +68,9 @@ export const registerRateLimiter = rateLimit({
  * Rate limiter cho endpoint quên mật khẩu / đặt lại mật khẩu
  * Giới hạn tối đa 5 lần yêu cầu trong 15 phút để chống spam email / dò token
  */
-export const forgotPasswordRateLimiter = rateLimit({
+export const forgotPasswordRateLimiter = createDbBackedLimiter('forgot', {
   windowMs: 15 * 60 * 1000,
   max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
   message: {
     success: false,
     code: 'TOO_MANY_PASSWORD_RESETS',
@@ -68,11 +82,9 @@ export const forgotPasswordRateLimiter = rateLimit({
  * Rate limiter cho AI Financial Assistant Endpoint
  * Giới hạn tối đa 30 requests / 15 phút để chống lạm dụng quota và cạn kiệt tài nguyên API
  */
-export const aiRateLimiter = rateLimit({
+export const aiRateLimiter = createDbBackedLimiter('ai', {
   windowMs: 15 * 60 * 1000,
   max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
   message: {
     success: false,
     code: 'AI_RATE_LIMIT_EXCEEDED',
@@ -83,11 +95,9 @@ export const aiRateLimiter = rateLimit({
 /**
  * Rate limiter cho các endpoint Auth khác (Refresh token)
  */
-export const generalAuthRateLimiter = rateLimit({
+export const generalAuthRateLimiter = createDbBackedLimiter('auth', {
   windowMs: 15 * 60 * 1000,
   max: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
   message: {
     success: false,
     code: 'TOO_MANY_REQUESTS',

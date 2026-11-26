@@ -50,7 +50,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({
   onLogout,
   onOpenAuth,
   onOpenQuickAdd,
-  stats = {},
+  stats = {} as NonNullable<AppSidebarProps['stats']>,
 }) => {
   const mainNavItems = [
     {

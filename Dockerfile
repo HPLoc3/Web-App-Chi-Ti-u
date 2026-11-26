@@ -29,6 +29,9 @@ WORKDIR /app
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 ENV NODE_ENV=production
+# Biến VITE_* được nhúng lúc build (Render truyền env var thành build arg). Client ID là giá trị công khai.
+ARG VITE_GOOGLE_CLIENT_ID=""
+ENV VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID}
 RUN npx prisma generate
 RUN npm run build
 
@@ -41,6 +44,7 @@ ARG GIT_COMMIT=unknown
 ENV GIT_COMMIT=${GIT_COMMIT}
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV CHECKPOINT_DISABLE=1
 
 # Tạo non-root system group & user để tăng cường bảo mật container
 RUN addgroup --system --gid 1001 nodejs && \
@@ -58,9 +62,11 @@ USER nodejs
 EXPOSE 3000
 
 # Native Docker Health Check (Liveness Probe)
-HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=3 \
   CMD curl -f http://127.0.0.1:3000/health/live || exit 1
 
 # dumb-init xử lý chuẩn tín hiệu POSIX (SIGTERM / SIGINT) phục vụ Graceful Shutdown
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
-CMD ["node", "dist/server.cjs"]
+# Chạy migration trước khi start (migration lỗi thì container dừng, không start app).
+# Migration ưu tiên DIRECT_URL (kết nối trực tiếp, vd Neon), không có thì dùng DATABASE_URL.
+CMD ["sh", "-c", "DATABASE_URL=\"${DIRECT_URL:-$DATABASE_URL}\" ./node_modules/.bin/prisma migrate deploy && exec node dist/server.cjs"]

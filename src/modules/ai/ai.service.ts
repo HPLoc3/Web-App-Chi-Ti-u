@@ -60,7 +60,7 @@ export class AiService {
     }
 
     // 1. Check & Consume Quota
-    const quotaCheck = AiQuotaManager.checkAndConsumeQuota(userId);
+    const quotaCheck = await AiQuotaManager.checkAndConsumeQuota(userId, rawCleanMessage);
     if (!quotaCheck.allowed) {
       AiLogger.logRequest({
         userId,

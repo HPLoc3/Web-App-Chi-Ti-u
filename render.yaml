@@ -1,0 +1,60 @@
+# Render Blueprint - Sổ Tay Chi Tiêu (https://chitieu.hophuloc.online)
+# Hướng dẫn: xem DEPLOY.md. Biến "sync: false" phải nhập tay trên Render, KHÔNG ghi giá trị bí mật vào file này.
+# Migration chạy trong CMD của Dockerfile (prisma migrate deploy trước khi start),
+# vì preDeployCommand của Render không dùng được trên gói free.
+services:
+  - type: web
+    name: so-tay-chi-tieu
+    runtime: docker
+    plan: free
+    region: singapore # chọn cùng khu vực với Neon
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health/live # không truy vấn DB, tránh giữ Neon thức liên tục
+    domains:
+      - chitieu.hophuloc.online
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: APP_URL
+        value: https://chitieu.hophuloc.online
+      - key: ALLOWED_ORIGINS
+        value: https://chitieu.hophuloc.online
+
+      # Số lớp proxy tin cậy (xác minh sau deploy theo DEPLOY.md) và cờ log IP tạm thời
+      - key: TRUST_PROXY_HOPS
+        value: "1"
+      - key: DEBUG_CLIENT_IP
+        value: "false"
+
+      # Neon: DATABASE_URL = chuỗi pooled (host có "-pooler"), DIRECT_URL = chuỗi trực tiếp (dùng cho migrate)
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+
+      # Email quên mật khẩu (Resend)
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+
+      # Trợ lý AI
+      - key: GEMINI_API_KEY
+        sync: false
+
+      # Google đăng nhập. VITE_GOOGLE_CLIENT_ID được nhúng lúc build (cùng giá trị với GOOGLE_CLIENT_ID)
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: VITE_GOOGLE_CLIENT_ID
+        sync: false

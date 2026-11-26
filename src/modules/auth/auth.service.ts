@@ -8,6 +8,15 @@ import { getJwtSecret } from '../../middleware/auth.middleware';
 import { EmailService } from '../../services/email.service';
 import { prisma } from '../../lib/prisma';
 import { devFallbackStore, DevFallbackStore } from '../../lib/devFallbackStore';
+import { Logger } from '../../utils/logger';
+
+export const FORGOT_PASSWORD_MIN_RESPONSE_MS = 1500;
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+
+const waitUntilElapsed = (startMs: number, minMs: number): Promise<void> =>
+  sleep(minMs - (Date.now() - startMs));
 
 export class AuthService {
   static hashToken(token: string): string {
@@ -409,17 +418,36 @@ export class AuthService {
   }
 
   static async forgotPassword(email: string): Promise<{ success: boolean; message: string }> {
-    const cleanEmail = email.trim().toLowerCase();
-    const user = await AuthRepository.findUserByEmail(cleanEmail);
+    const startMs = Date.now();
+    const minMs = FORGOT_PASSWORD_MIN_RESPONSE_MS;
 
-    if (user) {
-      const rawToken = crypto.randomBytes(32).toString('hex');
-      const hashedToken = this.hashToken(rawToken);
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 giờ
+    // Toàn bộ việc tra user, ghi token và gửi mail chạy trong một promise nền
+    // (không bao giờ reject); phản hồi không chờ quá mốc ngân sách.
+    const work = (async (): Promise<void> => {
+      try {
+        const cleanEmail = email.trim().toLowerCase();
+        const user = await AuthRepository.findUserByEmail(cleanEmail);
 
-      await AuthRepository.createResetToken(user.id, hashedToken, expiresAt);
-      await EmailService.sendPasswordResetEmail(user.email, rawToken, user.name);
-    }
+        if (user) {
+          const rawToken = crypto.randomBytes(32).toString('hex');
+          const hashedToken = this.hashToken(rawToken);
+          const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 giờ
+
+          await AuthRepository.createResetToken(user.id, hashedToken, expiresAt);
+          await EmailService.sendPasswordResetEmail(user.email, rawToken, user.name);
+        }
+      } catch (err: any) {
+        // Chỉ log tên/mã lỗi; không log message gốc, email hay token.
+        Logger.error('forgotPassword: xử lý nội bộ thất bại', undefined, undefined, {
+          errorName: typeof err?.name === 'string' ? err.name : 'Error',
+          ...(err?.code !== undefined ? { errorCode: String(err.code) } : {}),
+        });
+      }
+    })();
+
+    await Promise.race([work, waitUntilElapsed(startMs, minMs)]);
+
+    await waitUntilElapsed(startMs, minMs);
 
     return {
       success: true,

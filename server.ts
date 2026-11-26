@@ -6,9 +6,8 @@ import http from "http";
 import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
-import { createServer as createViteServer } from "vite";
 
-import { validateEnvironment } from "./src/config/env";
+import { validateEnvironment, parseTrustProxyHops } from "./src/config/env";
 import { getJwtSecret, getRefreshTokenSecret } from "./src/middleware/auth.middleware";
 import { requestIdMiddleware } from "./src/middleware/requestId.middleware";
 import { securityHeadersMiddleware } from "./src/middleware/securityHeaders.middleware";
@@ -41,7 +40,9 @@ const app = express();
 const PORT = envConfig.PORT || 3000;
 
 // 2. Cho phép Express nhận diện client IP thực tế qua Nginx / Cloud Run / Kubernetes Ingress
-app.set("trust proxy", 1);
+// Số hop chỉnh bằng TRUST_PROXY_HOPS (mặc định 1), xem DEPLOY.md
+const trustProxyHops = parseTrustProxyHops(envConfig.TRUST_PROXY_HOPS);
+app.set("trust proxy", trustProxyHops);
 
 // 3. Gán Request ID cho mỗi HTTP request để phục vụ Audit Trail & Logging
 app.use(requestIdMiddleware);
@@ -57,14 +58,16 @@ app.use(securityHeadersMiddleware);
 
 // 5. Cấu hình Whitelist CORS an toàn (Chống CSRF & Cross-Origin Unauthorized Access)
 const parseAllowedOrigins = (): string[] => {
-  const defaultOrigins = [
-    "https://hophuloc.online",
-    "https://www.hophuloc.online",
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:3000",
-  ];
+  // Origin localhost chỉ dành cho dev; production chỉ nhận ALLOWED_ORIGINS và APP_URL
+  const defaultOrigins =
+    process.env.NODE_ENV === "production"
+      ? []
+      : [
+          "http://localhost:5173",
+          "http://localhost:3000",
+          "http://127.0.0.1:5173",
+          "http://127.0.0.1:3000",
+        ];
 
   const envOrigins = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
@@ -127,6 +130,13 @@ app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 app.use(sanitizeInputMiddleware);
 
+// Link cũ dạng /app_chi_tieu/* chuyển về gốc, giữ nguyên query (vd link đặt lại mật khẩu).
+// Đích luôn là "/" hoặc bắt đầu bằng "/?" nên không thể bị lợi dụng làm open redirect.
+app.get(["/app_chi_tieu", "/app_chi_tieu/*"], (req, res) => {
+  const queryStart = req.originalUrl.indexOf("?");
+  res.redirect(301, queryStart >= 0 ? `/${req.originalUrl.slice(queryStart)}` : "/");
+});
+
 // 7. Health Check, Liveness & Readiness Routes (Được đặt trước rate limiter để tránh chặn load balancer probe)
 app.use("/health", healthRoutes);
 app.use("/api/health", healthRoutes);
@@ -139,6 +149,17 @@ app.use("/api", (_req, res, next) => {
   res.setHeader("Expires", "0");
   next();
 });
+// Cờ chẩn đoán TẠM THỜI để chọn đúng TRUST_PROXY_HOPS. Chỉ log IP, không log token/cookie/body.
+if (envConfig.DEBUG_CLIENT_IP === "true") {
+  app.use("/api", (req, _res, next) => {
+    Logger.info("[DEBUG_CLIENT_IP]", {
+      reqIp: req.ip,
+      trustProxyHops,
+      xForwardedFor: req.headers["x-forwarded-for"] ?? null,
+    });
+    next();
+  });
+}
 app.use("/api", csrfProtectionMiddleware);
 app.use("/api", apiRateLimiter);
 
@@ -180,6 +201,8 @@ let httpServer: http.Server | null = null;
 
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
+    // Import động: Vite chỉ cần ở dev, tránh bị gom vào bundle/function production (Vercel)
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -199,16 +222,9 @@ async function startServer() {
       },
     };
 
-    // Serve static files under both /app_chi_tieu sub-path and root
-    app.use("/app_chi_tieu", express.static(distPath, staticOptions));
     app.use(express.static(distPath, staticOptions));
 
     // SPA fallback routes (Luôn yêu cầu revalidate index.html để nạp bundle mới sau mỗi lần deploy)
-    app.get("/app_chi_tieu*", (_req, res) => {
-      res.setHeader("Cache-Control", "no-cache, must-revalidate");
-      res.setHeader("Pragma", "no-cache");
-      res.sendFile(path.join(distPath, "index.html"));
-    });
     app.get("*", (_req, res) => {
       res.setHeader("Cache-Control", "no-cache, must-revalidate");
       res.setHeader("Pragma", "no-cache");

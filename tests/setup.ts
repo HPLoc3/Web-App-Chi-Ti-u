@@ -18,6 +18,8 @@ process.env.JWT_REFRESH_SECRET = 'test-refresh-jwt-secret-key-minimum-32-chars!'
 process.env.REFRESH_TOKEN_SECRET = 'test-refresh-jwt-secret-key-minimum-32-chars!';
 process.env.DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/test_db?schema=public';
 process.env.ALLOWED_ORIGINS = 'http://localhost:3000,http://localhost:5173';
+process.env.RESEND_API_KEY = '';
+process.env.EMAIL_FROM = '';
 
 // Only setup browser mocks if window is defined (jsdom environment)
 if (typeof window !== 'undefined') {

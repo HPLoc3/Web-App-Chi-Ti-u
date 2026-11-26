@@ -75,7 +75,7 @@ export const BudgetProgressCard: React.FC<BudgetProgressCardProps> = React.memo(
   const overBudgetCategories = useMemo(() => budgetList.filter((b) => b.isOver), [budgetList]);
 
   const totalPlannedBudget = useMemo(() => {
-    return Object.values(categoryLimits).reduce((acc, l) => acc + l, 0) || income;
+    return Object.values(categoryLimits).reduce<number>((acc, l) => acc + Number(l), 0) || income;
   }, [categoryLimits, income]);
 
   const overallUsagePct = totalPlannedBudget > 0 ? (totalExpenseThisMonth / totalPlannedBudget) * 100 : 0;

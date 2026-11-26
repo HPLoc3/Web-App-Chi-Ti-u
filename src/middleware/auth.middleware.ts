@@ -32,6 +32,13 @@ declare global {
 }
 
 /**
+ * Production luôn dùng Lax (chống CSRF; frontend và API cùng origin).
+ * Ngoài production giữ None khi chạy HTTPS để preview trong iframe vẫn đăng nhập được.
+ */
+const getSameSite = (isSecure: boolean) =>
+  isSecure && process.env.NODE_ENV !== 'production' ? ('none' as const) : ('lax' as const);
+
+/**
  * Cookie options cho Access Token (15 phút)
  */
 export const getAccessTokenCookieOptions = (req?: Request) => {
@@ -41,7 +48,7 @@ export const getAccessTokenCookieOptions = (req?: Request) => {
   return {
     httpOnly: true,
     secure: isSecure,
-    sameSite: isSecure ? ('none' as const) : ('lax' as const),
+    sameSite: getSameSite(isSecure),
     path: '/',
     maxAge: 15 * 60 * 1000, // 15 phút
   };
@@ -57,7 +64,7 @@ export const getRefreshTokenCookieOptions = (req?: Request) => {
   return {
     httpOnly: true,
     secure: isSecure,
-    sameSite: isSecure ? ('none' as const) : ('lax' as const),
+    sameSite: getSameSite(isSecure),
     path: '/',
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 ngày
   };
@@ -73,7 +80,7 @@ export const getClearCookieOptions = (req?: Request) => {
   return {
     httpOnly: true,
     secure: isSecure,
-    sameSite: isSecure ? ('none' as const) : ('lax' as const),
+    sameSite: getSameSite(isSecure),
     path: '/',
   };
 };

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ChangeEvent } from 'react';
 import { AppState } from '../types';
 import { generateSampleState, EMPTY_STATE } from '../data/sampleData';
 
@@ -70,7 +70,7 @@ export function useBackupRestore(
   }, [showToast]);
 
   const handleRestoreData = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
+    (event: ChangeEvent<HTMLInputElement>) => {
       const fileReader = new FileReader();
       if (event.target.files && event.target.files[0]) {
         fileReader.readAsText(event.target.files[0], 'UTF-8');

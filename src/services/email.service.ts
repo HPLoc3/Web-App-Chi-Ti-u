@@ -12,18 +12,56 @@ export interface SendEmailOptions {
   text?: string;
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export class EmailService {
   /**
    * Gửi email chung
    */
   static async sendEmail(options: SendEmailOptions): Promise<boolean> {
-    const { to, subject } = options;
+    const { to, subject, html, text } = options;
+    const apiKey = (process.env.RESEND_API_KEY || '').trim();
+    const from = (process.env.EMAIL_FROM || '').trim();
 
-    if (process.env.NODE_ENV !== 'production') {
-      Logger.info(`📧 [EMAIL SERVICE - OUTGOING] To: ${to} | Subject: ${subject}`);
+    if (!apiKey || !from) {
+      const env = process.env.NODE_ENV;
+      if (env === 'development' || env === 'test') {
+        const recipient = env === 'development' ? ` To: ${to} |` : '';
+        Logger.info(`📧 [EMAIL SERVICE - OUTGOING]${recipient} Subject: ${subject}`);
+        return true;
+      }
+      Logger.warn('Email service chưa được cấu hình (thiếu RESEND_API_KEY hoặc EMAIL_FROM), bỏ qua gửi email.');
+      return false;
     }
 
-    return true;
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ from, to, subject, html, text }),
+        signal: AbortSignal.timeout(8000),
+      });
+
+      if (!res.ok) {
+        Logger.error(`Gửi email thất bại (Resend HTTP ${res.status})`);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      const name = typeof err?.name === 'string' ? err.name : 'Error';
+      Logger.error('Gửi email thất bại (lỗi mạng hoặc timeout)', { name, message: name });
+      return false;
+    }
   }
 
   /**
@@ -35,7 +73,7 @@ export class EmailService {
     userName?: string | null
   ): Promise<boolean> {
     const appUrl = (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '');
-    const resetUrl = `${appUrl}/?action=reset-password&token=${resetToken}`;
+    const resetUrl = `${appUrl}/?action=reset-password&token=${encodeURIComponent(resetToken)}`;
     const displayName = userName || to.split('@')[0];
 
     const subject = '🔒 [Sổ Tay Chi Tiêu] Yêu cầu đặt lại mật khẩu';
@@ -55,18 +93,18 @@ export class EmailService {
           <p style="color: #666; font-size: 14px; margin-top: 4px;">Khôi phục quyền truy cập tài khoản</p>
         </div>
         <div style="background-color: #ffffff; padding: 24px; border-radius: 8px; border: 1px solid #eee;">
-          <p style="color: #333; font-size: 16px;">Xin chào <strong>${displayName}</strong>,</p>
+          <p style="color: #333; font-size: 16px;">Xin chào <strong>${escapeHtml(displayName)}</strong>,</p>
           <p style="color: #555; font-size: 14px; line-height: 1.6;">
             Hệ thống nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn. Vui lòng bấm vào nút bên dưới để tiến hành thiết lập mật khẩu mới (liên kết có hiệu lực trong 60 phút):
           </p>
           <div style="text-align: center; margin: 28px 0;">
-            <a href="${resetUrl}" style="background-color: #059669; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+            <a href="${escapeHtml(resetUrl)}" style="background-color: #059669; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
               Đặt lại mật khẩu
             </a>
           </div>
           <p style="color: #888; font-size: 12px; margin-top: 24px; border-top: 1px dashed #eee; padding-top: 16px;">
             Nếu nút bấm trên không hoạt động, bạn có thể nhập thủ công mã Token sau vào ứng dụng:
-            <br/><code style="background-color: #f3f4f6; padding: 4px 8px; border-radius: 4px; font-family: monospace; display: inline-block; margin-top: 6px; color: #111;">${resetToken}</code>
+            <br/><code style="background-color: #f3f4f6; padding: 4px 8px; border-radius: 4px; font-family: monospace; display: inline-block; margin-top: 6px; color: #111;">${escapeHtml(resetToken)}</code>
           </p>
         </div>
         <div style="text-align: center; margin-top: 20px; color: #999; font-size: 12px;">
@@ -76,12 +114,12 @@ export class EmailService {
     `;
 
     // Gửi email
-    await this.sendEmail({ to, subject, html, text });
+    const sent = await this.sendEmail({ to, subject, html, text });
 
-    if (process.env.NODE_ENV !== 'production') {
+    if (process.env.NODE_ENV === 'development') {
       Logger.info(`[DEV ONLY] Link đặt lại mật khẩu cho ${to}: ${resetUrl}`);
     }
 
-    return true;
+    return sent;
   }
 }

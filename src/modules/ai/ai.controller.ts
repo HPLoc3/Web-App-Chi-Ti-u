@@ -51,7 +51,7 @@ export class AiController {
         return;
       }
 
-      const quota = AiQuotaManager.getQuota(userId);
+      const quota = await AiQuotaManager.getQuota(userId);
       sendSuccess(res, 200, quota);
     } catch (error: any) {
       sendError(res, error.statusCode || 500, error.code || 'AI_QUOTA_ERROR', error.message, undefined, req.id);

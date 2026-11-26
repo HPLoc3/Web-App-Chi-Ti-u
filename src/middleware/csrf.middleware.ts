@@ -1,8 +1,41 @@
 import { Request, Response, NextFunction } from 'express';
 
+/** Trả về URL đã parse, hoặc null nếu chuỗi không hợp lệ hoặc không có origin thực (vd "null") */
+const parseOrigin = (value: string): URL | null => {
+  try {
+    const url = new URL(value);
+    return url.origin === 'null' ? null : url;
+  } catch {
+    return null;
+  }
+};
+
+/** Đọc lại process.env theo từng request */
+const getAllowedOrigins = (): Set<string> => {
+  const configured = [...(process.env.ALLOWED_ORIGINS || '').split(','), process.env.APP_URL || ''];
+  const origins = new Set<string>();
+  for (const value of configured) {
+    const url = parseOrigin(value.trim());
+    if (url) origins.add(url.origin);
+  }
+  return origins;
+};
+
+const isOriginAllowed = (source: string, host: string | undefined): boolean => {
+  const url = parseOrigin(source);
+  if (!url) return false;
+  if (getAllowedOrigins().has(url.origin)) return true;
+  if (host && url.host === host) return true;
+  return (
+    process.env.NODE_ENV !== 'production' &&
+    (url.hostname === 'localhost' || url.hostname === '127.0.0.1')
+  );
+};
+
 /**
  * CSRF Protection Middleware
  * Kiểm tra tính hợp lệ của Header Origin & Referer đối với các yêu cầu thay đổi trạng thái (POST, PUT, PATCH, DELETE)
+ * Phải được mount tại "/api" (xem server.ts).
  */
 export const csrfProtectionMiddleware = (req: Request, res: Response, next: NextFunction): void => {
   // Bỏ qua các HTTP Safe Methods (GET, HEAD, OPTIONS)
@@ -10,44 +43,14 @@ export const csrfProtectionMiddleware = (req: Request, res: Response, next: Next
     return next();
   }
 
-  // Chỉ áp dụng cho các API endpoint (/api/*)
-  if (!req.path.startsWith('/api')) {
-    return next();
-  }
-
-  let requestOrigin = req.headers.origin as string | undefined;
-  if (!requestOrigin && req.headers.referer) {
-    try {
-      requestOrigin = new URL(req.headers.referer).origin;
-    } catch {
-      // Bỏ qua lỗi parse URL
-    }
-  }
-
-  const host = req.headers.host;
+  const source = req.headers.origin || req.headers.referer;
 
   // Nếu không có Origin/Referer (ví dụ: same-origin script nội bộ), cho phép tiếp tục
-  if (!requestOrigin) {
+  if (!source) {
     return next();
   }
 
-  // Danh sách Origin được phép từ cấu hình môi trường
-  const allowedOriginsStr = process.env.ALLOWED_ORIGINS || '';
-  const allowedList = allowedOriginsStr
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean);
-
-  const isSameHost = host ? requestOrigin.includes(host) : false;
-  const isExplicitlyAllowed = allowedList.some(
-    (allowed) => requestOrigin!.startsWith(allowed) || allowed === '*'
-  );
-  const isDevOrPreview =
-    process.env.NODE_ENV !== 'production' ||
-    requestOrigin.includes('run.app') ||
-    requestOrigin.includes('localhost');
-
-  if (isSameHost || isExplicitlyAllowed || isDevOrPreview) {
+  if (isOriginAllowed(source, req.headers.host)) {
     return next();
   }
 
