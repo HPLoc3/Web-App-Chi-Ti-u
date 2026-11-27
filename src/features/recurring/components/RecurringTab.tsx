@@ -1,11 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { RecurringExpense, Expense } from '../../../types';
 import { CATEGORIES } from '../../../constants/categories';
-import { formatCurrency } from '../../../utils/format';
+import { formatCurrency, formatPercent } from '../../../utils/format';
 import { useToast } from '../../../context/ToastContext';
 import { CategoryIcon } from '../../transactions/components/ExpensesTab';
 import { StatCard } from '../../../components/common/StatCard';
 import { EmptyState } from '../../../components/common/EmptyState';
+import MoneyInput from '../../../components/common/MoneyInput';
+import { getBusinessDate, formatBusinessDate } from '../../../utils/dateParser';
+import { getApiErrorMessage } from '../../../lib/apiClient';
+import { addDays, diffDays, displayNextDue, totalMonthlyRecurring } from '../../../utils/recurringSchedule';
 import { 
   Repeat, 
   Plus, 
@@ -13,7 +17,9 @@ import {
   Calendar, 
   Clock, 
   RefreshCw, 
-  CheckCircle2, 
+  CheckCircle2,
+  PauseCircle,
+  Pencil,
   AlertCircle,
   CreditCard,
   Zap,
@@ -24,74 +30,122 @@ import {
 interface RecurringTabProps {
   recurringExpenses: RecurringExpense[];
   income?: number;
-  onAddRecurringExpense: (item: Omit<RecurringExpense, 'id'>) => void;
-  onDeleteRecurringExpense: (id: string) => void;
-  onTriggerManualRecurringSync?: () => void;
+  loadError?: string | null;
+  onAddRecurringExpense: (item: Omit<RecurringExpense, 'id'>) => void | Promise<unknown>;
+  onUpdateRecurringExpense?: (item: RecurringExpense) => void | Promise<unknown>;
+  onDeleteRecurringExpense: (id: string) => void | Promise<unknown>;
+  onTriggerManualRecurringSync?: () => void | Promise<unknown>;
 }
 
 export const RecurringTab: React.FC<RecurringTabProps> = ({
   recurringExpenses = [],
   income = 0,
+  loadError,
   onAddRecurringExpense,
+  onUpdateRecurringExpense,
   onDeleteRecurringExpense,
   onTriggerManualRecurringSync,
 }) => {
   const { showToast } = useToast();
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [amount, setAmount] = useState('');
+  const [editing, setEditing] = useState<RecurringExpense | null>(null);
+  const [amount, setAmount] = useState<number | null>(null);
   const [categoryId, setCategoryId] = useState(CATEGORIES[0].id);
   const [dayOfMonth, setDayOfMonth] = useState('1');
+  const [startDate, setStartDate] = useState('');
   const [note, setNote] = useState('');
   const [frequency, setFrequency] = useState<'monthly' | 'yearly' | 'weekly'>('monthly');
+  const [isSaving, setIsSaving] = useState(false);
 
-  const today = new Date();
-  const currentDay = today.getDate();
+  const today = getBusinessDate();
 
   // Metrics
-  const totalMonthlyRecurring = useMemo(() => {
-    return recurringExpenses.reduce((sum, r) => {
-      if (r.frequency === 'yearly') return sum + Math.round(r.amount / 12);
-      if (r.frequency === 'weekly') return sum + Math.round(r.amount * 4);
-      return sum + r.amount;
-    }, 0);
-  }, [recurringExpenses]);
+  const activeItems = recurringExpenses.filter((r) => r.isActive !== false);
+  const monthlyTotal = useMemo(() => totalMonthlyRecurring(recurringExpenses), [recurringExpenses]);
 
-  const recurringRatio = income > 0 ? ((totalMonthlyRecurring / income) * 100).toFixed(1) : '0';
+  const recurringRatio = income > 0 ? (monthlyTotal / income) * 100 : 0;
+  const dueSoonCount = activeItems.filter((r) => displayNextDue(r, today) <= addDays(today, 7)).length;
 
-  const handleSaveRecurring = (e: React.FormEvent) => {
+  const openForm = (item: RecurringExpense | null) => {
+    setEditing(item);
+    setAmount(item ? item.amount : null);
+    setCategoryId(item ? item.categoryId : CATEGORIES[0].id);
+    setDayOfMonth(item ? String(item.dayOfMonth) : String(Number(today.slice(8, 10))));
+    // Khoản cũ chưa có ngày bắt đầu: để trống thì máy chủ giữ nguyên lịch
+    setStartDate(item ? item.startDate || '' : today);
+    setNote(item ? item.note : '');
+    setFrequency(item?.frequency || 'monthly');
+    setIsAddModalOpen(true);
+  };
+
+  // Chạy một thao tác lưu; lỗi API được hiện nguyên
+  const runAction = async (action: () => void | Promise<unknown>, fallback: string): Promise<boolean> => {
+    try {
+      await action();
+      return true;
+    } catch (err) {
+      showToast(getApiErrorMessage(err, fallback), 'error');
+      return false;
+    }
+  };
+
+  const handleSaveRecurring = async (e: React.FormEvent) => {
     e.preventDefault();
-    const parsedAmount = parseFloat(amount.replace(/[.,\s]/g, ''));
     const parsedDay = parseInt(dayOfMonth, 10);
 
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    if (amount === null || amount <= 0) {
       showToast('Vui lòng nhập số tiền hợp lệ lớn hơn 0.', 'warning');
       return;
     }
-    if (isNaN(parsedDay) || parsedDay < 1 || parsedDay > 31) {
+    if (frequency === 'monthly' && (isNaN(parsedDay) || parsedDay < 1 || parsedDay > 31)) {
       showToast('Ngày trong tháng phải từ 1 đến 31.', 'warning');
       return;
     }
+    if (!startDate && (!editing || frequency !== (editing.frequency || 'monthly'))) {
+      showToast('Vui lòng chọn ngày bắt đầu.', 'warning');
+      return;
+    }
 
-    onAddRecurringExpense({
-      amount: parsedAmount,
+    const values: Omit<RecurringExpense, 'id'> = {
+      amount,
       categoryId,
-      dayOfMonth: parsedDay,
+      dayOfMonth:
+        frequency === 'monthly'
+          ? parsedDay
+          : startDate
+            ? Number(startDate.slice(8, 10))
+            : editing!.dayOfMonth,
       note: note.trim() || 'Khoản chi cố định',
       frequency,
-      isActive: true,
-    });
+      startDate: startDate || undefined,
+      isActive: editing ? editing.isActive !== false : true,
+    };
 
-    setAmount('');
-    setNote('');
-    setDayOfMonth('1');
-    setIsAddModalOpen(false);
+    setIsSaving(true);
+    const saved = await runAction(
+      () => (editing ? onUpdateRecurringExpense?.({ ...editing, ...values }) : onAddRecurringExpense(values)),
+      'Không thể lưu khoản định kỳ.'
+    );
+    setIsSaving(false);
+    if (saved) setIsAddModalOpen(false);
   };
 
-  const getDaysUntilNextRun = (day: number) => {
-    if (day === currentDay) return 'Hôm nay đến hạn';
-    if (day > currentDay) return `Còn ${day - currentDay} ngày`;
-    return `Đã qua (${day}/${today.getMonth() + 1})`;
+  const getDueStatus = (nextDue: string) => {
+    const days = diffDays(today, nextDue);
+    if (days < 0) return 'Đang chờ ghi';
+    if (days === 0) return 'Hôm nay đến hạn';
+    return `Còn ${days} ngày`;
+  };
+
+  const scheduleLabel = (rec: RecurringExpense) => {
+    const anchor = rec.startDate || displayNextDue(rec, today);
+    if (rec.frequency === 'weekly') {
+      const weekday = new Date(`${anchor}T00:00:00Z`).getUTCDay();
+      return `${weekday === 0 ? 'Chủ nhật' : `Thứ ${weekday + 1}`} hàng tuần`;
+    }
+    if (rec.frequency === 'yearly') return `Ngày ${anchor.slice(8, 10)}/${anchor.slice(5, 7)} hàng năm`;
+    return `Ngày ${rec.dayOfMonth} hàng tháng`;
   };
 
   return (
@@ -112,15 +166,15 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({
             <button
               onClick={onTriggerManualRecurringSync}
               className="flex items-center gap-1.5 px-3.5 py-2 border border-[#E6DEC9] bg-white hover:bg-stone-50 text-emerald-950 rounded-xl text-xs font-semibold shadow-2xs transition cursor-pointer"
-              title="Tự động ghi các khoản định kỳ chưa ghi vào sổ chi tiêu tháng này"
+              title="Ghi các khoản định kỳ đã đến hạn vào sổ"
             >
               <RefreshCw size={14} className="text-amber-600" />
-              <span>Đồng bộ tháng này</span>
+              <span>Ghi khoản đến hạn</span>
             </button>
           )}
 
           <button
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={() => openForm(null)}
             className="flex items-center gap-1.5 px-4 py-2 bg-emerald-950 hover:bg-emerald-900 text-amber-300 rounded-xl text-xs font-bold shadow-xs transition cursor-pointer"
           >
             <Plus size={15} />
@@ -129,27 +183,36 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({
         </div>
       </div>
 
+      {loadError && (
+        <div role="alert" className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-800">
+          <AlertCircle size={14} className="shrink-0" />
+          <span>{loadError}</span>
+        </div>
+      )}
+
       {/* KPI Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
           title="Tổng Chi Phí Định Kỳ / Tháng"
-          value={formatCurrency(totalMonthlyRecurring)}
-          subtitle={`${recurringExpenses.length} khoản chi cố định`}
+          value={formatCurrency(monthlyTotal)}
+          subtitle={`${activeItems.length} khoản đang kích hoạt (quy đổi theo tháng)`}
           icon={<Repeat size={18} />}
           variant="emerald"
         />
         <StatCard
           title="Tỷ Trọng Trên Thu Nhập"
-          value={`${recurringRatio}%`}
-          subtitle={Number(recurringRatio) <= 30 ? 'Mức chi cố định an toàn (<30%)' : 'Chi cố định cao so với thu nhập'}
+          value={income > 0 ? formatPercent(recurringRatio) : 'Chưa đánh giá'}
+          subtitle={
+            income <= 0
+              ? 'Nhập thu nhập tháng để tính tỷ trọng'
+              : recurringRatio <= 30 ? 'Mức chi cố định an toàn (<30%)' : 'Chi cố định cao so với thu nhập'
+          }
           icon={<Zap size={18} />}
-          variant={Number(recurringRatio) <= 30 ? 'blue' : 'amber'}
+          variant={income <= 0 || recurringRatio <= 30 ? 'blue' : 'amber'}
         />
         <StatCard
           title="Đến Hạn Trong 7 Ngày Tới"
-          value={`${
-            recurringExpenses.filter((r) => r.dayOfMonth >= currentDay && r.dayOfMonth <= currentDay + 7).length
-          } khoản`}
+          value={`${dueSoonCount} khoản`}
           subtitle="Cần chuẩn bị số dư thanh toán"
           icon={<Clock size={18} />}
           variant="default"
@@ -163,7 +226,7 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({
             Danh Sách Khoản Chi Định Kỳ ({recurringExpenses.length})
           </h3>
           <span className="text-xs text-stone-500 font-sans">
-            Tự động lặp lại hàng tháng
+            Tự động ghi khi đến hạn
           </span>
         </div>
 
@@ -172,14 +235,15 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({
             title="Chưa có giao dịch định kỳ nào"
             description="Thêm hóa đơn tiền nhà, điện nước, internet hoặc các gói Netflix/Spotify để không bao giờ quên thanh toán."
             actionText="Thêm khoản định kỳ đầu tiên"
-            onAction={() => setIsAddModalOpen(true)}
+            onAction={() => openForm(null)}
           />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {recurringExpenses.map((rec) => {
               const cat = CATEGORIES.find((c) => c.id === rec.categoryId) || CATEGORIES[0];
-              const daysStatus = getDaysUntilNextRun(rec.dayOfMonth);
-              const isDueToday = rec.dayOfMonth === currentDay;
+              const isActive = rec.isActive !== false;
+              const nextDue = displayNextDue(rec, today);
+              const isDueToday = isActive && nextDue === today;
 
               return (
                 <div
@@ -190,12 +254,12 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({
                 >
                   <div>
                     <div className="flex items-start justify-between gap-2 mb-3">
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
                         <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${cat.bgColor}`}>
                           <CategoryIcon name={cat.iconName} size={18} className={cat.textColor} />
                         </div>
-                        <div>
-                          <h4 className="font-serif font-bold text-sm text-emerald-950 leading-tight">
+                        <div className="min-w-0">
+                          <h4 className="font-serif font-bold text-sm text-emerald-950 leading-tight [overflow-wrap:anywhere]">
                             {rec.note}
                           </h4>
                           <span className="text-[11px] text-stone-500 font-sans">
@@ -204,13 +268,27 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({
                         </div>
                       </div>
 
-                      <button
-                        onClick={() => onDeleteRecurringExpense(rec.id)}
-                        className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
-                        title="Xóa khoản định kỳ"
-                      >
-                        <Trash2 size={15} />
-                      </button>
+                      <div className="flex items-center shrink-0">
+                        {onUpdateRecurringExpense && (
+                          <button
+                            onClick={() => openForm(rec)}
+                            className="p-1.5 text-stone-400 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
+                            title="Sửa khoản định kỳ"
+                            aria-label={`Sửa ${rec.note}`}
+                          >
+                            <Pencil size={15} />
+                          </button>
+                        )}
+                        <button
+                          onClick={() =>
+                            runAction(() => onDeleteRecurringExpense(rec.id), 'Không thể xóa khoản định kỳ.')
+                          }
+                          className="p-1.5 text-stone-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                          title="Xóa khoản định kỳ"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="my-3">
@@ -228,7 +306,9 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({
                               : 'text-stone-500'
                           }`}
                         >
-                          {daysStatus}
+                          {isActive
+                            ? `Kỳ tới ${formatBusinessDate(nextDue, 'DD/MM/YYYY')} · ${getDueStatus(nextDue)}`
+                            : 'Không ghi khi đang tạm dừng'}
                         </span>
                       </div>
                     </div>
@@ -237,12 +317,26 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({
                   <div className="flex items-center justify-between pt-3 border-t border-stone-100 text-xs text-stone-500">
                     <div className="flex items-center gap-1">
                       <Calendar size={13} className="text-emerald-800" />
-                      <span>Ngày {rec.dayOfMonth} hàng tháng</span>
+                      <span>{scheduleLabel(rec)}</span>
                     </div>
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800">
-                      <CheckCircle2 size={12} />
-                      <span>Đang kích hoạt</span>
-                    </span>
+                    <button
+                      type="button"
+                      disabled={!onUpdateRecurringExpense}
+                      aria-pressed={isActive}
+                      title={isActive ? 'Bấm để tạm dừng' : 'Bấm để kích hoạt lại'}
+                      onClick={() =>
+                        runAction(
+                          () => onUpdateRecurringExpense?.({ ...rec, isActive: !isActive }),
+                          'Không thể đổi trạng thái khoản định kỳ.'
+                        )
+                      }
+                      className={`inline-flex items-center gap-1 text-[11px] font-semibold cursor-pointer ${
+                        isActive ? 'text-emerald-800' : 'text-stone-500'
+                      }`}
+                    >
+                      {isActive ? <CheckCircle2 size={12} /> : <PauseCircle size={12} />}
+                      <span>{isActive ? 'Đang kích hoạt' : 'Đã tạm dừng'}</span>
+                    </button>
                   </div>
                 </div>
               );
@@ -258,7 +352,7 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({
             <div className="flex items-center justify-between pb-3 border-b border-stone-200 mb-4">
               <h3 className="font-serif text-lg font-bold text-emerald-950 flex items-center gap-2">
                 <Repeat size={18} className="text-amber-600" />
-                <span>Thêm giao dịch định kỳ</span>
+                <span>{editing ? 'Sửa giao dịch định kỳ' : 'Thêm giao dịch định kỳ'}</span>
               </h3>
               <button
                 onClick={() => setIsAddModalOpen(false)}
@@ -287,14 +381,12 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({
                 <label className="block text-xs font-semibold text-stone-700 mb-1">
                   Số tiền (VNĐ) *
                 </label>
-                <input
-                  type="number"
+                <MoneyInput
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder="1200000"
+                  onChange={(value) => setAmount(value)}
+                  placeholder="1.200.000"
+                  aria-label="Số tiền định kỳ"
                   required
-                  min="1000"
-                  step="any"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 font-mono text-stone-900 text-base font-bold focus:outline-none focus:border-emerald-700"
                 />
               </div>
@@ -319,10 +411,27 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({
 
                 <div>
                   <label className="block text-xs font-semibold text-stone-700 mb-1">
+                    Ngày bắt đầu
+                  </label>
+                  <input
+                    type="date"
+                    aria-label="Ngày bắt đầu"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    required={!editing}
+                    className="w-full px-3 py-2 rounded-xl border border-stone-300 font-mono text-stone-900 text-xs focus:outline-none focus:border-emerald-700"
+                  />
+                </div>
+              </div>
+
+              {frequency === 'monthly' ? (
+                <div>
+                  <label className="block text-xs font-semibold text-stone-700 mb-1">
                     Ngày trừ tiền trong tháng
                   </label>
                   <input
                     type="number"
+                    aria-label="Ngày trừ tiền trong tháng"
                     value={dayOfMonth}
                     onChange={(e) => setDayOfMonth(e.target.value)}
                     min="1"
@@ -330,8 +439,11 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({
                     required
                     className="w-full px-3 py-2 rounded-xl border border-stone-300 font-mono text-stone-900 text-xs focus:outline-none focus:border-emerald-700"
                   />
+                  <p className="mt-1 text-[11px] text-stone-500">Tháng ngắn hơn sẽ ghi vào ngày cuối tháng.</p>
                 </div>
-              </div>
+              ) : (
+                <p className="text-[11px] text-stone-500">Lặp lại theo ngày bắt đầu.</p>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold text-stone-700 mb-1">
@@ -369,7 +481,8 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-950 hover:bg-emerald-900 text-amber-300 font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
+                  disabled={isSaving}
+                  className="disabled:opacity-60 px-5 py-2 bg-emerald-950 hover:bg-emerald-900 text-amber-300 font-bold text-xs rounded-xl shadow-xs transition cursor-pointer"
                 >
                   Lưu khoản định kỳ
                 </button>

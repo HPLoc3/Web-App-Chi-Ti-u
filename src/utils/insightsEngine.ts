@@ -1,4 +1,5 @@
 import { AppState, FinancialInsight } from '../types';
+import { totalMonthlyRecurring } from './recurringSchedule';
 import { CATEGORIES } from '../constants/categories';
 import { formatVND } from './format';
 
@@ -29,9 +30,23 @@ export function generateFinancialInsights(state: AppState): FinancialInsight[] {
   const savingsRate = income > 0 ? (netSavings / income) * 100 : 0;
   const projectedMonthEndTotal = currentDay > 0 ? Math.round((totalCurrent / currentDay) * totalDaysInMonth) : totalCurrent;
 
+  // Chỉ khuyên trích tiền khi có phần dư: cả tháng này lẫn mức chi trung bình (như trang Mục tiêu)
+  const recordedMonths = new Set(expenses.filter((e) => e.date).map((e) => e.date.slice(0, 7))).size;
+  const averageMonthlyExpense = expenses.reduce((sum, e) => sum + e.amount, 0) / Math.max(1, recordedMonths);
+  const canSuggestSaving = income > 0 && income > totalCurrent && income > averageMonthlyExpense;
+
+  if (income === 0) {
+    insights.push({
+      id: 'ins-income-missing',
+      title: 'Nhập thu nhập tháng để được đánh giá',
+      message: 'Bạn chưa nhập thu nhập tháng nên chưa thể tính tỷ lệ tiết kiệm và điểm sức khỏe tài chính.',
+      severity: 'recommendation',
+      actionableStep: 'Vào Tổng quan và nhập thu nhập tháng.',
+    });
+  }
+
   if (totalCurrent > income && income > 0) {
     const deficit = totalCurrent - income;
-    const dailyReduction = Math.round(deficit / daysRemaining);
     insights.push({
       id: 'ins-overbudget-total',
       title: 'Báo động thâm hụt ngân sách tháng',
@@ -41,8 +56,9 @@ export function generateFinancialInsights(state: AppState): FinancialInsight[] {
       metricValue: `${Math.round((totalCurrent / income) * 100)}%`,
       observation: `Tổng chi tiêu hiện tại đã thâm hụt ${formatVND(deficit)} so với thu nhập tháng.`,
       projection: `Nếu tiếp tục phát sinh chi tiêu, mức thâm hụt có thể lên tới ${formatVND(projectedMonthEndTotal - income)} vào cuối tháng.`,
-      suggestedAction: `Dừng mọi khoản chi tiêu không bắt buộc. Giới hạn chi tiêu mỗi ngày dưới ${formatVND(Math.max(0, Math.round((income * 0.9 - totalCurrent) / daysRemaining)))} để ổn định dòng tiền.`,
-      dailyImpact: `Cần thắt chặt ${formatVND(dailyReduction)}/ngày`,
+      // Đã vượt thu nhập thì không còn hạn mức ngày nào để gợi ý
+      suggestedAction: `Bạn đã chi vượt thu nhập ${formatVND(deficit)}. Hãy tạm dừng các khoản chi không thiết yếu cho đến hết tháng.`,
+      dailyImpact: `Đã vượt ${formatVND(deficit)}`,
       targetTab: 'budget',
       actionableStep: 'Cắt giảm các khoản chi tiêu không thiết yếu ngay lập tức.',
     });
@@ -72,12 +88,16 @@ export function generateFinancialInsights(state: AppState): FinancialInsight[] {
       severity: 'positive',
       metricLabel: 'Tích lũy ròng',
       metricValue: formatVND(netSavings),
-      observation: `Bạn đang giữ tỷ lệ tiết kiệm ${Math.round(savingsRate)}% với thặng dư khả dụng ${formatVND(netSavings)}.`,
+      observation: `Bạn đang giữ tỷ lệ tiết kiệm ${Math.round(savingsRate)}% với phần còn lại so với thu nhập khai báo là ${formatVND(netSavings)}.`,
       projection: `Nếu duy trì kỷ luật này, bạn sẽ tích lũy được thêm ${formatVND(netSavings * 6)} trong 6 tháng tới.`,
-      suggestedAction: `Chuyển ngay ${formatVND(surplusInvestable)} vào Mục tiêu tích lũy hoặc quỹ đầu tư khẩn cấp trước khi bị phân tán.`,
+      suggestedAction: canSuggestSaving
+        ? `Chuyển ngay ${formatVND(surplusInvestable)} vào Mục tiêu tích lũy hoặc quỹ đầu tư khẩn cấp trước khi bị phân tán.`
+        : 'Giữ nhịp chi tiêu hiện tại. Mức chi trung bình các tháng còn cao hơn thu nhập nên chưa nên cam kết khoản trích cố định.',
       dailyImpact: `Thặng dư ${formatVND(Math.round(netSavings / totalDaysInMonth))}/ngày`,
       targetTab: 'goals',
-      actionableStep: 'Xem xét phân bổ số tiền nhàn rỗi này vào các mục tiêu dài hạn.',
+      actionableStep: canSuggestSaving
+        ? 'Xem xét phân bổ số tiền nhàn rỗi này vào các mục tiêu dài hạn.'
+        : 'Theo dõi thêm cho đến khi mức chi trung bình thấp hơn thu nhập.',
     });
   } else if (income > 0 && savingsRate < 15) {
     const targetSavings = income * 0.2;
@@ -121,7 +141,6 @@ export function generateFinancialInsights(state: AppState): FinancialInsight[] {
       const pctOver = Math.round((excess / limit) * 100);
       const projectedCatEnd = Math.round((catTotal / currentDay) * totalDaysInMonth);
       const projectedOver = projectedCatEnd - limit;
-      const dailyCut = Math.round(projectedOver / daysRemaining);
 
       insights.push({
         id: `ins-limit-${catId}`,
@@ -133,14 +152,18 @@ export function generateFinancialInsights(state: AppState): FinancialInsight[] {
         category: catName,
         observation: `Hạng mục ${catName} đã tiêu ${formatVND(catTotal)}, vượt ngân sách ${pctOver}%.`,
         projection: `Nếu giữ tốc độ này, cuối tháng bạn sẽ vượt ngân sách khoảng ${formatVND(projectedOver)}.`,
-        suggestedAction: `Cắt giảm khoảng ${formatVND(Math.max(10000, dailyCut))} mỗi ngày cho ${catName} trong ${daysRemaining} ngày tới để đưa ngân sách về trạng thái an toàn.`,
-        dailyImpact: `Cắt giảm ${formatVND(Math.max(10000, dailyCut))}/ngày`,
+        suggestedAction: `Đã vượt hạn mức ${formatVND(excess)}, hãy ngừng chi nhóm ${catName} đến hết tháng.`,
+        dailyImpact: `Đã vượt ${formatVND(excess)}`,
         targetTab: 'expenses',
         actionableStep: `Ngừng phát sinh giao dịch nhóm ${catName} trong những ngày còn lại của tháng.`,
       });
     } else if (limit > 0 && catTotal >= limit * 0.8) {
       const remainingLimit = limit - catTotal;
       const safeDailySpend = Math.round(remainingLimit / daysRemaining);
+      const limitAdvice =
+        safeDailySpend > 0
+          ? `Giới hạn chi tiêu ${catName} tối đa ${formatVND(safeDailySpend)}/ngày`
+          : `Đã dùng hết hạn mức ${catName}, hãy tạm dừng các khoản không thiết yếu`;
       insights.push({
         id: `ins-near-limit-${catId}`,
         title: `Cảnh báo chạm trần ${catName}`,
@@ -150,11 +173,14 @@ export function generateFinancialInsights(state: AppState): FinancialInsight[] {
         metricValue: formatVND(remainingLimit),
         category: catName,
         observation: `Bạn đã dùng gần hết hạn mức ${catName} khi tháng vẫn còn ${daysRemaining} ngày.`,
-        projection: `Nếu chi tiêu trên ${formatVND(safeDailySpend)}/ngày, bạn sẽ chính thức vỡ ngân sách ${catName}.`,
-        suggestedAction: `Giới hạn chi tiêu ${catName} tối đa ${formatVND(safeDailySpend)}/ngày trong ${daysRemaining} ngày còn lại.`,
-        dailyImpact: `Tối đa ${formatVND(safeDailySpend)}/ngày`,
+        projection:
+          safeDailySpend > 0
+            ? `Nếu chi tiêu trên ${formatVND(safeDailySpend)}/ngày, bạn sẽ chính thức vỡ ngân sách ${catName}.`
+            : `Chi thêm bất kỳ khoản nào cũng sẽ vỡ ngân sách ${catName}.`,
+        suggestedAction: `${limitAdvice} trong ${daysRemaining} ngày còn lại.`,
+        dailyImpact: safeDailySpend > 0 ? `Tối đa ${formatVND(safeDailySpend)}/ngày` : 'Đã dùng hết hạn mức',
         targetTab: 'budget',
-        actionableStep: `Giới hạn chi tiêu ${catName} tối đa ${formatVND(safeDailySpend)}/ngày.`,
+        actionableStep: `${limitAdvice}.`,
       });
     }
   });
@@ -190,7 +216,8 @@ export function generateFinancialInsights(state: AppState): FinancialInsight[] {
   });
 
   // 3. Subscriptions & Recurring Bills Optimization
-  const totalRecurring = recurringExpenses.reduce((acc, r) => acc + r.amount, 0);
+  const totalRecurring = totalMonthlyRecurring(recurringExpenses);
+  const activeRecurringCount = recurringExpenses.filter((r) => r.isActive !== false).length;
   if (income > 0 && totalRecurring > 0) {
     const recIncomePct = Math.round((totalRecurring / income) * 100);
     if (recIncomePct > 20) {
@@ -201,7 +228,7 @@ export function generateFinancialInsights(state: AppState): FinancialInsight[] {
         severity: 'warning',
         metricLabel: 'Chi phí định kỳ',
         metricValue: `${formatVND(totalRecurring)}/tháng`,
-        observation: `Bạn có ${recurringExpenses.length} khoản chi định kỳ chiếm ${recIncomePct}% ngân sách cố định mỗi tháng.`,
+        observation: `Bạn có ${activeRecurringCount} khoản chi định kỳ chiếm ${recIncomePct}% ngân sách cố định mỗi tháng.`,
         projection: `Chi phí cố định quá cao sẽ thu hẹp biên độ ứng phó với các tình huống rủi ro khẩn cấp.`,
         suggestedAction: `Rà soát danh sách định kỳ, hủy các gói đăng ký ít sử dụng hoặc đàm phán lại các gói dịch vụ viễn thông/phí thường niên.`,
         dailyImpact: `Tiêu tốn ${formatVND(Math.round(totalRecurring / 30))}/ngày cố định`,
@@ -212,7 +239,7 @@ export function generateFinancialInsights(state: AppState): FinancialInsight[] {
   }
 
   // 4. Goals Optimization
-  goals.forEach((goal) => {
+  (canSuggestSaving ? goals : []).forEach((goal) => {
     const remaining = goal.target - goal.current;
     if (remaining > 0) {
       const pct = Math.round((goal.current / goal.target) * 100);

@@ -13,7 +13,9 @@ export class WalletsService {
       balance: w.balance ? Number(w.balance) : 0,
       currency: w.currency,
       isDefault: w.isDefault,
+      type: w.type || 'cash',
       userId: w.userId,
+      transactionCount: w._count?.transactions,
       createdAt: w.createdAt,
       updatedAt: w.updatedAt,
     };
@@ -28,6 +30,7 @@ export class WalletsService {
         balance: new Prisma.Decimal(0),
         currency: 'VND',
         isDefault: true,
+        type: 'cash',
         user: { connect: { id: userId } },
       });
       wallets = [defaultWallet];
@@ -44,10 +47,6 @@ export class WalletsService {
   }
 
   static async createWallet(userId: string, input: CreateWalletInput): Promise<WalletDTO> {
-    if (input.isDefault) {
-      await WalletsRepository.clearDefaults(userId);
-    }
-
     const initialBalance = FinancialMath.toDecimal(input.balance);
 
     const wallet = await WalletsRepository.create({
@@ -55,6 +54,7 @@ export class WalletsService {
       balance: initialBalance,
       currency: input.currency || 'VND',
       isDefault: input.isDefault || false,
+      type: input.type || 'cash',
       user: { connect: { id: userId } },
     });
 
@@ -76,17 +76,14 @@ export class WalletsService {
       throw new AppError('Không tìm thấy ví hoặc bạn không có quyền truy cập.', 404, 'NOT_FOUND');
     }
 
-    if (input.isDefault) {
-      await WalletsRepository.clearDefaults(userId);
-    }
-
     const newBalance = input.balance !== undefined ? FinancialMath.toDecimal(input.balance) : undefined;
 
-    const updated = await WalletsRepository.update(id, {
+    const updated = await WalletsRepository.update(id, userId, {
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(newBalance !== undefined ? { balance: newBalance } : {}),
       ...(input.currency !== undefined ? { currency: input.currency } : {}),
       ...(input.isDefault !== undefined ? { isDefault: input.isDefault } : {}),
+      ...(input.type !== undefined ? { type: input.type } : {}),
     });
 
     FinancialAuditLogger.log({
@@ -103,24 +100,14 @@ export class WalletsService {
   }
 
   static async deleteWallet(id: string, userId: string): Promise<void> {
-    const existing = await WalletsRepository.findByIdAndUserId(id, userId);
-    if (!existing) {
-      throw new AppError('Không tìm thấy ví hoặc bạn không có quyền truy cập.', 404, 'NOT_FOUND');
-    }
-
-    const allWallets = await WalletsRepository.findByUserId(userId);
-    if (allWallets.length <= 1) {
-      throw new AppError('Không thể xóa ví duy nhất của bạn.', 400, 'CANNOT_DELETE_ONLY_WALLET');
-    }
-
-    await WalletsRepository.delete(id);
+    const deleted = await WalletsRepository.delete(id, userId);
 
     FinancialAuditLogger.log({
       userId,
       action: 'WALLET_DELETE',
       entity: 'Wallet',
       entityId: id,
-      previousBalance: existing.balance,
+      previousBalance: deleted.balance,
     });
   }
 

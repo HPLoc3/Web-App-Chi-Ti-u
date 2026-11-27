@@ -135,7 +135,7 @@ describe('Auth Tests: Security, Tokens & Verification', () => {
         } as any,
       } as any);
 
-      vi.spyOn(AuthRepository, 'revokeRefreshToken').mockResolvedValue(undefined as any);
+      vi.spyOn(AuthRepository, 'rotateRefreshToken').mockResolvedValue(true);
       vi.spyOn(AuthRepository, 'createTokensAndSession').mockResolvedValue(undefined as any);
 
       // Generate a valid refresh token payload

@@ -1,4 +1,5 @@
 import { ReportsRepository } from './reports.repository';
+import { totalMonthlyRecurring } from '../../utils/recurringSchedule';
 import { SummaryReportQuery, SummaryReportResult, FinancialInsightsResult } from './reports.types';
 
 function formatVND(amount: number): string {
@@ -87,7 +88,7 @@ export class ReportsService {
       ReportsRepository.findActiveRecurring(userId),
     ]);
 
-    const income = budget?.income ? Number(budget.income) : 25000000;
+    const income = budget?.income ? Number(budget.income) : 0;
     const currentExpenses = currentTxs.filter((t) => t.type === 'EXPENSE');
     const totalExpense = currentExpenses.reduce((sum, t) => sum + Number(t.amount), 0);
 
@@ -161,7 +162,9 @@ export class ReportsService {
       else goalsProgressScore = 5;
     }
 
-    const totalRecurringPerMonth = recurring.reduce((acc, r) => acc + Number(r.amount), 0);
+    const totalRecurringPerMonth = totalMonthlyRecurring(
+      recurring.map((r) => ({ amount: Number(r.amount), frequency: r.frequency, isActive: r.isActive }))
+    );
     const recurringIncomeRatioPercent = income > 0 ? Math.round((totalRecurringPerMonth / income) * 100) : 0;
     let recurringRatioScore = 10;
     if (recurringIncomeRatioPercent <= 20) recurringRatioScore = 10;
@@ -177,6 +180,7 @@ export class ReportsService {
     );
 
     const healthScore = {
+      assessable: income > 0,
       savingsRateScore,
       budgetAdherenceScore,
       spendingStabilityScore,

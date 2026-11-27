@@ -2,6 +2,8 @@ import bcrypt from 'bcryptjs';
 import { UsersRepository } from './users.repository';
 import { UserProfileDTO, UpdateUserProfileInput, ChangePasswordInput } from './users.types';
 import { AppError } from '../../middleware/errorHandler.middleware';
+import { AuthService } from '../auth/auth.service';
+import { AuthTokens } from '../auth/auth.types';
 
 export class UsersService {
   static async getProfile(userId: string): Promise<UserProfileDTO> {
@@ -42,7 +44,10 @@ export class UsersService {
     };
   }
 
-  static async changePassword(userId: string, input: ChangePasswordInput): Promise<void> {
+  static async changePassword(
+    userId: string,
+    input: ChangePasswordInput
+  ): Promise<{ user: UserProfileDTO; tokens: AuthTokens }> {
     const user = await UsersRepository.findById(userId);
     if (!user) {
       throw new AppError('Người dùng không tồn tại.', 404, 'USER_NOT_FOUND');
@@ -62,7 +67,11 @@ export class UsersService {
     }
 
     const newHash = await bcrypt.hash(input.newPassword, 10);
-    await UsersRepository.update(userId, { password: newHash });
+    await UsersRepository.changePassword(userId, newHash);
+
+    // Thiết bị hiện tại nhận phiên mới; mọi phiên cũ đã bị thu hồi
+    const tokens = await AuthService.generateTokens(user);
+    return { user: await this.getProfile(userId), tokens };
   }
 
   static async deleteAccount(userId: string): Promise<void> {

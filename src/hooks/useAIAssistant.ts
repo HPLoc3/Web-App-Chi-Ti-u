@@ -33,7 +33,7 @@ interface UseAIAssistantOptions {
   categoryLimits: Record<string, number>;
   goals?: Goal[];
   income?: number;
-  onAddExpense: (expense: Omit<Expense, 'id'>) => void;
+  onAddExpense: (expense: Omit<Expense, 'id'>) => Promise<void> | void;
   userName?: string;
   isAuthenticated?: boolean;
 }
@@ -42,7 +42,7 @@ export function useAIAssistant({
   expenses,
   categoryLimits,
   goals = [],
-  income = 15000000,
+  income = 0,
   onAddExpense,
   userName = 'bạn',
   isAuthenticated = false,
@@ -160,19 +160,31 @@ export function useAIAssistant({
   );
 
   const confirmTransaction = useCallback(
-    (messageId: string, tx: PendingTransaction) => {
-      onAddExpense({
-        amount: tx.amount,
-        categoryId: tx.category,
-        date: tx.date,
-        note: tx.note,
-      });
+    async (messageId: string, tx: PendingTransaction) => {
+      try {
+        await onAddExpense({
+          amount: tx.amount,
+          categoryId: tx.category,
+          date: tx.date,
+          note: tx.note,
+        });
+      } catch (err: any) {
+        const reason = err?.response?.data?.message || err?.message || 'Lỗi không xác định.';
+        // Giữ đề xuất ở trạng thái chờ để người dùng thử lại
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === messageId ? { ...msg, text: `❌ Chưa lưu được: ${reason}`, isWarning: true } : msg
+          )
+        );
+        return;
+      }
 
       setMessages((prev) =>
         prev.map((msg) => {
           if (msg.id === messageId && msg.pendingTransaction) {
             return {
               ...msg,
+              isWarning: false,
               text: `✅ Đã lưu giao dịch: **${tx.note}** — **${tx.amount.toLocaleString('vi-VN')}₫** vào sổ tay!`,
               pendingTransaction: {
                 ...msg.pendingTransaction,

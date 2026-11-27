@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { ReportsService } from './reports.service';
 import { sendSuccess, sendError } from '../../utils/response';
+import { sendHttpError } from '../../utils/httpError';
 
 export class ReportsController {
   static async getSummaryReport(req: Request, res: Response): Promise<void> {
@@ -14,7 +15,7 @@ export class ReportsController {
       const report = await ReportsService.getSummaryReport(userId, req.query as any);
       sendSuccess(res, 200, report);
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'REPORT_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'REPORT_ERROR', req.id);
     }
   }
 
@@ -29,7 +30,7 @@ export class ReportsController {
       const result = await ReportsService.getFinancialInsights(userId);
       sendSuccess(res, 200, result);
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'INSIGHTS_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'INSIGHTS_ERROR', req.id);
     }
   }
 }

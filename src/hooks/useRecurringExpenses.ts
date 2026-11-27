@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RecurringExpense } from '../types';
 import { recurringExpenseService } from '../services/api/recurringExpenseService';
+import { getApiErrorMessage } from '../lib/apiClient';
 
 export function useRecurringExpenses(userId: string | null) {
   const [recurringExpenses, setRecurringExpenses] = useState<RecurringExpense[]>([]);
@@ -27,7 +28,7 @@ export function useRecurringExpenses(userId: string | null) {
         return;
       }
       console.error('Error fetching recurring expenses from PostgreSQL API:', err);
-      setError(err?.response?.data?.message || err?.message || 'Lỗi tải chi tiêu định kỳ');
+      setError(getApiErrorMessage(err, 'Lỗi tải chi tiêu định kỳ'));
     } finally {
       setLoading(false);
     }
@@ -51,7 +52,7 @@ export function useRecurringExpenses(userId: string | null) {
         return created;
       } catch (err: any) {
         setRecurringExpenses((prev) => prev.filter((i) => i.id !== tempId));
-        setError(err?.response?.data?.message || err?.message || 'Không thể tạo chi tiêu định kỳ');
+        setError(getApiErrorMessage(err, 'Không thể tạo chi tiêu định kỳ'));
         throw err;
       }
     },
@@ -73,7 +74,7 @@ export function useRecurringExpenses(userId: string | null) {
         if (original) {
           setRecurringExpenses((prev) => prev.map((i) => (i.id === item.id ? original : i)));
         }
-        setError(err?.response?.data?.message || err?.message || 'Không thể cập nhật chi tiêu định kỳ');
+        setError(getApiErrorMessage(err, 'Không thể cập nhật chi tiêu định kỳ'));
         throw err;
       }
     },
@@ -93,7 +94,7 @@ export function useRecurringExpenses(userId: string | null) {
         if (original) {
           setRecurringExpenses((prev) => [...prev, original]);
         }
-        setError(err?.response?.data?.message || err?.message || 'Không thể xóa chi tiêu định kỳ');
+        setError(getApiErrorMessage(err, 'Không thể xóa chi tiêu định kỳ'));
         throw err;
       }
     },
@@ -107,7 +108,7 @@ export function useRecurringExpenses(userId: string | null) {
       await fetchRecurring();
       return result;
     } catch (err: any) {
-      setError(err?.response?.data?.message || err?.message || 'Lỗi đồng bộ chi tiêu định kỳ');
+      setError(getApiErrorMessage(err, 'Lỗi đồng bộ chi tiêu định kỳ'));
       throw err;
     }
   }, [userId, fetchRecurring]);

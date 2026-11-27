@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { AppState, Expense, Goal, RecurringExpense } from '../types';
 import TabSkeleton from '../components/common/TabSkeleton';
 import { AppShell } from '../components/layout/AppShell';
@@ -32,9 +32,22 @@ import {
   useBudgets, 
   useBackupRestore 
 } from '../hooks';
+import { recurringExpenseService } from '../services/api/recurringExpenseService';
+import { getBusinessDate } from '../utils/dateParser';
+import { getApiErrorMessage } from '../lib/apiClient';
+import {
+  RECURRING_BACKFILL_DAYS,
+  applyGuestRecurringSync,
+  createGuestRecurring,
+  updateGuestRecurring,
+} from '../utils/recurringSchedule';
+
+const recordedMessage = (count: number) => `Đã ghi ${count} giao dịch định kỳ đến hạn.`;
+const skippedMessage = (count: number) =>
+  `Bỏ qua ${count} kỳ định kỳ đã lỡ quá ${RECURRING_BACKFILL_DAYS} ngày (không ghi vào sổ).`;
 
 export function LedgerApp() {
-  const { currentUser, loading: authLoading, logout } = useAuth();
+  const { currentUser, authState, logout, logoutAll } = useAuth();
   const { showToast } = useToast();
   const userId = currentUser?.uid || null;
 
@@ -59,11 +72,18 @@ export function LedgerApp() {
     }
   }, []);
 
-  // Onboarding tour state
-  const [isOnboardingOpen, setIsOnboardingOpen] = useState(() => {
-    const completed = localStorage.getItem('so_tay_onboarding_completed');
-    return !completed;
-  });
+  // Onboarding: ghi nhận riêng cho từng tài khoản (khách dùng khóa chung)
+  const onboardingKey = userId ? `so_tay_onboarding_completed_${userId}` : 'so_tay_onboarding_completed';
+  const [closedOnboardingKey, setClosedOnboardingKey] = useState<string | null>(null);
+  const isOnboardingOpen =
+    authState !== 'LOADING' && closedOnboardingKey !== onboardingKey && !localStorage.getItem(onboardingKey);
+
+  // Rời tài khoản (đăng xuất, hết phiên) thì lần sau bắt đầu lại ở Tổng quan
+  const previousUserRef = useRef(userId);
+  useEffect(() => {
+    if (previousUserRef.current && previousUserRef.current !== userId) setActiveTab('overview');
+    previousUserRef.current = userId;
+  }, [userId]);
 
   // Auto switch to 'app' view when logged in
   useEffect(() => {
@@ -79,6 +99,7 @@ export function LedgerApp() {
     updateExpense: apiUpdateExpense,
     deleteExpense: apiDeleteExpense, 
     addBulkExpenses: apiAddBulkExpenses,
+    refetchExpenses: apiRefetchExpenses,
   } = useTransactions(userId);
 
   const { 
@@ -90,9 +111,12 @@ export function LedgerApp() {
 
   const { 
     recurringExpenses: apiRecurring, 
-    addRecurringExpense: apiAddRecurring, 
-    deleteRecurringExpense: apiDeleteRecurring, 
+    error: recurringError,
+    addRecurringExpense: apiAddRecurring,
+    updateRecurringExpense: apiUpdateRecurring,
+    deleteRecurringExpense: apiDeleteRecurring,
     syncRecurring: apiSyncRecurring,
+    refetchRecurring: apiRefetchRecurring,
   } = useRecurring(userId);
 
   const { 
@@ -107,27 +131,68 @@ export function LedgerApp() {
     localState, 
     setLocalState, 
     handleLoadSampleData, 
-  } = useBackupRestore(
-    userId,
-    {
-      updateBudget: apiUpdateBudget,
-      addBulkExpenses: apiAddBulkExpenses,
-      addGoal: apiAddGoal,
-    },
-    showToast
-  );
+  } = useBackupRestore(userId, showToast);
+
+  // Dữ liệu mẫu chỉ dành cho chế độ dùng thử (khách)
+  const onLoadSampleData = userId ? undefined : handleLoadSampleData;
 
   // Active state combining API (if logged in) or LocalState (if guest)
   const state: AppState = {
     expenses: userId ? apiExpenses : localState.expenses,
     goals: userId ? apiGoals : localState.goals,
     recurringExpenses: userId ? apiRecurring : localState.recurringExpenses,
-    income: userId ? (apiIncome !== undefined ? apiIncome : localState.income) : localState.income,
-    budgetTemplate: userId ? (apiTemplate as any || localState.budgetTemplate) : localState.budgetTemplate,
-    categoryLimits: userId ? (apiLimits || localState.categoryLimits) : localState.categoryLimits,
-    generatedRecurringMonths: localState.generatedRecurringMonths,
+    income: userId ? (apiIncome ?? 0) : localState.income,
+    budgetTemplate: userId ? ((apiTemplate ?? 'none') as AppState['budgetTemplate']) : localState.budgetTemplate,
+    categoryLimits: userId ? (apiLimits ?? {}) : localState.categoryLimits,
+    generatedRecurringMonths: userId ? [] : localState.generatedRecurringMonths,
     isSampleData: userId ? false : localState.isSampleData,
   };
+
+  const toastRecurringResult = (syncedCount: number, skippedMissed: number) => {
+    if (syncedCount > 0) showToast(recordedMessage(syncedCount), 'success');
+    if (skippedMissed > 0) showToast(skippedMessage(skippedMissed), 'warning');
+  };
+
+  const syncGuestRecurring = (recurring: RecurringExpense[] = localState.recurringExpenses) => {
+    const today = getBusinessDate();
+    const result = applyGuestRecurringSync(recurring, localState.expenses, today);
+    // Cập nhật theo state mới nhất; hàm thuần và gọi lại không ghi trùng
+    setLocalState(prev => {
+      const next = applyGuestRecurringSync(prev.recurringExpenses, prev.expenses, today);
+      return { ...prev, recurringExpenses: next.recurringExpenses, expenses: next.expenses };
+    });
+    return result;
+  };
+
+  // Tự ghi khoản định kỳ đến hạn: một lần cho mỗi tài khoản (hoặc chế độ khách) mỗi lần mở app
+  const autoSyncedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (authState === 'LOADING') return;
+    const owner = userId || 'guest';
+    if (autoSyncedForRef.current === owner) return;
+    autoSyncedForRef.current = owner;
+
+    if (!userId) {
+      const result = syncGuestRecurring();
+      toastRecurringResult(result.syncedCount, result.skippedMissed);
+      return;
+    }
+
+    (async () => {
+      try {
+        const result = await recurringExpenseService.syncRecurring();
+        // Đã đổi tài khoản trong lúc chờ: bỏ kết quả
+        if (autoSyncedForRef.current !== owner) return;
+        toastRecurringResult(result.syncedCount, result.skippedMissed);
+        await Promise.all([
+          result.syncedCount > 0 ? apiRefetchExpenses() : null,
+          apiRefetchRecurring(),
+        ]);
+      } catch (err) {
+        console.warn('Tự động đồng bộ khoản định kỳ thất bại:', err);
+      }
+    })();
+  }, [userId, authState]);
 
   // Business Action Handlers
   const handleAddExpense = async (newExpense: Omit<Expense, 'id'>) => {
@@ -224,20 +289,66 @@ export function LedgerApp() {
     }
   };
 
+  const isDueNow = (rec: RecurringExpense, today: string) =>
+    rec.isActive !== false && !!rec.nextPaymentDate && rec.nextPaymentDate <= today;
+
+  // Khoản vừa lưu đã đến hạn thì ghi ngay. Chạy sau khi lưu xong: lỗi ở đây không phải lỗi lưu
+  const syncSavedRecurring = async (saved: RecurringExpense) => {
+    if (!isDueNow(saved, getBusinessDate())) return;
+    const owner = userId;
+    try {
+      const result = await recurringExpenseService.syncRecurring();
+      // Đã đổi tài khoản trong lúc chờ: bỏ kết quả
+      if (autoSyncedForRef.current !== owner) return;
+      toastRecurringResult(result.syncedCount, result.skippedMissed);
+      await Promise.all([
+        result.syncedCount > 0 ? apiRefetchExpenses() : null,
+        apiRefetchRecurring(),
+      ]);
+    } catch (err) {
+      console.warn('Đồng bộ sau khi lưu khoản định kỳ thất bại:', err);
+    }
+  };
+
+  // Chế độ khách: danh sách mới chưa có trong localState nên phải truyền vào
+  const syncSavedGuestRecurring = (nextList: RecurringExpense[], saved: RecurringExpense, today: string) => {
+    if (!isDueNow(saved, today)) return;
+    const result = syncGuestRecurring(nextList);
+    toastRecurringResult(result.syncedCount, result.skippedMissed);
+  };
+
   const handleAddRecurringExpense = async (newRec: Omit<RecurringExpense, 'id'>) => {
     if (userId) {
-      await apiAddRecurring(newRec);
-    } else {
-      const recWithId: RecurringExpense = {
-        ...newRec,
-        id: `rec-${Date.now()}`
-      };
-      setLocalState(prev => ({
-        ...prev,
-        recurringExpenses: [...prev.recurringExpenses, recWithId]
-      }));
+      const created = await apiAddRecurring(newRec);
+      showToast('Đã thêm khoản chi định kỳ!', 'success');
+      void syncSavedRecurring(created);
+      return;
     }
+    const today = getBusinessDate();
+    const recWithId = createGuestRecurring(newRec, today, `rec-${Date.now()}`);
+    setLocalState(prev => ({
+      ...prev,
+      recurringExpenses: [...prev.recurringExpenses, recWithId]
+    }));
     showToast('Đã thêm khoản chi định kỳ!', 'success');
+    syncSavedGuestRecurring([...localState.recurringExpenses, recWithId], recWithId, today);
+  };
+
+  const handleUpdateRecurringExpense = async (rec: RecurringExpense) => {
+    if (userId) {
+      const updated = await apiUpdateRecurring(rec);
+      showToast('Đã cập nhật khoản định kỳ.', 'success');
+      void syncSavedRecurring(updated);
+      return;
+    }
+    const today = getBusinessDate();
+    const applyUpdate = (list: RecurringExpense[]) =>
+      list.map(r => (r.id === rec.id ? updateGuestRecurring(r, rec, today) : r));
+    setLocalState(prev => ({ ...prev, recurringExpenses: applyUpdate(prev.recurringExpenses) }));
+    showToast('Đã cập nhật khoản định kỳ.', 'success');
+    const nextList = applyUpdate(localState.recurringExpenses);
+    const saved = nextList.find(r => r.id === rec.id);
+    if (saved) syncSavedGuestRecurring(nextList, saved, today);
   };
 
   const handleDeleteRecurringExpense = async (id: string) => {
@@ -253,48 +364,16 @@ export function LedgerApp() {
   };
 
   const handleTriggerManualRecurringSync = async () => {
-    if (userId) {
-      try {
-        const res = await apiSyncRecurring();
-        showToast(res.message || 'Đã đồng bộ chi tiêu định kỳ!', 'success');
-      } catch (err: any) {
-        showToast(err?.message || 'Lỗi đồng bộ chi tiêu định kỳ', 'error');
+    try {
+      const result = userId ? await apiSyncRecurring() : syncGuestRecurring();
+      if (userId && result.syncedCount > 0) await apiRefetchExpenses();
+      toastRecurringResult(result.syncedCount, result.skippedMissed);
+      if (result.syncedCount === 0 && result.skippedMissed === 0) {
+        showToast('Chưa có khoản định kỳ nào đến hạn cần ghi.', 'info');
       }
-      return;
+    } catch (err) {
+      showToast(getApiErrorMessage(err, 'Lỗi đồng bộ chi tiêu định kỳ'), 'error');
     }
-
-    const today = new Date();
-    const newExpensesToInsert: Omit<Expense, 'id'>[] = [];
-    state.recurringExpenses.forEach(rec => {
-      const dayStr = String(rec.dayOfMonth).padStart(2, '0');
-      const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${dayStr}`;
-      
-      const isAlreadyAdded = state.expenses.some(exp => 
-        exp.categoryId === rec.categoryId && 
-        exp.amount === rec.amount && 
-        exp.date === dateStr &&
-        exp.note === rec.note
-      );
-      
-      if (!isAlreadyAdded) {
-        newExpensesToInsert.push({
-          amount: rec.amount,
-          categoryId: rec.categoryId,
-          date: dateStr,
-          note: `${rec.note} (Tự động định kỳ)`
-        });
-      }
-    });
-
-    if (newExpensesToInsert.length === 0) {
-      showToast('Tất cả khoản chi định kỳ tháng này đã được cập nhật trước đó.', 'info');
-      return;
-    }
-
-    for (const item of newExpensesToInsert) {
-      await handleAddExpense(item);
-    }
-    showToast(`Đã đồng bộ thành công ${newExpensesToInsert.length} khoản chi định kỳ!`, 'success');
   };
 
   const handleAddGoal = async (newGoal: Omit<Goal, 'id' | 'createdAt'>) => {
@@ -319,7 +398,8 @@ export function LedgerApp() {
 
   const handleUpdateGoalProgress = async (goalId: string, newCurrent: number) => {
     const targetGoal = state.goals.find(g => g.id === goalId);
-    if (!targetGoal) return;
+    // Ném lỗi để form không báo lưu thành công
+    if (!targetGoal) throw new Error('Không tìm thấy mục tiêu cần cập nhật.');
     const updatedGoal: Goal = { ...targetGoal, current: newCurrent };
 
     if (userId) {
@@ -355,7 +435,14 @@ export function LedgerApp() {
     }
   };
 
-  if (authLoading) {
+  // Lỗi được ném tiếp để SettingsTab báo lỗi và giữ nguyên phiên
+  const handleLogoutAll = async () => {
+    await logoutAll();
+    setViewState('landing');
+  };
+
+  // Chỉ chặn màn hình khi kiểm tra phiên lần đầu; không unmount AuthModal khi đang gửi form
+  if (authState === 'LOADING') {
     return (
       <div className="min-h-screen bg-[#FAF9F6] flex flex-col items-center justify-center p-4 font-serif">
         <div className="flex flex-col items-center gap-3 bg-[#FCFAF4] border-2 border-[#E6DEC9] p-8 rounded-2xl shadow-lg text-center max-w-xs w-full">
@@ -370,32 +457,37 @@ export function LedgerApp() {
     );
   }
 
-  if (viewState === 'landing') {
-    return (
-      <>
-        <LandingPage
-          onOpenLogin={() => {
-            setAuthModalTab('login');
-            setIsAuthModalOpen(true);
-          }}
-          onOpenRegister={() => {
-            setAuthModalTab('register');
-            setIsAuthModalOpen(true);
-          }}
-          onStartDemo={() => setViewState('app')}
-          isLoggedIn={!!currentUser}
-          userName={currentUser?.displayName}
-        />
-        <AuthModal
-          isOpen={isAuthModalOpen}
-          onClose={() => setIsAuthModalOpen(false)}
-          defaultTab={authModalTab}
-        />
-      </>
-    );
-  }
+  // AuthModal đặt ngoài hai nhánh để không bị mount lại khi chuyển từ landing sang app
+  const authModal = isAuthModalOpen && (
+    <AuthModal
+      isOpen={isAuthModalOpen}
+      onClose={() => setIsAuthModalOpen(false)}
+      defaultTab={authModalTab}
+      initialToken={resetTokenFromUrl}
+    />
+  );
 
-  return (
+  const landingPage = (
+    <LandingPage
+      onOpenLogin={() => {
+        setAuthModalTab('login');
+        setIsAuthModalOpen(true);
+      }}
+      onOpenRegister={() => {
+        setAuthModalTab('register');
+        setIsAuthModalOpen(true);
+      }}
+      onStartDemo={() => setViewState('app')}
+      onTryChatbot={() => {
+        setActiveTab('chatbot');
+        setViewState('app');
+      }}
+      isLoggedIn={!!currentUser}
+      userName={currentUser?.displayName}
+    />
+  );
+
+  const appShell = (
     <AppShell
       activeTab={activeTab}
       onSelectTab={(tab) => setActiveTab(tab)}
@@ -407,11 +499,11 @@ export function LedgerApp() {
       }}
       onOpenQuickAdd={() => setIsQuickAddOpen(true)}
       onNavigateHome={() => setViewState('landing')}
-      onLoadSampleData={handleLoadSampleData}
+      onLoadSampleData={onLoadSampleData}
       stats={{
         totalExpensesCount: state.expenses.length,
         activeGoalsCount: state.goals.length,
-        activeRecurringCount: state.recurringExpenses.length,
+        activeRecurringCount: state.recurringExpenses.filter(r => r.isActive !== false).length,
       }}
     >
       <Suspense fallback={<TabSkeleton />}>
@@ -439,6 +531,8 @@ export function LedgerApp() {
             onAddExpense={handleAddExpense}
             onDeleteExpense={handleDeleteExpense}
             onUpdateExpense={handleUpdateExpense}
+            onAddBulkExpenses={handleAddBulkExpenses}
+            onRefetchExpenses={userId ? apiRefetchExpenses : undefined}
           />
         )}
 
@@ -480,7 +574,9 @@ export function LedgerApp() {
           <RecurringTab
             recurringExpenses={state.recurringExpenses}
             income={state.income}
+            loadError={userId ? recurringError : null}
             onAddRecurringExpense={handleAddRecurringExpense}
+            onUpdateRecurringExpense={handleUpdateRecurringExpense}
             onDeleteRecurringExpense={handleDeleteRecurringExpense}
             onTriggerManualRecurringSync={handleTriggerManualRecurringSync}
           />
@@ -514,7 +610,8 @@ export function LedgerApp() {
             currentUser={currentUser}
             state={state}
             onLogout={handleLogout}
-            onLoadSampleData={handleLoadSampleData}
+            onLogoutAll={handleLogoutAll}
+            onLoadSampleData={onLoadSampleData}
             onOpenAuth={() => {
               setAuthModalTab('login');
               setIsAuthModalOpen(true);
@@ -537,21 +634,24 @@ export function LedgerApp() {
         onAddExpense={handleAddExpense}
       />
 
-      {/* Auth Modal */}
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        defaultTab={authModalTab}
-        initialToken={resetTokenFromUrl}
-      />
-
       {/* Onboarding Modal */}
-      <OnboardingModal
-        isOpen={isOnboardingOpen}
-        onClose={() => setIsOnboardingOpen(false)}
-        onNavigateTab={(tab) => setActiveTab(tab as NavTabKey)}
-      />
+      <React.Fragment key={onboardingKey}>
+        <OnboardingModal
+          storageKey={onboardingKey}
+          isGuest={!userId}
+          isOpen={isOnboardingOpen}
+          onClose={() => setClosedOnboardingKey(onboardingKey)}
+          onNavigateTab={(tab) => setActiveTab(tab as NavTabKey)}
+        />
+      </React.Fragment>
     </AppShell>
+  );
+
+  return (
+    <>
+      {viewState === 'landing' ? landingPage : appShell}
+      {authModal}
+    </>
   );
 }
 

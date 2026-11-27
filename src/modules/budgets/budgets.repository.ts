@@ -18,7 +18,7 @@ export class BudgetsRepository {
         },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.findBudgetByUserId(userId);
       }
       throw error;
@@ -29,17 +29,17 @@ export class BudgetsRepository {
     try {
       return await prisma.budget.create({
         data: {
-          income: new Prisma.Decimal(25000000),
+          income: new Prisma.Decimal(0),
           budgetTemplate: '50_30_20',
           userId,
         },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         const id = `dev-b-${Date.now()}`;
         const b: Budget = {
           id,
-          income: new Prisma.Decimal(25000000),
+          income: new Prisma.Decimal(0),
           budgetTemplate: '50_30_20',
           needsPercent: 50,
           wantsPercent: 30,
@@ -105,7 +105,7 @@ export class BudgetsRepository {
         return budget;
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         let budget = devFallbackStore.findBudgetByUserId(userId);
         if (!budget) {
           budget = await this.createDefault(userId);

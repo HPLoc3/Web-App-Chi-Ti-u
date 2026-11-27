@@ -9,14 +9,17 @@ import {
   Activity
 } from 'lucide-react';
 import { HealthScoreBreakdown } from '../../../types';
+import { maskMoneyInText } from '../../../utils/format';
 
 interface FinancialHealthCardProps {
   healthScore: HealthScoreBreakdown;
+  showBalance?: boolean;
   onNavigateToInsights?: () => void;
 }
 
 export const FinancialHealthCard: React.FC<FinancialHealthCardProps> = ({
   healthScore,
+  showBalance = true,
   onNavigateToInsights,
 }) => {
   const [showDetails, setShowDetails] = useState(false);
@@ -29,7 +32,9 @@ export const FinancialHealthCard: React.FC<FinancialHealthCardProps> = ({
     return { label: 'Báo động', color: 'text-rose-700', bg: 'bg-rose-100', border: 'border-rose-300', ring: '#e11d48' };
   };
 
-  const grade = getScoreGrade(score);
+  const grade = healthScore.assessable
+    ? getScoreGrade(score)
+    : { label: 'Chưa đánh giá', color: 'text-stone-600', bg: 'bg-stone-100', border: 'border-stone-300', ring: '#a8a29e' };
 
   return (
     <div className="bg-[#FAF7F0] border border-[#E6DEC9] rounded-2xl p-5 shadow-xs flex flex-col justify-between">
@@ -55,6 +60,12 @@ export const FinancialHealthCard: React.FC<FinancialHealthCardProps> = ({
           </span>
         </div>
 
+        {!healthScore.assessable ? (
+          <div className="bg-white border border-dashed border-[#E6DEC9] p-4 rounded-xl text-center text-xs text-stone-600">
+            Chưa đánh giá — hãy nhập thu nhập tháng
+          </div>
+        ) : (
+          <>
         {/* Score Display Area */}
         <div className="flex items-center gap-4 bg-white border border-[#E6DEC9] p-4 rounded-xl mb-4">
           {/* Radial score badge */}
@@ -87,13 +98,20 @@ export const FinancialHealthCard: React.FC<FinancialHealthCardProps> = ({
           {/* Quick evaluation text */}
           <div className="space-y-1 text-xs">
             <div className="font-serif font-bold text-stone-900">
-              {score >= 80 ? 'Bạn đang kiểm soát rất tốt!' : score >= 60 ? 'Tài chính đang đi đúng hướng' : 'Cần tối ưu ngân sách ngay'}
+              {maskMoneyInText(
+                score >= 80 ? 'Bạn đang kiểm soát rất tốt!' : score >= 60 ? 'Tài chính đang đi đúng hướng' : 'Cần tối ưu ngân sách ngay',
+                showBalance
+              )}
             </div>
             <p className="text-stone-600 text-[11px] leading-relaxed">
-              {healthScore.savingsRatePercent >= 20 
-                ? `Tỷ lệ tiết kiệm (${healthScore.savingsRatePercent}%) đạt chuẩn an toàn.` 
-                : `Tỷ lệ tiết kiệm (${healthScore.savingsRatePercent}%) thấp hơn chuẩn 20%.`}
-              {healthScore.overspendingCount > 0 && ` Có ${healthScore.overspendingCount} mục vượt ngân sách.`}
+              {maskMoneyInText(
+                `${
+                  healthScore.savingsRatePercent >= 20
+                    ? `Tỷ lệ tiết kiệm (${healthScore.savingsRatePercent}%) đạt chuẩn an toàn.`
+                    : `Tỷ lệ tiết kiệm (${healthScore.savingsRatePercent}%) thấp hơn chuẩn 20%.`
+                }${healthScore.overspendingCount > 0 ? ` Có ${healthScore.overspendingCount} mục vượt ngân sách.` : ''}`,
+                showBalance
+              )}
             </p>
           </div>
         </div>
@@ -156,6 +174,8 @@ export const FinancialHealthCard: React.FC<FinancialHealthCardProps> = ({
             </div>
           </div>
         </div>
+          </>
+        )}
       </div>
 
       {/* Footer link */}

@@ -71,11 +71,11 @@ export default function FinalCtaSection({
           </div>
           <div className="flex items-center gap-1.5">
             <CheckCircle2 size={14} className="text-amber-400" />
-            <span>Miễn phí trọn đời cho cá nhân</span>
+            <span>Dùng thử không cần tài khoản</span>
           </div>
           <div className="flex items-center gap-1.5">
             <Lock size={14} className="text-amber-400" />
-            <span>Bảo vệ quyền riêng tư dữ liệu</span>
+            <span>Mỗi tài khoản có dữ liệu riêng</span>
           </div>
         </div>
 

@@ -27,15 +27,15 @@ export default function BudgetDeepDiveSection() {
         <div className="text-center max-w-3xl mx-auto space-y-3 mb-12 sm:mb-16">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-100 text-indigo-900 text-xs font-semibold">
             <SlidersHorizontal size={13} className="text-indigo-700" />
-            <span>Phương pháp tài chính chuẩn quốc tế</span>
+            <span>Phương pháp phân bổ phổ biến</span>
           </div>
 
           <h2 className="font-serif text-2xl sm:text-4xl font-black text-emerald-950 tracking-tight">
-            Quản lý ngân sách tự động theo quy tắc 50/30/20
+            Lập ngân sách theo quy tắc 50/30/20
           </h2>
 
           <p className="text-stone-600 text-sm sm:text-base leading-relaxed max-w-2xl mx-auto">
-            Không cần tính toán thủ công. Hệ thống tự động phân bổ thu nhập thành 3 quỹ tài chính thông minh kèm cảnh báo thời gian thực khi một danh mục chạm trần.
+            Hệ thống tính sẵn 3 mức phân bổ gợi ý từ thu nhập bạn nhập. Cảnh báo dựa trên hạn mức danh mục do bạn đặt.
           </p>
         </div>
 
@@ -102,7 +102,7 @@ export default function BudgetDeepDiveSection() {
                 Chi trả tiền thuê nhà, ăn uống cơ bản, điện nước, xăng xe và các hóa đơn bắt buộc.
               </p>
               <div className="text-[11px] font-mono text-emerald-800 bg-emerald-100/70 px-2 py-1 rounded">
-                Hạn mức an toàn trần
+                Mức gợi ý
               </div>
             </div>
 
@@ -121,7 +121,7 @@ export default function BudgetDeepDiveSection() {
                 Mua sắm thời trang, cà phê cuối tuần, xem phim, giải trí và ăn ngoài cùng bạn bè.
               </p>
               <div className="text-[11px] font-mono text-amber-800 bg-amber-100/70 px-2 py-1 rounded">
-                Tự do chi tiêu có kiểm soát
+                Mức gợi ý
               </div>
             </div>
 
@@ -140,7 +140,7 @@ export default function BudgetDeepDiveSection() {
                 Xây dựng quỹ khẩn cấp 3-6 tháng, tiết kiệm mua tài sản lớn và các khoản đầu tư sinh lời.
               </p>
               <div className="text-[11px] font-mono text-blue-800 bg-blue-100/70 px-2 py-1 rounded">
-                Tích lũy tự động hàng tháng
+                Mức gợi ý để dành mỗi tháng
               </div>
             </div>
 
@@ -150,8 +150,8 @@ export default function BudgetDeepDiveSection() {
           <div className="p-4 bg-amber-50/80 border border-amber-200/80 rounded-2xl flex items-start gap-3 text-xs sm:text-sm text-stone-700">
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
             <div>
-              <span className="font-bold text-stone-900 block font-serif">Hệ thống Cảnh báo Tiến độ Thông minh:</span>
-              Khi bất kỳ danh mục nào đạt đến 80% hạn mức đã thiết lập, hệ thống sẽ tự động đổi màu hiển thị cảnh báo sang màu cam và gửi thông báo nhắc nhở để bạn điều chỉnh kế hoạch kịp thời trước khi vượt ngân sách.
+              <span className="font-bold text-stone-900 block font-serif">Cảnh báo theo hạn mức danh mục:</span>
+              Khi một danh mục đạt khoảng 80% hạn mức bạn đã đặt, phần gợi ý và tab Báo cáo đánh dấu cảnh báo; vượt hạn mức thì hiện màu đỏ. Cảnh báo chỉ hiện trong ứng dụng.
             </div>
           </div>
 

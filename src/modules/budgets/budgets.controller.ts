@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { BudgetsService } from './budgets.service';
 import { sendSuccess, sendError } from '../../utils/response';
+import { sendHttpError } from '../../utils/httpError';
 
 export class BudgetsController {
   static async getBudget(req: Request, res: Response): Promise<void> {
@@ -14,7 +15,7 @@ export class BudgetsController {
       const budget = await BudgetsService.getBudget(userId);
       sendSuccess(res, 200, budget, undefined, { budget });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'BUDGET_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'BUDGET_ERROR', req.id);
     }
   }
 
@@ -29,7 +30,7 @@ export class BudgetsController {
       const budget = await BudgetsService.updateBudget(userId, req.body);
       sendSuccess(res, 200, budget, undefined, { budget, message: 'Cập nhật ngân sách thành công.' });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'UPDATE_BUDGET_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'UPDATE_BUDGET_ERROR', req.id);
     }
   }
 }

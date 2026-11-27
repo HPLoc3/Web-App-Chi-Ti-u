@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Expense } from '../types';
 import { expenseService } from '../services/api/expenseService';
 
@@ -6,8 +6,11 @@ export function useExpenses(userId: string | null) {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState<boolean>(!!userId);
   const [error, setError] = useState<string | null>(null);
+  // Tải nhiều trang mất lâu hơn: chỉ nhận kết quả của lần gọi mới nhất (vd sau khi đổi tài khoản)
+  const latestFetchRef = useRef(0);
 
   const fetchExpenses = useCallback(async () => {
+    const requestId = ++latestFetchRef.current;
     if (!userId) {
       setExpenses([]);
       setLoading(false);
@@ -19,8 +22,10 @@ export function useExpenses(userId: string | null) {
     setError(null);
     try {
       const data = await expenseService.getExpenses();
+      if (requestId !== latestFetchRef.current) return;
       setExpenses(data);
     } catch (err: any) {
+      if (requestId !== latestFetchRef.current) return;
       if (err?.response?.status === 401) {
         setExpenses([]);
         setError(null);
@@ -29,7 +34,7 @@ export function useExpenses(userId: string | null) {
       console.error('Error fetching expenses from PostgreSQL API:', err);
       setError(err?.response?.data?.message || err?.message || 'Lỗi tải danh sách chi tiêu');
     } finally {
-      setLoading(false);
+      if (requestId === latestFetchRef.current) setLoading(false);
     }
   }, [userId]);
 

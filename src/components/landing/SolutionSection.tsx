@@ -16,7 +16,7 @@ export default function SolutionSection() {
     {
       icon: <ArrowUpCircle className="w-5 h-5 text-emerald-600" />,
       title: "Thu nhập",
-      desc: "Theo dõi mọi nguồn lương, thưởng và thu nhập thụ động."
+      desc: "Khai báo thu nhập hằng tháng để tính phần còn lại và tỷ lệ tiết kiệm."
     },
     {
       icon: <ArrowDownCircle className="w-5 h-5 text-amber-600" />,
@@ -26,17 +26,17 @@ export default function SolutionSection() {
     {
       icon: <Wallet className="w-5 h-5 text-blue-600" />,
       title: "Ví tiền",
-      desc: "Quản lý đa ví: Tiền mặt, Ngân hàng, Thẻ tín dụng, Tiết kiệm."
+      desc: "Quản lý đa ví: Tiền mặt, Ngân hàng, Thẻ tín dụng, Ví điện tử."
     },
     {
       icon: <PieChart className="w-5 h-5 text-indigo-600" />,
       title: "Ngân sách",
-      desc: "Tự động phân bổ theo quy tắc 50/30/20 và kiểm soát hạn mức."
+      desc: "Gợi ý phân bổ theo quy tắc 50/30/20 và đặt hạn mức từng danh mục."
     },
     {
       icon: <Target className="w-5 h-5 text-rose-600" />,
       title: "Mục tiêu",
-      desc: "Lập quỹ tiết kiệm mua nhà, mua xe, du lịch có lộ trình rõ ràng."
+      desc: "Lập quỹ mua nhà, mua xe, du lịch và theo dõi tiến độ."
     },
     {
       icon: <BarChart3 className="w-5 h-5 text-teal-600" />,

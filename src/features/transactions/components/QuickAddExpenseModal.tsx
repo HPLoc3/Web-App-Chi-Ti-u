@@ -1,13 +1,18 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Expense } from '../../../types';
 import { CATEGORIES } from '../../../constants/categories';
 import { parseNaturalExpense } from '../../../utils/parser';
 import { X, PlusCircle, Sparkles } from 'lucide-react';
+import MoneyInput from '../../../components/common/MoneyInput';
+import { EMPTY_MONEY, moneyDraft, moneyDraftError } from '../../../utils/moneyDraft';
+import { getBusinessDate } from '../../../utils/dateParser';
+import { getApiErrorMessage } from '../../../lib/apiClient';
 
 interface QuickAddExpenseModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddExpense: (expense: Omit<Expense, 'id'>) => void;
+  /** Ném lỗi nếu lưu thất bại; form được giữ nguyên */
+  onAddExpense: (expense: Omit<Expense, 'id'>) => Promise<unknown> | void;
 }
 
 export const QuickAddExpenseModal: React.FC<QuickAddExpenseModalProps> = ({
@@ -16,38 +21,58 @@ export const QuickAddExpenseModal: React.FC<QuickAddExpenseModalProps> = ({
   onAddExpense,
 }) => {
   const [naturalInput, setNaturalInput] = useState('');
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState(EMPTY_MONEY);
   const [categoryId, setCategoryId] = useState('an_uong');
   const [note, setNote] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(getBusinessDate());
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
 
   if (!isOpen) return null;
 
   const handleNaturalParse = () => {
     if (!naturalInput.trim()) return;
     const parsed = parseNaturalExpense(naturalInput);
-    if (parsed.amount > 0) setAmount(parsed.amount.toString());
+    if (parsed.amount > 0) setAmount(moneyDraft(parsed.amount));
     if (parsed.categoryId) setCategoryId(parsed.categoryId);
     if (parsed.note) setNote(parsed.note);
     if (parsed.date) setDate(parsed.date);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const parsedAmount = parseFloat(amount);
-    if (isNaN(parsedAmount) || parsedAmount <= 0) return;
-
-    onAddExpense({
-      amount: parsedAmount,
-      categoryId,
-      note: note || 'Chi tiêu mới',
-      date,
-    });
-
-    setNaturalInput('');
-    setAmount('');
-    setNote('');
+  const handleClose = () => {
+    // Đang lưu thì không đóng, để lỗi (nếu có) không bị mất
+    if (savingRef.current) return;
+    setError(null);
     onClose();
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (savingRef.current) return;
+    const invalid = moneyDraftError(amount, 'positive');
+    setError(invalid);
+    if (invalid) return;
+
+    savingRef.current = true;
+    setIsSaving(true);
+    try {
+      await onAddExpense({
+        amount: amount.value!,
+        categoryId,
+        note: note || 'Chi tiêu mới',
+        date,
+      });
+      setNaturalInput('');
+      setAmount(EMPTY_MONEY);
+      setNote('');
+      onClose();
+    } catch (err) {
+      setError(getApiErrorMessage(err, 'Không lưu được giao dịch.'));
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -61,7 +86,7 @@ export const QuickAddExpenseModal: React.FC<QuickAddExpenseModalProps> = ({
             <h3 className="text-lg font-serif font-bold text-amber-100">Thêm khoản chi tiêu nhanh</h3>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="p-1.5 text-emerald-400 hover:text-emerald-100 hover:bg-emerald-900/60 rounded-lg transition-colors"
           >
             <X size={18} />
@@ -96,14 +121,11 @@ export const QuickAddExpenseModal: React.FC<QuickAddExpenseModalProps> = ({
             <label className="block text-xs font-mono uppercase tracking-wider text-emerald-300 mb-1">
               Số tiền (VNĐ) *
             </label>
-            <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+            <MoneyInput
+              value={amount.value}
+              onChange={(value, raw) => setAmount({ value, raw })}
               placeholder="45000"
               required
-              min="1"
-              step="any"
               className="w-full bg-emerald-900/40 border border-emerald-700/80 rounded-xl px-4 py-2.5 text-amber-300 font-mono text-lg font-bold focus:outline-none focus:border-amber-400"
             />
           </div>
@@ -151,10 +173,17 @@ export const QuickAddExpenseModal: React.FC<QuickAddExpenseModalProps> = ({
             />
           </div>
 
+          {error && (
+            <p role="alert" className="text-xs text-red-300">
+              {error}
+            </p>
+          )}
+
           <div className="pt-3">
             <button
               type="submit"
-              className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2"
+              disabled={isSaving}
+              className="disabled:opacity-50 w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2"
             >
               <PlusCircle size={18} />
               <span>Lưu giao dịch ngay</span>

@@ -38,16 +38,16 @@ export default function AiCopilotSection({
   const scenarios: DemoScenario[] = [
     {
       userInput: "Tôi vừa chi 120.000 tiền ăn trưa và 80.000 tiền Grab.",
-      aiMessage: "Đã bóc tách chính xác 2 khoản giao dịch phát sinh từ câu nói của bạn:",
+      aiMessage: "Nhận diện 2 khoản chi từ câu của bạn:",
       items: [
         {
           name: "Ăn trưa văn phòng",
           category: "Ăn uống",
           categoryType: "NEEDS",
           amount: 120000,
-          wallet: "Ví Tiền Mặt",
+          wallet: "Ví mặc định",
           date: "Hôm nay",
-          budgetImpact: "Chiếm 0.96% hạn mức Nhu cầu thiết yếu",
+          budgetImpact: "Chờ bạn xác nhận trước khi lưu",
           icon: "🍜"
         },
         {
@@ -55,61 +55,61 @@ export default function AiCopilotSection({
           category: "Di chuyển",
           categoryType: "NEEDS",
           amount: 80000,
-          wallet: "Ví Tiền Mặt",
+          wallet: "Ví mặc định",
           date: "Hôm nay",
-          budgetImpact: "Chiếm 0.64% hạn mức Nhu cầu thiết yếu",
+          budgetImpact: "Chờ bạn xác nhận trước khi lưu",
           icon: "🚗"
         }
       ]
     },
     {
       userInput: "Mua áo sơ mi 350k và uống trà sữa 55k bằng thẻ ngân hàng.",
-      aiMessage: "Đã nhận diện 2 khoản chi thuộc nhóm Sở thích (Wants):",
+      aiMessage: "Nhận diện 2 khoản chi từ câu của bạn:",
       items: [
         {
           name: "Áo sơ mi mới",
           category: "Mua sắm",
           categoryType: "WANTS",
           amount: 350000,
-          wallet: "Thẻ Ngân hàng",
+          wallet: "Ví mặc định",
           date: "Hôm nay",
-          budgetImpact: "Chiếm 4.6% hạn mức Chi tiêu linh hoạt",
+          budgetImpact: "Chờ bạn xác nhận trước khi lưu",
           icon: "🛍️"
         },
         {
           name: "Trà sữa bạn bè",
-          category: "Ăn uống / Cafe",
+          category: "Ăn uống",
           categoryType: "WANTS",
           amount: 55000,
-          wallet: "Thẻ Ngân hàng",
+          wallet: "Ví mặc định",
           date: "Hôm nay",
-          budgetImpact: "Chiếm 0.73% hạn mức Chi tiêu linh hoạt",
+          budgetImpact: "Chờ bạn xác nhận trước khi lưu",
           icon: "🧋"
         }
       ]
     },
     {
       userInput: "Đóng tiền điện 850k và tiền nước 120k kỳ này.",
-      aiMessage: "Đã tự động gom nhóm vào hóa đơn sinh hoạt định kỳ:",
+      aiMessage: "Nhận diện 2 khoản thuộc danh mục Hóa đơn:",
       items: [
         {
           name: "Hóa đơn tiền điện",
-          category: "Hóa đơn & Tiện ích",
+          category: "Hóa đơn",
           categoryType: "NEEDS",
           amount: 850000,
-          wallet: "Thẻ Ngân hàng",
+          wallet: "Ví mặc định",
           date: "Hôm nay",
-          budgetImpact: "Chiếm 6.8% hạn mức Nhu cầu thiết yếu",
+          budgetImpact: "Chờ bạn xác nhận trước khi lưu",
           icon: "⚡"
         },
         {
           name: "Hóa đơn tiền nước",
-          category: "Hóa đơn & Tiện ích",
+          category: "Hóa đơn",
           categoryType: "NEEDS",
           amount: 120000,
-          wallet: "Thẻ Ngân hàng",
+          wallet: "Ví mặc định",
           date: "Hôm nay",
-          budgetImpact: "Chiếm 0.96% hạn mức Nhu cầu thiết yếu",
+          budgetImpact: "Chờ bạn xác nhận trước khi lưu",
           icon: "💧"
         }
       ]
@@ -117,7 +117,6 @@ export default function AiCopilotSection({
   ];
 
   const [activeScenarioIdx, setActiveScenarioIdx] = useState(0);
-  const [customInput, setCustomInput] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const currentScenario = scenarios[activeScenarioIdx];
 
@@ -127,18 +126,6 @@ export default function AiCopilotSection({
       setActiveScenarioIdx(idx);
       setIsProcessing(false);
     }, 250);
-  };
-
-  const handleCustomSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customInput.trim()) return;
-    setIsProcessing(true);
-    setTimeout(() => {
-      setIsProcessing(false);
-      setCustomInput("");
-      // select scenario closest or toggle
-      setActiveScenarioIdx((prev) => (prev + 1) % scenarios.length);
-    }, 400);
   };
 
   return (
@@ -157,7 +144,7 @@ export default function AiCopilotSection({
           </h2>
 
           <p className="text-stone-700 text-sm sm:text-base leading-relaxed max-w-2xl mx-auto">
-            Không còn ma sát gõ số hay chọn form thủ công. Chỉ cần gõ hoặc nói một câu tự nhiên như nhắn tin với bạn bè, AI sẽ tự động phân tích và lưu trữ.
+            Không còn ma sát gõ số hay chọn form thủ công. Gõ một câu tự nhiên như nhắn tin, hệ thống phân tích và chờ bạn xác nhận trước khi lưu.
           </p>
         </div>
 
@@ -178,7 +165,7 @@ export default function AiCopilotSection({
                   </span>
                 </div>
                 <div className="text-[11px] text-emerald-300 font-mono">
-                  Phản hồi trong &lt; 0.2s • Chuẩn ngữ pháp Tiếng Việt
+                  Ví dụ minh họa dựng sẵn
                 </div>
               </div>
             </div>
@@ -197,7 +184,7 @@ export default function AiCopilotSection({
           {/* Prompt Selector Pills */}
           <div className="p-4 sm:p-5 bg-stone-100/70 border-b border-stone-200/80 space-y-2">
             <span className="text-[11px] font-mono uppercase font-bold text-stone-500 block">
-              Bấm vào câu mẫu để xem AI xử lý trực tiếp:
+              Bấm vào câu mẫu để xem ví dụ minh họa:
             </span>
             <div className="flex flex-wrap gap-2">
               {scenarios.map((sc, idx) => (
@@ -281,7 +268,7 @@ export default function AiCopilotSection({
                               -{item.amount.toLocaleString('vi-VN')} ₫
                             </div>
                             <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-stone-100 text-stone-600">
-                              {item.categoryType === 'NEEDS' ? 'Thiết yếu 50%' : 'Sở thích 30%'}
+                              Ví dụ
                             </span>
                           </div>
                         </div>
@@ -313,24 +300,16 @@ export default function AiCopilotSection({
 
           </div>
 
-          {/* Interactive Input Box at Bottom */}
-          <form onSubmit={handleCustomSubmit} className="p-4 bg-stone-50 border-t border-stone-200/80 flex items-center gap-2">
-            <input
-              type="text"
-              value={customInput}
-              onChange={(e) => setCustomInput(e.target.value)}
-              placeholder="Gõ thử câu của bạn (VD: Ăn tối 150k và mua sách 80k)..."
-              className="flex-1 bg-white border border-stone-300 rounded-xl px-4 py-2.5 text-xs sm:text-sm text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-700"
-            />
+          {onTryChatbot && (
             <button
-              type="submit"
-              disabled={isProcessing}
-              className="px-4 py-2.5 bg-emerald-950 hover:bg-emerald-900 text-amber-300 font-bold text-xs sm:text-sm rounded-xl transition cursor-pointer flex items-center gap-1.5 shrink-0 shadow-xs min-h-[42px]"
+              type="button"
+              onClick={onTryChatbot}
+              className="w-full px-4 py-2.5 bg-emerald-950 hover:bg-emerald-900 text-amber-300 font-bold text-xs sm:text-sm rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 shadow-xs min-h-[42px]"
             >
-              <span>{isProcessing ? 'Đang phân tích...' : 'Thử ngay'}</span>
+              <span>Mở app để thử câu của bạn</span>
               <Send size={14} />
             </button>
-          </form>
+          )}
 
         </div>
 

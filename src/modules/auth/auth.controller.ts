@@ -1,24 +1,8 @@
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { sendSuccess, sendError } from '../../utils/response';
-import {
-  getAccessTokenCookieOptions,
-  getRefreshTokenCookieOptions,
-  getClearCookieOptions,
-} from '../../middleware/auth.middleware';
-
-const setAuthCookies = (res: Response, req: Request, tokens: { accessToken: string; refreshToken: string }) => {
-  res.cookie('accessToken', tokens.accessToken, getAccessTokenCookieOptions(req));
-  res.cookie('token', tokens.accessToken, getAccessTokenCookieOptions(req));
-  res.cookie('refreshToken', tokens.refreshToken, getRefreshTokenCookieOptions(req));
-};
-
-const clearAuthCookies = (res: Response, req: Request) => {
-  const clearOpts = getClearCookieOptions(req);
-  res.clearCookie('accessToken', clearOpts);
-  res.clearCookie('refreshToken', clearOpts);
-  res.clearCookie('token', clearOpts);
-};
+import { sendHttpError, toHttpError } from '../../utils/httpError';
+import { setAuthCookies, clearAuthCookies } from './auth.cookies';
 
 export class AuthController {
   static async register(req: Request, res: Response): Promise<void> {
@@ -41,7 +25,7 @@ export class AuthController {
         }
       );
     } catch (error: any) {
-      sendError(res, 400, 'REGISTER_FAILED', error.message || 'Đăng ký thất bại.', undefined, req.id);
+      sendHttpError(res, error, 'REGISTER_FAILED', req.id);
     }
   }
 
@@ -65,7 +49,7 @@ export class AuthController {
         }
       );
     } catch (error: any) {
-      sendError(res, 401, 'INVALID_CREDENTIALS', error.message || 'Đăng nhập thất bại.', undefined, req.id);
+      sendHttpError(res, error, 'INVALID_CREDENTIALS', req.id);
     }
   }
 
@@ -88,7 +72,7 @@ export class AuthController {
         }
       );
     } catch (error: any) {
-      sendError(res, 400, 'GOOGLE_AUTH_FAILED', error.message || 'Xác thực Google thất bại.', undefined, req.id);
+      sendHttpError(res, error, 'GOOGLE_AUTH_FAILED', req.id);
     }
   }
 
@@ -119,8 +103,11 @@ export class AuthController {
         }
       );
     } catch (error: any) {
-      clearAuthCookies(res, req);
-      sendError(res, 401, 'INVALID_REFRESH_TOKEN', error.message || 'Phiên đăng nhập đã hết hạn.', undefined, req.id);
+      // Chỉ xóa cookie khi phiên thực sự không hợp lệ; 409 (đang refresh) và lỗi DB phải giữ cookie
+      if (toHttpError(error, 'REFRESH_ERROR').status === 401) {
+        clearAuthCookies(res, req);
+      }
+      sendHttpError(res, error, 'REFRESH_ERROR', req.id);
     }
   }
 
@@ -141,39 +128,45 @@ export class AuthController {
         { user }
       );
     } catch (error: any) {
-      sendError(res, 404, 'USER_NOT_FOUND', error.message || 'Không tìm thấy tài khoản.', undefined, req.id);
+      sendHttpError(res, error, 'USER_NOT_FOUND', req.id);
     }
   }
 
+  /** Đăng xuất thiết bị hiện tại: luôn xóa cookie phía client, nhưng báo đúng nếu server chưa thu hồi được */
   static async logout(req: Request, res: Response): Promise<void> {
     try {
       const rawRefreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
       const userId = req.user?.id;
 
       await AuthService.logout(rawRefreshToken, userId);
-    } catch (error) {
-      // Ignored
-    } finally {
+
       clearAuthCookies(res, req);
       sendSuccess(res, 200, undefined, undefined, {
         message: 'Đã đăng xuất thành công.',
       });
+    } catch (error: any) {
+      clearAuthCookies(res, req);
+      sendHttpError(res, error, 'LOGOUT_FAILED', req.id);
     }
   }
 
+  /** Đăng xuất mọi thiết bị: thất bại thì giữ cookie để người dùng thử lại */
   static async logoutAll(req: Request, res: Response): Promise<void> {
     try {
       const userId = req.user?.id;
-      if (userId) {
-        await AuthService.logoutAllDevices(userId);
+      if (!userId) {
+        sendError(res, 401, 'UNAUTHORIZED', 'Chưa đăng nhập.', undefined, req.id);
+        return;
       }
-    } catch (error) {
-      // Ignored
-    } finally {
+
+      await AuthService.logoutAllDevices(userId);
+
       clearAuthCookies(res, req);
       sendSuccess(res, 200, undefined, undefined, {
         message: 'Đã đăng xuất thành công khỏi tất cả các thiết bị.',
       });
+    } catch (error: any) {
+      sendHttpError(res, error, 'LOGOUT_ALL_FAILED', req.id);
     }
   }
 
@@ -198,7 +191,7 @@ export class AuthController {
         message: 'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại bằng mật khẩu mới.',
       });
     } catch (error: any) {
-      sendError(res, 400, 'RESET_PASSWORD_FAILED', error.message || 'Đặt lại mật khẩu thất bại.', undefined, req.id);
+      sendHttpError(res, error, 'RESET_PASSWORD_FAILED', req.id);
     }
   }
 }

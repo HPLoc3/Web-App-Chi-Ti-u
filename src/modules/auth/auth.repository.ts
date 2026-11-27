@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { User, RefreshToken, Session, PasswordResetToken, Prisma } from '@prisma/client';
 import { devFallbackStore, DevFallbackStore } from '../../lib/devFallbackStore';
+import { lockUserRow } from '../../lib/lockUser';
 
 export class AuthRepository {
   static async findUserByEmail(email: string): Promise<User | null> {
@@ -9,7 +10,7 @@ export class AuthRepository {
         where: { email },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.findUserByEmail(email);
       }
       throw error;
@@ -22,7 +23,7 @@ export class AuthRepository {
         where: { id },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.findUserById(id);
       }
       throw error;
@@ -35,7 +36,7 @@ export class AuthRepository {
         data,
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.createUser(data);
       }
       throw error;
@@ -49,7 +50,7 @@ export class AuthRepository {
         data: { password: passwordHash },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.updateUserPassword(userId, passwordHash);
       }
       throw error;
@@ -83,7 +84,7 @@ export class AuthRepository {
         }),
       ]);
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         devFallbackStore.createTokensAndSession(userId, hashedRefreshToken, expiresAt, userAgent, ipAddress);
         return;
       }
@@ -97,22 +98,75 @@ export class AuthRepository {
         where: { token: hashedToken },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.findRefreshToken(hashedToken);
       }
       throw error;
     }
   }
 
-  static async revokeRefreshToken(id: string): Promise<void> {
+  /**
+   * Xoay vòng refresh token nguyên tử: chỉ một request giành được token cũ.
+   * Trả false nếu token đã được xoay vòng hoặc đã bị xóa (đăng xuất, đổi mật khẩu).
+   *
+   * Quy ước: `revokedAt` CHỈ được gán ở đây. Mọi thu hồi chủ động đều xóa hẳn dòng, nên
+   * token có `revokedAt` bị dùng lại nghĩa là token đã xoay vòng bị dùng lại.
+   */
+  static async rotateRefreshToken(params: {
+    oldTokenId: string;
+    userId: string;
+    newHashedToken: string;
+    expiresAt: Date;
+    userAgent?: string;
+    ipAddress?: string;
+  }): Promise<boolean> {
+    const { oldTokenId, userId, newHashedToken, expiresAt, userAgent, ipAddress } = params;
     try {
-      await prisma.refreshToken.update({
-        where: { id },
-        data: { revokedAt: new Date() },
+      return await prisma.$transaction(async (tx) => {
+        // Khóa user để đổi mật khẩu/đăng xuất mọi nơi không bỏ sót token đang được cấp
+        await lockUserRow(tx, userId);
+
+        const claimed = await tx.refreshToken.updateMany({
+          where: { id: oldTokenId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        if (claimed.count !== 1) {
+          return false;
+        }
+
+        await tx.refreshToken.create({
+          data: { token: newHashedToken, userId, expiresAt },
+        });
+        await tx.session.create({
+          data: {
+            sessionToken: newHashedToken,
+            userId,
+            userAgent: userAgent || null,
+            ipAddress: ipAddress || null,
+            expiresAt,
+          },
+        });
+        return true;
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
-        devFallbackStore.revokeRefreshToken(id);
+      if (DevFallbackStore.shouldFallback(error)) {
+        if (!devFallbackStore.claimRefreshToken(oldTokenId)) return false;
+        devFallbackStore.createTokensAndSession(userId, newHashedToken, expiresAt, userAgent, ipAddress);
+        return true;
+      }
+      throw error;
+    }
+  }
+
+  static async revokeRefreshTokenByHash(hashedToken: string): Promise<void> {
+    try {
+      // Chỉ xóa token còn sống: dòng đã xoay vòng được giữ để còn phát hiện dùng lại
+      await prisma.refreshToken.deleteMany({
+        where: { token: hashedToken, revokedAt: null },
+      });
+    } catch (error) {
+      if (DevFallbackStore.shouldFallback(error)) {
+        devFallbackStore.revokeRefreshTokenByHash(hashedToken);
         return;
       }
       throw error;
@@ -121,19 +175,50 @@ export class AuthRepository {
 
   static async revokeAllUserTokensAndSessions(userId: string): Promise<void> {
     try {
-      await prisma.$transaction([
-        prisma.refreshToken.updateMany({
-          where: { userId, revokedAt: null },
-          data: { revokedAt: new Date() },
-        }),
-        prisma.session.deleteMany({
+      await prisma.$transaction(async (tx) => {
+        await lockUserRow(tx, userId);
+        // Xóa hẳn: thiết bị cũ gọi refresh chỉ nhận 401, không đá phiên đăng nhập sau đó
+        await tx.refreshToken.deleteMany({ where: { userId } });
+        await tx.session.deleteMany({
           where: { userId },
-        }),
-      ]);
+        });
+      });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         devFallbackStore.revokeAllUserTokensAndSessions(userId);
         return;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Đặt lại mật khẩu trong một transaction. Trả false nếu mã đã bị dùng/hết hạn.
+   */
+  static async resetPasswordWithToken(resetTokenId: string, userId: string, passwordHash: string): Promise<boolean> {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const now = new Date();
+        const claimed = await tx.passwordResetToken.updateMany({
+          where: { id: resetTokenId, usedAt: null, expiresAt: { gt: now } },
+          data: { usedAt: now },
+        });
+        if (claimed.count !== 1) {
+          return false;
+        }
+
+        // Cập nhật user trước để giữ khóa dòng trước khi thu hồi phiên
+        await tx.user.update({ where: { id: userId }, data: { password: passwordHash } });
+        await tx.refreshToken.deleteMany({ where: { userId } });
+        await tx.session.deleteMany({ where: { userId } });
+        await tx.passwordResetToken.updateMany({ where: { userId, usedAt: null }, data: { usedAt: now } });
+        return true;
+      });
+    } catch (error) {
+      if (DevFallbackStore.shouldFallback(error)) {
+        devFallbackStore.updateUserPassword(userId, passwordHash);
+        devFallbackStore.revokeAllUserTokensAndSessions(userId);
+        return true;
       }
       throw error;
     }
@@ -145,7 +230,7 @@ export class AuthRepository {
         where: { sessionToken: hashedToken },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return;
       }
       throw error;
@@ -162,7 +247,7 @@ export class AuthRepository {
         },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return {
           id: `dev-rst-${Date.now()}`,
           token: hashedToken,
@@ -186,39 +271,10 @@ export class AuthRepository {
         },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return null;
       }
       throw error;
     }
   }
-
-  static async markResetTokenUsed(tokenId: string): Promise<void> {
-    try {
-      await prisma.passwordResetToken.update({
-        where: { id: tokenId },
-        data: { usedAt: new Date() },
-      });
-    } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
-        return;
-      }
-      throw error;
-    }
-  }
-
-  static async invalidateAllUserResetTokens(userId: string): Promise<void> {
-    try {
-      await prisma.passwordResetToken.updateMany({
-        where: { userId, usedAt: null },
-        data: { usedAt: new Date() },
-      });
-    } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
-        return;
-      }
-      throw error;
-    }
-  }
 }
-

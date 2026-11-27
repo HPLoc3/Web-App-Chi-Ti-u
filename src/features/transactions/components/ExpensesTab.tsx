@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Expense } from '../../../types';
 import { CATEGORIES } from '../../../constants/categories';
 import { formatCurrency, formatDateVietnamese } from '../../../utils/format';
@@ -7,6 +7,10 @@ import { useToast } from '../../../context/ToastContext';
 import { EditExpenseModal } from './EditExpenseModal';
 import { ImportStatementModal } from './ImportStatementModal';
 import { ConfirmModal } from '../../../components/common/ConfirmModal';
+import MoneyInput from '../../../components/common/MoneyInput';
+import { EMPTY_MONEY, moneyDraftError } from '../../../utils/moneyDraft';
+import { getApiErrorMessage } from '../../../lib/apiClient';
+import { toCsv } from '../../../utils/csv';
 import { 
   Plus, 
   Trash2, 
@@ -45,29 +49,30 @@ interface ExpensesTabProps {
   onAddExpense: (expense: Omit<Expense, 'id'>) => Promise<any> | void;
   onUpdateExpense?: (expense: Expense) => Promise<any> | void;
   onDeleteExpense: (id: string) => Promise<any> | void;
+  /** Thêm cả lô trong một lần; ném lỗi nếu thất bại */
+  onAddBulkExpenses?: (expenses: Omit<Expense, 'id'>[]) => Promise<void>;
+  /** Tải lại giao dịch từ server; không có ở chế độ khách */
+  onRefetchExpenses?: () => Promise<void>;
 }
 
 export default function ExpensesTab({
   expenses,
   onAddExpense,
   onUpdateExpense,
-  onDeleteExpense
+  onDeleteExpense,
+  onAddBulkExpenses,
+  onRefetchExpenses
 }: ExpensesTabProps) {
   const { showToast } = useToast();
 
   // Form states
-  const [amount, setAmount] = useState('');
-  const [isAmountFocused, setIsAmountFocused] = useState(false);
+  const [amount, setAmount] = useState(EMPTY_MONEY);
+  const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
+  const bulkDeletingRef = useRef(false);
   const [categoryId, setCategoryId] = useState(CATEGORIES[0].id);
   const [date, setDate] = useState(getBusinessDate());
   const [note, setNote] = useState('');
-
-  // Display value: unformatted raw while focused for native caret precision; formatted on blur
-  const displayAmount = isAmountFocused
-    ? amount
-    : amount
-      ? parseInt(amount, 10).toLocaleString('vi-VN')
-      : '';
 
   // Search & Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -88,26 +93,45 @@ export default function ExpensesTab({
 
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const numericAmount = Number(amount);
-    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
-      showToast('Vui lòng nhập số tiền hợp lệ lớn hơn 0.', 'warning');
+    if (savingRef.current) return;
+    const invalid = moneyDraftError(amount, 'positive');
+    if (invalid) {
+      showToast(invalid, 'warning');
       return;
     }
 
     const newExpense = {
-      amount: numericAmount,
+      amount: amount.value!,
       categoryId,
       date,
       note: note.trim() || CATEGORIES.find(c => c.id === categoryId)?.name || 'Khác'
     };
 
+    savingRef.current = true;
+    setIsSaving(true);
     try {
       await onAddExpense(newExpense);
-      setAmount('');
+      setAmount(EMPTY_MONEY);
       setNote('');
       setMobileTab('list');
-    } catch (err: any) {
-      showToast(err?.response?.data?.message || err?.message || 'Không thể lưu giao dịch. Vui lòng thử lại.', 'error');
+    } catch (err) {
+      showToast(getApiErrorMessage(err, 'Không thể lưu giao dịch. Vui lòng thử lại.'), 'error');
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
+  };
+
+  const restoreExpense = async (expense: Expense) => {
+    try {
+      await onAddExpense({
+        amount: expense.amount,
+        categoryId: expense.categoryId,
+        note: expense.note,
+        date: expense.date,
+      });
+    } catch (err) {
+      showToast(getApiErrorMessage(err, 'Không khôi phục được giao dịch đã xóa.'), 'error');
     }
   };
 
@@ -118,41 +142,37 @@ export default function ExpensesTab({
         `Đã xóa giao dịch "${expense.note}"`,
         'info',
         'Hoàn tác',
-        () => {
-          onAddExpense({
-            amount: expense.amount,
-            categoryId: expense.categoryId,
-            note: expense.note,
-            date: expense.date,
-          });
-        }
+        () => void restoreExpense(expense)
       );
-    } catch (err: any) {
-      showToast(err?.message || 'Lỗi xóa chi tiêu', 'error');
+    } catch (err) {
+      showToast(getApiErrorMessage(err, 'Lỗi xóa chi tiêu'), 'error');
     }
   };
 
   const handleBulkDelete = async () => {
+    if (bulkDeletingRef.current) return;
+    bulkDeletingRef.current = true;
+    setIsBulkDeleteConfirmOpen(false);
+    const ids = [...selectedIds];
+    let deleted = 0;
     try {
-      for (const id of selectedIds) {
+      for (const id of ids) {
         await onDeleteExpense(id);
+        deleted++;
       }
-      showToast(`Đã xóa thành công ${selectedIds.length} giao dịch!`, 'success');
+      showToast(`Đã xóa thành công ${deleted} giao dịch!`, 'success');
       setSelectedIds([]);
-      setIsBulkDeleteConfirmOpen(false);
-    } catch (err: any) {
-      showToast(err?.message || 'Lỗi xóa nhiều giao dịch', 'error');
-    }
-  };
-
-  const handleImportSuccess = async (importedExpenses: Omit<Expense, 'id'>[]) => {
-    try {
-      for (const item of importedExpenses) {
-        await onAddExpense(item);
+    } catch (err) {
+      // Giữ lại phần chưa xóa được để thử lại, rồi lấy danh sách thật từ server
+      setSelectedIds(ids.slice(deleted));
+      showToast(`Đã xóa ${deleted}/${ids.length}. ${getApiErrorMessage(err, 'Lỗi xóa nhiều giao dịch')}`, 'error');
+      try {
+        await onRefetchExpenses?.();
+      } catch (refetchError) {
+        showToast(getApiErrorMessage(refetchError, 'Không tải lại được danh sách giao dịch.'), 'error');
       }
-      showToast(`Đã nhập thành công ${importedExpenses.length} giao dịch từ sao kê!`, 'success');
-    } catch (err: any) {
-      showToast(err?.message || 'Lỗi nhập giao dịch', 'error');
+    } finally {
+      bulkDeletingRef.current = false;
     }
   };
 
@@ -213,14 +233,14 @@ export default function ExpensesTab({
     }
 
     const headers = ['Ngày', 'Danh mục', 'Số tiền (₫)', 'Ghi chú'];
-    const rows = expenses
+    const rows = [...expenses]
       .sort((a, b) => b.date.localeCompare(a.date))
       .map((exp) => {
         const cat = CATEGORIES.find((c) => c.id === exp.categoryId)?.name || 'Khác';
-        return [exp.date, cat, exp.amount, `"${(exp.note || '').replace(/"/g, '""')}"`];
+        return [exp.date, cat, exp.amount, exp.note || ''];
       });
 
-    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const csvContent = '\uFEFF' + toCsv([headers, ...rows]);
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -273,30 +293,26 @@ export default function ExpensesTab({
               <span className="w-1.5 h-4 bg-emerald-900 rounded-full inline-block"></span>
               <span>Thêm khoản chi thủ công</span>
             </div>
-            <button
-              onClick={() => setIsImportModalOpen(true)}
-              className="flex items-center gap-1 text-xs font-sans font-semibold text-amber-700 hover:text-amber-800 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20"
-            >
-              <FileSpreadsheet size={13} />
-              <span>Nhập sao kê</span>
-            </button>
+            {onAddBulkExpenses && (
+              <button
+                type="button"
+                onClick={() => setIsImportModalOpen(true)}
+                className="flex items-center gap-1 text-xs font-sans font-semibold text-amber-700 hover:text-amber-800 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20"
+              >
+                <FileSpreadsheet size={13} />
+                <span>Nhập sao kê</span>
+              </button>
+            )}
           </h3>
 
           <form onSubmit={handleAddSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-stone-500 mb-1">SỐ TIỀN (₫) *</label>
               <div className="relative">
-                <input
-                  type="text"
-                  inputMode="numeric"
+                <MoneyInput
                   required
-                  value={displayAmount}
-                  onFocus={() => setIsAmountFocused(true)}
-                  onBlur={() => setIsAmountFocused(false)}
-                  onChange={(e) => {
-                    const raw = e.target.value.replace(/\D/g, '');
-                    setAmount(raw);
-                  }}
+                  value={amount.value}
+                  onChange={(value, raw) => setAmount({ value, raw })}
                   placeholder="Ví dụ: 50.000"
                   className="w-full bg-white border border-[#E6DEC9] rounded-xl pl-3 pr-10 py-2.5 text-sm font-mono font-bold text-emerald-950 focus:outline-none focus:border-emerald-700"
                 />
@@ -357,7 +373,8 @@ export default function ExpensesTab({
 
             <button
               type="submit"
-              className="w-full bg-emerald-900 hover:bg-emerald-850 text-white py-2.5 px-4 rounded-xl text-sm font-semibold transition shadow-md flex items-center justify-center gap-1.5"
+              disabled={isSaving}
+              className="disabled:opacity-50 w-full bg-emerald-900 hover:bg-emerald-850 text-white py-2.5 px-4 rounded-xl text-sm font-semibold transition shadow-md flex items-center justify-center gap-1.5"
             >
               <Plus size={16} />
               <span>Lưu khoản chi ngay</span>
@@ -569,19 +586,20 @@ export default function ExpensesTab({
         isOpen={!!editingExpense}
         expense={editingExpense}
         onClose={() => setEditingExpense(null)}
-        onSave={(updated) => {
-          if (onUpdateExpense) onUpdateExpense(updated);
-          setEditingExpense(null);
-          showToast('Đã cập nhật giao dịch!', 'success');
+        // Thông báo thành công do App hiện; lỗi do modal hiện
+        onSave={async (updated) => {
+          await onUpdateExpense?.(updated);
         }}
       />
 
       {/* Bank Statement Import Modal */}
-      <ImportStatementModal
-        isOpen={isImportModalOpen}
-        onClose={() => setIsImportModalOpen(false)}
-        onImport={handleImportSuccess}
-      />
+      {onAddBulkExpenses && (
+        <ImportStatementModal
+          isOpen={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          onImport={onAddBulkExpenses}
+        />
+      )}
 
       {/* Bulk Delete Confirm */}
       <ConfirmModal

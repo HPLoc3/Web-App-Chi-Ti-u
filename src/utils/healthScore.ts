@@ -1,4 +1,5 @@
 import { AppState, HealthScoreBreakdown } from '../types';
+import { totalMonthlyRecurring } from './recurringSchedule';
 
 export function calculateHealthScore(state: AppState): HealthScoreBreakdown {
   const { expenses, income, categoryLimits, goals, recurringExpenses } = state;
@@ -75,7 +76,7 @@ export function calculateHealthScore(state: AppState): HealthScoreBreakdown {
   }
 
   // 5. Recurring Expense Ratio Score (Max 10)
-  const totalRecurringPerMonth = recurringExpenses.reduce((acc, r) => acc + r.amount, 0);
+  const totalRecurringPerMonth = totalMonthlyRecurring(recurringExpenses);
   const recurringIncomeRatioPercent = income > 0 ? Math.round((totalRecurringPerMonth / income) * 100) : 0;
   let recurringRatioScore = 10;
   if (recurringIncomeRatioPercent <= 20) recurringRatioScore = 10;
@@ -91,6 +92,7 @@ export function calculateHealthScore(state: AppState): HealthScoreBreakdown {
   );
 
   return {
+    assessable: income > 0,
     savingsRateScore,
     budgetAdherenceScore,
     spendingStabilityScore,

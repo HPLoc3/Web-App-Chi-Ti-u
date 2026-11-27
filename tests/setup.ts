@@ -13,6 +13,7 @@ try {
 } catch (e) {}
 
 process.env.NODE_ENV = 'test';
+process.env.DEV_FALLBACK_STORE = 'true';
 process.env.JWT_SECRET = 'test-jwt-secret-key-minimum-32-characters-long!';
 process.env.JWT_REFRESH_SECRET = 'test-refresh-jwt-secret-key-minimum-32-chars!';
 process.env.REFRESH_TOKEN_SECRET = 'test-refresh-jwt-secret-key-minimum-32-chars!';

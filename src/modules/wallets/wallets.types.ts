@@ -1,12 +1,17 @@
 import { Prisma } from '@prisma/client';
 
+export type WalletType = 'cash' | 'bank' | 'credit' | 'ewallet';
+
 export interface WalletDTO {
   id: string;
   name: string;
   balance: number;
   currency: string;
   isDefault?: boolean;
+  type: WalletType;
   userId: string;
+  /** Chỉ có ở danh sách ví */
+  transactionCount?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -16,6 +21,7 @@ export interface CreateWalletInput {
   balance?: number;
   currency?: string;
   isDefault?: boolean;
+  type?: WalletType;
 }
 
 export interface UpdateWalletInput {
@@ -23,4 +29,5 @@ export interface UpdateWalletInput {
   balance?: number;
   currency?: string;
   isDefault?: boolean;
+  type?: WalletType;
 }

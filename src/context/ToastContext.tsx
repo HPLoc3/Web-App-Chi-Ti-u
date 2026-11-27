@@ -42,7 +42,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     <ToastContext.Provider value={{ showToast, removeToast }}>
       {children}
       {/* Toast Render Container */}
-      <div className="fixed bottom-20 sm:bottom-6 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-2 sm:px-0">
+      <div className="fixed bottom-20 sm:bottom-6 left-4 right-4 ml-auto sm:left-auto sm:w-full z-50 flex flex-col gap-2 max-w-sm pointer-events-none">
         {toasts.map((toast) => (
           <div
             key={toast.id}
@@ -56,12 +56,12 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 : 'bg-emerald-900/90 border-emerald-700/80 text-amber-100'
             }`}
           >
-            <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex flex-1 items-center gap-2.5 min-w-0">
               {toast.type === 'success' && <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />}
               {toast.type === 'error' && <AlertCircle size={18} className="text-red-400 shrink-0" />}
               {toast.type === 'warning' && <AlertCircle size={18} className="text-amber-400 shrink-0" />}
               {toast.type === 'info' && <Info size={18} className="text-emerald-300 shrink-0" />}
-              <span className="text-xs sm:text-sm font-medium leading-snug truncate">{toast.message}</span>
+              <span className="min-w-0 text-xs sm:text-sm font-medium leading-snug break-words [overflow-wrap:anywhere]">{toast.message}</span>
             </div>
 
             <div className="flex items-center gap-1.5 shrink-0">

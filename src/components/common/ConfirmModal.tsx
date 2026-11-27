@@ -48,7 +48,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           </button>
         </div>
 
-        <p className="text-sm text-emerald-200/90 leading-relaxed mb-6">{message}</p>
+        <p className="text-sm text-emerald-200/90 leading-relaxed mb-6 [overflow-wrap:anywhere]">{message}</p>
 
         <div className="flex items-center justify-end gap-3">
           <button

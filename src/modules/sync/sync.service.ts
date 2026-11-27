@@ -5,6 +5,8 @@ import { SyncClientStateInput, SyncClientStateResult } from './sync.types';
 import { resolveCategoryId } from '../../services/category.helper';
 import { FinancialMath } from '../../utils/financialMath';
 import { FinancialAuditLogger } from '../../utils/financialAudit';
+import { getBusinessDate } from '../../utils/dateParser';
+import { buildRule, isValidYmd, nextDueFromToday, toDbDate } from '../../utils/recurringSchedule';
 
 export class SyncService {
   static async syncClientState(userId: string, input: SyncClientStateInput): Promise<SyncClientStateResult> {
@@ -81,15 +83,30 @@ export class SyncService {
 
     let insertedRecurringCount = 0;
     if (Array.isArray(input.recurringExpenses) && input.recurringExpenses.length > 0) {
+      const today = getBusinessDate();
       for (const r of input.recurringExpenses) {
         const numAmt = FinancialMath.toDecimal(r.amount);
         if (numAmt.lessThanOrEqualTo(0)) continue;
 
         const validCatId = await resolveCategoryId(r.categoryId, userId, 'EXPENSE');
+        const rule = buildRule(
+          {
+            frequency: r.frequency,
+            dayOfMonth: Math.min(Math.max(parseInt(String(r.dayOfMonth), 10) || 1, 1), 31),
+            startDate: isValidYmd(r.startDate) ? r.startDate : undefined,
+          },
+          today
+        );
+        // nextPaymentDate của chế độ khách đã vượt qua các kỳ được ghi cục bộ: không lùi trước nó
+        const from = isValidYmd(r.nextPaymentDate) && r.nextPaymentDate > today ? r.nextPaymentDate : today;
+
         await SyncRepository.createRecurring({
           amount: numAmt,
           category: { connect: { id: validCatId } },
-          dayOfMonth: Math.min(Math.max(parseInt(String(r.dayOfMonth), 10) || 1, 1), 31),
+          dayOfMonth: rule.dayOfMonth,
+          frequency: rule.frequency,
+          anchorDate: rule.anchorDate ? toDbDate(rule.anchorDate) : null,
+          nextDueDate: toDbDate(nextDueFromToday(rule, from)),
           note: r.note ? String(r.note).slice(0, 500) : '',
           type: 'EXPENSE',
           isActive: r.isActive !== false,

@@ -1,5 +1,6 @@
 import React, { ReactNode } from 'react';
 import { TrendingUp, TrendingDown, HelpCircle } from 'lucide-react';
+import { FitText } from './FitText';
 
 interface StatCardProps {
   title: string;
@@ -77,7 +78,7 @@ export const StatCard: React.FC<StatCardProps> = ({
   return (
     <div
       onClick={onClick}
-      className={`rounded-2xl border p-4 sm:p-5 transition-all duration-200 ${styles.card} ${
+      className={`min-w-0 rounded-2xl border p-4 sm:p-5 transition-all duration-200 ${styles.card} ${
         onClick ? 'cursor-pointer active:scale-[0.99]' : ''
       }`}
     >
@@ -96,9 +97,10 @@ export const StatCard: React.FC<StatCardProps> = ({
       </div>
 
       <div className="space-y-1 mt-2">
-        <div className={`text-xl sm:text-2xl lg:text-3xl font-black tracking-tight font-mono break-words ${styles.value}`}>
-          {value}
-        </div>
+        <FitText
+          text={value}
+          className={`[--fit-max:1.25rem] sm:[--fit-max:1.5rem] lg:[--fit-max:1.875rem] leading-tight font-black tracking-tight font-mono ${styles.value}`}
+        />
 
         {(subtitle || trend) && (
           <div className="flex items-center gap-2 pt-1 flex-wrap text-xs">

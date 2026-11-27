@@ -9,6 +9,7 @@ export interface WalletDTO {
   type?: string;
   accountNumber?: string;
   bankName?: string;
+  transactionCount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -36,11 +37,13 @@ export const walletService = {
         type: w.type || 'cash',
         accountNumber: w.accountNumber,
         bankName: w.bankName,
+        transactionCount: typeof w.transactionCount === 'number' ? w.transactionCount : undefined,
         createdAt: w.createdAt,
         updatedAt: w.updatedAt,
       }));
     }
-    return [];
+    // Không coi phản hồi lạ là "không có ví" (server là nguồn sự thật)
+    throw new Error('Phản hồi danh sách ví không hợp lệ.');
   },
 
   /**
@@ -65,6 +68,7 @@ export const walletService = {
     balance?: number;
     currency?: string;
     isDefault?: boolean;
+    type?: string;
   }): Promise<WalletDTO> {
     const response = await apiClient.put(`/api/v1/wallets/${id}`, data);
     return response.data.data;
@@ -74,7 +78,7 @@ export const walletService = {
    * Đặt ví làm mặc định
    */
   async setDefaultWallet(id: string): Promise<WalletDTO> {
-    const response = await apiClient.post(`/api/v1/wallets/${id}/default`);
+    const response = await apiClient.put(`/api/v1/wallets/${id}`, { isDefault: true });
     return response.data.data;
   },
 

@@ -1,6 +1,14 @@
 import { prisma } from '../../lib/prisma';
 import { Transaction, Wallet, Prisma } from '@prisma/client';
 import { devFallbackStore, DevFallbackStore } from '../../lib/devFallbackStore';
+import { lockUserRow } from '../../lib/lockUser';
+import { AppError } from '../../middleware/errorHandler.middleware';
+
+type DeletedRow = { amount: Prisma.Decimal; type: string; walletId: string };
+
+/** Số tiền cần cộng lại vào ví khi xóa giao dịch */
+const revertDeltaOf = (row: { amount: Prisma.Decimal; type: string }): Prisma.Decimal =>
+  row.type === 'INCOME' ? row.amount.negated() : row.amount;
 
 export class TransactionsRepository {
   static async findMany(
@@ -19,14 +27,15 @@ export class TransactionsRepository {
             select: { id: true, name: true, balance: true, currency: true },
           },
         },
-        orderBy: { date: 'desc' },
+        // Khóa phụ để phân trang ổn định khi trùng ngày
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
         skip,
         take,
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         const userId = (where.userId as string) || 'dev-user';
-        return devFallbackStore.getUserTransactions(userId);
+        return devFallbackStore.getUserTransactions(userId).slice(skip, skip + take);
       }
       throw error;
     }
@@ -36,7 +45,7 @@ export class TransactionsRepository {
     try {
       return await prisma.transaction.count({ where });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         const userId = (where.userId as string) || 'dev-user';
         return devFallbackStore.getUserTransactions(userId).length;
       }
@@ -58,7 +67,7 @@ export class TransactionsRepository {
         },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.transactions.get(id) || null;
       }
       throw error;
@@ -72,7 +81,7 @@ export class TransactionsRepository {
         include: { wallet: true },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         const tx = devFallbackStore.transactions.get(id);
         if (tx && tx.userId === userId) {
           const wallet = devFallbackStore.wallets.get(tx.walletId);
@@ -87,12 +96,13 @@ export class TransactionsRepository {
   static async createWithWalletUpdate(
     transactionData: Prisma.TransactionCreateInput,
     walletId: string,
-    balanceChange: Prisma.Decimal
+    balanceChange: Prisma.Decimal,
+    userId: string
   ) {
     try {
       return await prisma.$transaction(async (tx) => {
         const updatedWallet = await tx.wallet.update({
-          where: { id: walletId },
+          where: { id: walletId, userId },
           data: { balance: { increment: balanceChange } },
         });
 
@@ -111,7 +121,7 @@ export class TransactionsRepository {
         return { transaction: newTransaction, wallet: updatedWallet };
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         const created = devFallbackStore.createTransaction({
           amount: transactionData.amount,
           type: transactionData.type,
@@ -128,16 +138,58 @@ export class TransactionsRepository {
     }
   }
 
-  static async createBulk(items: Prisma.TransactionCreateManyInput[]): Promise<number> {
+  /**
+   * Ghi cả lô trong một transaction. Mọi walletId phải thuộc userId, nếu không thì không ghi gì.
+   */
+  static async createBulkWithWalletUpdate(
+    userId: string,
+    items: Prisma.TransactionCreateManyInput[],
+    walletAdjustments: Map<string, Prisma.Decimal>
+  ): Promise<any[]> {
+    const walletNotFound = () =>
+      new AppError('Ví thanh toán không tồn tại hoặc bạn không có quyền sử dụng.', 404, 'WALLET_NOT_FOUND');
+    // Cập nhật theo thứ tự ID để tránh deadlock
+    const walletIds = Array.from(walletAdjustments.keys()).sort();
+
     try {
-      const result = await prisma.transaction.createMany({
-        data: items,
+      return await prisma.$transaction(async (tx) => {
+        const owned = await tx.wallet.findMany({
+          where: { id: { in: walletIds }, userId },
+          select: { id: true },
+        });
+        if (owned.length !== walletIds.length) {
+          throw walletNotFound();
+        }
+
+        for (const walletId of walletIds) {
+          const result = await tx.wallet.updateMany({
+            where: { id: walletId, userId },
+            data: { balance: { increment: walletAdjustments.get(walletId)! } },
+          });
+          if (result.count !== 1) {
+            throw walletNotFound();
+          }
+        }
+
+        return tx.transaction.createManyAndReturn({
+          data: items,
+          include: {
+            category: {
+              select: { id: true, name: true, type: true, icon: true, color: true },
+            },
+            wallet: {
+              select: { id: true, name: true, balance: true, currency: true },
+            },
+          },
+        });
       });
-      return result.count;
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
-        items.forEach((item) => devFallbackStore.createTransaction(item));
-        return items.length;
+      if (DevFallbackStore.shouldFallback(error)) {
+        if (walletIds.some((id) => devFallbackStore.wallets.get(id)?.userId !== userId)) {
+          throw walletNotFound();
+        }
+        // createTransaction của kho mẫu tự cập nhật số dư
+        return items.map((item) => devFallbackStore.createTransaction(item));
       }
       throw error;
     }
@@ -154,12 +206,14 @@ export class TransactionsRepository {
   ) {
     try {
       return await prisma.$transaction(async (tx) => {
+        await lockUserRow(tx, userId);
+
         if (oldWalletId === newWalletId) {
           // Same wallet: compute net adjustment in one atomic update
           const netAdjustment = oldBalanceAdjustment.add(newBalanceAdjustment);
           if (!netAdjustment.isZero()) {
             await tx.wallet.update({
-              where: { id: oldWalletId },
+              where: { id: oldWalletId, userId },
               data: { balance: { increment: netAdjustment } },
             });
           }
@@ -170,18 +224,18 @@ export class TransactionsRepository {
           const secondDelta = secondId === oldWalletId ? oldBalanceAdjustment : newBalanceAdjustment;
 
           await tx.wallet.update({
-            where: { id: firstId },
+            where: { id: firstId, userId },
             data: { balance: { increment: firstDelta } },
           });
 
           await tx.wallet.update({
-            where: { id: secondId },
+            where: { id: secondId, userId },
             data: { balance: { increment: secondDelta } },
           });
         }
 
         const updatedTransaction = await tx.transaction.update({
-          where: { id: transactionId },
+          where: { id: transactionId, userId },
           data: updateData,
           include: {
             category: {
@@ -194,13 +248,13 @@ export class TransactionsRepository {
         });
 
         const updatedWallet = await tx.wallet.findUnique({
-          where: { id: newWalletId },
+          where: { id: newWalletId, userId },
         });
 
         return { updatedTransaction, updatedWallet };
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         const tx = devFallbackStore.transactions.get(transactionId);
         if (tx) {
           if (updateData.amount) tx.amount = new Prisma.Decimal(updateData.amount.toString());
@@ -235,32 +289,33 @@ export class TransactionsRepository {
     }
   }
 
-  static async deleteWithWalletAdjustment(
-    transactionId: string,
-    walletId: string,
-    revertChange: Prisma.Decimal
-  ): Promise<void> {
+  /**
+   * Xóa trước, rồi hoàn số dư theo chính dòng vừa xóa. Request đồng thời thứ hai nhận P2025
+   * nên không hoàn lần nữa, và số tiền hoàn không lấy từ bản đọc cũ.
+   */
+  static async deleteWithWalletAdjustment(transactionId: string, userId: string): Promise<void> {
     try {
       await prisma.$transaction(async (tx) => {
-        await tx.wallet.update({
-          where: { id: walletId },
-          data: { balance: { increment: revertChange } },
+        await lockUserRow(tx, userId);
+
+        const deleted = await tx.transaction.delete({
+          where: { id: transactionId, userId },
         });
 
-        await tx.transaction.delete({
-          where: { id: transactionId },
+        await tx.wallet.update({
+          where: { id: deleted.walletId, userId },
+          data: { balance: { increment: revertDeltaOf(deleted) } },
         });
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         const tx = devFallbackStore.transactions.get(transactionId);
-        if (tx) {
-          const w = devFallbackStore.wallets.get(walletId);
-          if (w) {
-            w.balance = w.balance.add(revertChange);
-            devFallbackStore.wallets.set(w.id, w);
-          }
+        if (tx && tx.userId === userId) {
           devFallbackStore.transactions.delete(transactionId);
+          const w = devFallbackStore.wallets.get(tx.walletId);
+          if (w) {
+            w.balance = w.balance.add(revertDeltaOf(tx));
+          }
         }
         return;
       }
@@ -271,53 +326,44 @@ export class TransactionsRepository {
   static async deleteMany(ids: string[], userId: string): Promise<number> {
     try {
       return await prisma.$transaction(async (tx) => {
-        // 1. Fetch transactions to calculate balance revert per wallet
-        const txsToDelete = await tx.transaction.findMany({
-          where: { id: { in: ids }, userId },
-          select: { id: true, amount: true, type: true, walletId: true },
-        });
+        await lockUserRow(tx, userId);
 
-        if (txsToDelete.length === 0) return 0;
+        // DELETE ... RETURNING: chỉ nhận về những dòng chính transaction này xóa được
+        const deleted = await tx.$queryRaw<DeletedRow[]>`
+          DELETE FROM "Transaction"
+          WHERE "userId" = ${userId} AND "id" IN (${Prisma.join(ids)})
+          RETURNING "amount", "type", "walletId"`;
 
-        // 2. Group revert adjustments by walletId
         const walletRevertMap = new Map<string, Prisma.Decimal>();
-        for (const item of txsToDelete) {
-          const itemAmt = item.amount as Prisma.Decimal;
-          const revertDelta = item.type === 'INCOME' ? itemAmt.negated() : itemAmt;
-          const currentTotal = walletRevertMap.get(item.walletId) || new Prisma.Decimal(0);
-          walletRevertMap.set(item.walletId, currentTotal.add(revertDelta));
+        for (const row of deleted) {
+          const currentTotal = walletRevertMap.get(row.walletId) || new Prisma.Decimal(0);
+          walletRevertMap.set(row.walletId, currentTotal.add(revertDeltaOf(row)));
         }
 
-        // 3. Atomically update every affected wallet
-        for (const [wId, delta] of walletRevertMap.entries()) {
+        // Cập nhật theo thứ tự ID để tránh deadlock
+        for (const walletId of Array.from(walletRevertMap.keys()).sort()) {
+          const delta = walletRevertMap.get(walletId)!;
           if (!delta.isZero()) {
             await tx.wallet.update({
-              where: { id: wId },
+              where: { id: walletId, userId },
               data: { balance: { increment: delta } },
             });
           }
         }
 
-        // 4. Delete the transactions
-        const result = await tx.transaction.deleteMany({
-          where: { id: { in: ids }, userId },
-        });
-
-        return result.count;
+        return deleted.length;
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         let count = 0;
         for (const id of ids) {
           const tx = devFallbackStore.transactions.get(id);
           if (tx && tx.userId === userId) {
-            const revertDelta = tx.type === 'INCOME' ? tx.amount.negated() : tx.amount;
+            devFallbackStore.transactions.delete(id);
             const w = devFallbackStore.wallets.get(tx.walletId);
             if (w) {
-              w.balance = w.balance.add(revertDelta);
-              devFallbackStore.wallets.set(w.id, w);
+              w.balance = w.balance.add(revertDeltaOf(tx));
             }
-            devFallbackStore.transactions.delete(id);
             count++;
           }
         }
@@ -331,11 +377,12 @@ export class TransactionsRepository {
     try {
       return await prisma.wallet.findFirst({
         where: { userId },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         const wallets = devFallbackStore.getUserWallets(userId);
-        return wallets[0] || null;
+        return wallets.find((w) => w.isDefault) || wallets[0] || null;
       }
       throw error;
     }
@@ -349,11 +396,12 @@ export class TransactionsRepository {
           balance: new Prisma.Decimal(0),
           currency: 'VND',
           isDefault: true,
+          type: 'cash',
           userId,
         },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.createWallet({ name: 'Ví Chính', isDefault: true, user: { connect: { id: userId } } });
       }
       throw error;

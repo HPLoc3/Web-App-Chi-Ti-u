@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { RecurringService } from './recurring.service';
 import { sendSuccess, sendError } from '../../utils/response';
+import { sendHttpError } from '../../utils/httpError';
 
 export class RecurringController {
   static async getRecurring(req: Request, res: Response): Promise<void> {
@@ -14,7 +15,7 @@ export class RecurringController {
       const items = await RecurringService.getRecurring(userId);
       sendSuccess(res, 200, items, undefined, { count: items.length });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'RECURRING_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'RECURRING_ERROR', req.id);
     }
   }
 
@@ -29,7 +30,7 @@ export class RecurringController {
       const item = await RecurringService.createRecurring(userId, req.body);
       sendSuccess(res, 201, item, undefined, { message: 'Tạo khoản định kỳ thành công.' });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'CREATE_RECURRING_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'CREATE_RECURRING_ERROR', req.id);
     }
   }
 
@@ -44,7 +45,7 @@ export class RecurringController {
       const item = await RecurringService.updateRecurring(req.params.id, userId, req.body);
       sendSuccess(res, 200, item, undefined, { message: 'Cập nhật khoản định kỳ thành công.' });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'UPDATE_RECURRING_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'UPDATE_RECURRING_ERROR', req.id);
     }
   }
 
@@ -59,7 +60,7 @@ export class RecurringController {
       await RecurringService.deleteRecurring(req.params.id, userId);
       sendSuccess(res, 200, undefined, undefined, { message: 'Đã xóa khoản định kỳ.' });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'DELETE_RECURRING_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'DELETE_RECURRING_ERROR', req.id);
     }
   }
 
@@ -71,13 +72,13 @@ export class RecurringController {
         return;
       }
 
-      const syncedCount = await RecurringService.syncRecurringTransactions(userId);
+      const result = await RecurringService.syncRecurringTransactions(userId);
       sendSuccess(res, 200, undefined, undefined, {
-        message: `Đã đồng bộ thành công ${syncedCount} giao dịch định kỳ.`,
-        syncedCount,
+        message: `Đã đồng bộ thành công ${result.syncedCount} giao dịch định kỳ.`,
+        ...result,
       });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'SYNC_RECURRING_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'SYNC_RECURRING_ERROR', req.id);
     }
   }
 }

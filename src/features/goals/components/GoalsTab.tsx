@@ -1,6 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Expense, Goal } from '../../../types';
-import { formatCurrency } from '../../../utils/format';
+import { formatCurrency, formatPercent, formatDateShort } from '../../../utils/format';
+import { FitText } from '../../../components/common/FitText';
+import MoneyInput from '../../../components/common/MoneyInput';
+import { EMPTY_MONEY, moneyDraft, moneyDraftError } from '../../../utils/moneyDraft';
+import { MAX_VND, parseVndInput } from '../../../utils/money';
+import { getApiErrorMessage } from '../../../lib/apiClient';
+import { getBusinessDate } from '../../../utils/dateParser';
 import { 
   Plus, 
   Trash2, 
@@ -19,10 +25,19 @@ interface GoalsTabProps {
   expenses: Expense[];
   goals: Goal[];
   income: number;
-  onUpdateIncome: (amount: number) => void;
-  onAddGoal: (goal: Omit<Goal, 'id' | 'createdAt'>) => void;
-  onUpdateGoalProgress: (id: string, current: number) => void;
-  onDeleteGoal: (id: string) => void;
+  // Các hàm ghi dữ liệu ném lỗi nếu thất bại; form được giữ nguyên
+  onUpdateIncome: (amount: number) => Promise<unknown> | void;
+  onAddGoal: (goal: Omit<Goal, 'id' | 'createdAt'>) => Promise<unknown> | void;
+  onUpdateGoalProgress: (id: string, current: number) => Promise<unknown> | void;
+  onDeleteGoal: (id: string) => Promise<unknown> | void;
+}
+
+/** Ô "Số khác": nhận thêm hậu tố k / tr (được có phần lẻ, vd 1,5tr) */
+function parseDepositInput(raw: string): number | null {
+  const short = raw.trim().toLowerCase().match(/^(\d+(?:[.,]\d{1,2})?)\s*(k|tr)$/);
+  if (!short) return parseVndInput(raw);
+  const factor = short[2] === 'k' ? 1000 : 1000000;
+  return Math.round(Number(short[1].replace(',', '.')) * factor);
 }
 
 export default function GoalsTab({
@@ -36,37 +51,76 @@ export default function GoalsTab({
 }: GoalsTabProps) {
   // Income edit states
   const [isEditingIncome, setIsEditingIncome] = useState(false);
-  const [tempIncome, setTempIncome] = useState(income.toString());
+  const [tempIncome, setTempIncome] = useState(() => moneyDraft(income));
+  const [incomeError, setIncomeError] = useState<string | null>(null);
 
   // Form states for new goal
   const [isAddingGoal, setIsAddingGoal] = useState(false);
   const [newGoalName, setNewGoalName] = useState('');
-  const [newGoalTarget, setNewGoalTarget] = useState('');
-  const [newGoalCurrent, setNewGoalCurrent] = useState('');
+  const [newGoalTarget, setNewGoalTarget] = useState(EMPTY_MONEY);
+  const [newGoalCurrent, setNewGoalCurrent] = useState(EMPTY_MONEY);
+  const [goalError, setGoalError] = useState<string | null>(null);
+  const [cardError, setCardError] = useState<{ goalId: string; message: string } | null>(null);
+  // Chống gửi đúp: khóa theo từng thao tác
+  const pendingRef = useRef(new Set<string>());
 
-  const handleSaveIncome = () => {
-    const val = parseFloat(tempIncome.replace(/[.,\s]/g, ''));
-    if (!isNaN(val) && val >= 0) {
-      onUpdateIncome(val);
-      setIsEditingIncome(false);
+  /** Trả true khi lưu xong; lỗi thì báo qua onError, không để promise rơi */
+  const runSave = async (
+    key: string,
+    action: () => Promise<unknown> | void,
+    onError: (message: string) => void,
+    fallback: string
+  ) => {
+    if (pendingRef.current.has(key)) return false;
+    pendingRef.current.add(key);
+    try {
+      await action();
+      return true;
+    } catch (err) {
+      onError(getApiErrorMessage(err, fallback));
+      return false;
+    } finally {
+      pendingRef.current.delete(key);
     }
   };
 
-  const handleSaveGoal = (e: React.FormEvent) => {
+  const resetGoalForm = () => {
+    setNewGoalName('');
+    setNewGoalTarget(EMPTY_MONEY);
+    setNewGoalCurrent(EMPTY_MONEY);
+    setGoalError(null);
+    setIsAddingGoal(false);
+  };
+
+  const handleSaveIncome = async () => {
+    const invalid = moneyDraftError(tempIncome, 'nonNegative', 'thu nhập');
+    setIncomeError(invalid);
+    if (invalid) return;
+    const ok = await runSave(
+      'income',
+      () => onUpdateIncome(tempIncome.value!),
+      setIncomeError,
+      'Không lưu được thu nhập.'
+    );
+    if (ok) setIsEditingIncome(false);
+  };
+
+  const handleSaveGoal = async (e: React.FormEvent) => {
     e.preventDefault();
-    const target = parseFloat(newGoalTarget.replace(/[.,\s]/g, ''));
-    const current = parseFloat(newGoalCurrent.replace(/[.,\s]/g, '') || '0');
-    if (newGoalName.trim() && !isNaN(target) && target > 0) {
-      onAddGoal({
-        name: newGoalName.trim(),
-        target,
-        current: isNaN(current) ? 0 : current
-      });
-      setNewGoalName('');
-      setNewGoalTarget('');
-      setNewGoalCurrent('');
-      setIsAddingGoal(false);
-    }
+    // Bỏ trống "đã có sẵn" nghĩa là 0; gõ sai thì phải báo lỗi
+    const current = newGoalCurrent.raw.trim() === '' ? moneyDraft(0) : newGoalCurrent;
+    const invalid = !newGoalName.trim()
+      ? 'Vui lòng nhập tên mục tiêu.'
+      : moneyDraftError(newGoalTarget, 'positive', 'số tiền cần đạt') ?? moneyDraftError(current, 'nonNegative');
+    setGoalError(invalid);
+    if (invalid) return;
+    const ok = await runSave(
+      'new-goal',
+      () => onAddGoal({ name: newGoalName.trim(), target: newGoalTarget.value!, current: current.value! }),
+      setGoalError,
+      'Không tạo được mục tiêu.'
+    );
+    if (ok) resetGoalForm();
   };
 
   // 1. Calculate average monthly expense based on all history
@@ -90,8 +144,42 @@ export default function GoalsTab({
   const monthlySavings = income - averageMonthlyExpense;
 
   // Quick top-up helpers
-  const handleQuickAdd = (goalId: string, current: number, addAmount: number) => {
-    onUpdateGoalProgress(goalId, current + addAmount);
+  const handleQuickAdd = async (goalId: string, current: number, addAmount: number) => {
+    const showError = (message: string) => setCardError({ goalId, message });
+    if (current + addAmount > MAX_VND) {
+      showError('Số tiền tích lũy vượt quá mức tối đa.');
+      return false;
+    }
+    setCardError(null);
+    return runSave(
+      `goal-${goalId}`,
+      () => onUpdateGoalProgress(goalId, current + addAmount),
+      showError,
+      'Không cập nhật được mục tiêu.'
+    );
+  };
+
+  const handleCustomDeposit = async (goal: Goal, field: HTMLInputElement) => {
+    const raw = field.value;
+    if (!raw.trim()) return;
+    const amount = parseDepositInput(raw);
+    if (amount === null || amount <= 0) {
+      setCardError({ goalId: goal.id, message: 'Số tiền không hợp lệ. Ví dụ: 200k, 1,5tr, 250.000.' });
+      return;
+    }
+    const ok = await handleQuickAdd(goal.id, goal.current, amount);
+    // Chỉ xóa ô khi đã lưu và người dùng chưa gõ gì mới
+    if (ok && field.value === raw) field.value = '';
+  };
+
+  const handleDelete = (goalId: string) => {
+    setCardError(null);
+    return runSave(
+      `goal-${goalId}`,
+      () => onDeleteGoal(goalId),
+      (message) => setCardError({ goalId, message }),
+      'Không xóa được mục tiêu.'
+    );
   };
 
   // Helper to compute time remaining
@@ -102,6 +190,14 @@ export default function GoalsTab({
         status: 'completed',
         text: '🎉 Đã hoàn thành mục tiêu!',
         badgeClass: 'bg-emerald-50 text-emerald-900 border-emerald-200'
+      };
+    }
+
+    if (income <= 0) {
+      return {
+        status: 'unknown',
+        text: 'Chưa đánh giá — hãy nhập thu nhập tháng để dự báo thời gian đạt mục tiêu',
+        badgeClass: 'bg-stone-50 text-stone-700 border-stone-200'
       };
     }
 
@@ -118,11 +214,11 @@ export default function GoalsTab({
     const roundedMonths = Math.ceil(monthsLeft);
 
     // Calculate target date
-    // Current date from ADDITIONAL_METADATA is 2026-07-15
-    const today = new Date('2026-07-15');
-    today.setMonth(today.getMonth() + roundedMonths);
-    const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long' };
-    const dateStr = today.toLocaleDateString('vi-VN', options);
+    // Tính từ tháng nghiệp vụ hiện tại; neo ngày 1 để cuối tháng không nhảy quá một tháng
+    const [year, month] = getBusinessDate().split('-').map(Number);
+    const targetMonth = new Date(Date.UTC(year, month - 1 + roundedMonths, 1));
+    const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', timeZone: 'UTC' };
+    const dateStr = targetMonth.toLocaleDateString('vi-VN', options);
 
     return {
       status: 'saving',
@@ -137,7 +233,7 @@ export default function GoalsTab({
       {/* Upper Block: Financial Health Board & Income Settings */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Monthly Income Setting */}
-        <div className="bg-[#FAF7F0] border border-[#E6DEC9] p-4 rounded-lg shadow-sm flex flex-col justify-between">
+        <div className={`bg-[#FAF7F0] border border-[#E6DEC9] p-4 rounded-lg shadow-sm flex flex-col justify-between ${isEditingIncome ? 'md:col-span-2 xl:col-span-1' : ''}`}>
           <div>
             <div className="flex items-center justify-between text-xs font-semibold text-stone-500 mb-1">
               <span className="flex items-center gap-1.5 uppercase tracking-wider">
@@ -147,7 +243,8 @@ export default function GoalsTab({
               {!isEditingIncome && (
                 <button 
                   onClick={() => {
-                    setTempIncome(income.toString());
+                    setTempIncome(moneyDraft(income > 0 ? income : null));
+                    setIncomeError(null);
                     setIsEditingIncome(true);
                   }}
                   className="text-emerald-800 hover:text-emerald-900 text-xs font-bold cursor-pointer"
@@ -158,24 +255,47 @@ export default function GoalsTab({
             </div>
             {isEditingIncome ? (
               <div className="flex gap-1.5 mt-1">
-                <input
-                  type="text"
-                  value={tempIncome}
-                  onChange={(e) => setTempIncome(e.target.value)}
+                <MoneyInput
+                  aria-label="Thu nhập hằng tháng"
+                  autoFocus
+                  value={tempIncome.value}
+                  onChange={(value, raw) => setTempIncome({ value, raw })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void handleSaveIncome();
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setIsEditingIncome(false);
+                    }
+                  }}
                   placeholder="Nhập thu nhập..."
-                  className="w-full bg-white border border-[#E6DEC9] rounded px-3 py-2.5 sm:py-1 text-sm font-mono focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
+                  className="flex-1 min-w-0 bg-white border border-[#E6DEC9] rounded px-3 py-2.5 sm:py-1 text-sm font-mono focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
                 />
                 <button
-                  onClick={handleSaveIncome}
-                  className="bg-emerald-900 text-white px-3 py-2.5 sm:py-1 rounded hover:bg-emerald-850 cursor-pointer text-sm sm:text-xs min-h-[44px] sm:min-h-0 flex items-center justify-center"
+                  onClick={() => void handleSaveIncome()}
+                  className="shrink-0 bg-emerald-900 text-white px-3 py-2.5 sm:py-1 rounded hover:bg-emerald-850 cursor-pointer text-sm sm:text-xs min-h-[44px] sm:min-h-[40px] flex items-center justify-center"
                 >
                   Lưu
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditingIncome(false)}
+                  className="shrink-0 border border-stone-300 text-stone-600 hover:bg-stone-100 px-3 py-2.5 sm:py-1 rounded cursor-pointer text-sm sm:text-xs min-h-[44px] sm:min-h-[40px] flex items-center justify-center"
+                >
+                  Hủy
+                </button>
               </div>
             ) : (
-              <div className="font-mono text-xl font-bold text-emerald-950 mt-1">
-                {formatCurrency(income)}
-              </div>
+              <FitText
+                text={income > 0 ? formatCurrency(income) : 'Chưa nhập'}
+                className="font-mono font-bold text-emerald-950 mt-1"
+              />
+            )}
+            {isEditingIncome && incomeError && (
+              <p role="alert" className="text-xs text-red-700 mt-1">
+                {incomeError}
+              </p>
             )}
           </div>
           <div className="text-[10px] text-stone-400 mt-2 italic leading-snug">
@@ -190,9 +310,10 @@ export default function GoalsTab({
               <TrendingDown size={14} className="text-stone-500" />
               Chi tiêu TB hằng tháng
             </span>
-            <div className="font-mono text-xl font-bold text-stone-800 mt-1">
-              {formatCurrency(Math.round(averageMonthlyExpense))}
-            </div>
+            <FitText
+              text={formatCurrency(Math.round(averageMonthlyExpense))}
+              className="font-mono font-bold text-stone-800 mt-1"
+            />
           </div>
           <div className="text-[10px] text-stone-400 mt-2 leading-snug">
             Tính trung bình dựa trên tổng chi trong lịch sử chia cho số tháng đã ghi nhận.
@@ -206,12 +327,17 @@ export default function GoalsTab({
               <TrendingUp size={14} className="text-emerald-700" />
               Tiền tích lũy TB/tháng
             </span>
-            <div className={`font-mono text-xl font-bold mt-1 ${monthlySavings > 0 ? 'text-emerald-855' : 'text-red-700'}`}>
-              {formatCurrency(Math.round(monthlySavings))}
-            </div>
+            <FitText
+              text={income > 0 ? formatCurrency(Math.round(monthlySavings)) : '—'}
+              className={`font-mono font-bold mt-1 ${
+                income <= 0 ? 'text-stone-500' : monthlySavings > 0 ? 'text-emerald-855' : 'text-red-700'
+              }`}
+            />
           </div>
           <div className="text-[10px] text-stone-400 mt-2 leading-snug">
-            {monthlySavings > 0 
+            {income <= 0
+              ? 'Nhập thu nhập tháng để tính tiền tích lũy.'
+              : monthlySavings > 0
               ? 'Tốc độ tích lũy thực tế giúp dự báo chính xác tiến độ đạt mục tiêu.' 
               : 'Cảnh báo: Chi tiêu đang vượt quá thu nhập của bạn!'}
           </div>
@@ -253,41 +379,33 @@ export default function GoalsTab({
               </div>
               <div>
                 <label className="block text-xs font-semibold text-stone-500 mb-1">SỐ TIỀN CẦN ĐẠT *</label>
-                <input
-                  type="text"
+                <MoneyInput
                   required
-                  value={newGoalTarget}
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/[^\d]/g, '');
-                    setNewGoalTarget(digits ? parseInt(digits, 10).toLocaleString('vi-VN') : '');
-                  }}
+                  value={newGoalTarget.value}
+                  onChange={(value, raw) => setNewGoalTarget({ value, raw })}
                   placeholder="Ví dụ: 15.000.000"
                   className="w-full bg-stone-50/50 border border-[#E6DEC9] rounded px-3 py-3 sm:py-1.5 text-sm font-mono focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
                 />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-stone-500 mb-1">SỐ TIỀN ĐÃ CÓ SẴN (TÙY CHỌN)</label>
-                <input
-                  type="text"
-                  value={newGoalCurrent}
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/[^\d]/g, '');
-                    setNewGoalCurrent(digits ? parseInt(digits, 10).toLocaleString('vi-VN') : '');
-                  }}
+                <MoneyInput
+                  value={newGoalCurrent.value}
+                  onChange={(value, raw) => setNewGoalCurrent({ value, raw })}
                   placeholder="Ví dụ: 3.000.000"
                   className="w-full bg-stone-50/50 border border-[#E6DEC9] rounded px-3 py-3 sm:py-1.5 text-sm font-mono focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
                 />
               </div>
             </div>
+            {goalError && (
+              <p role="alert" className="text-xs text-red-700">
+                {goalError}
+              </p>
+            )}
             <div className="flex justify-end gap-2 text-xs">
               <button
                 type="button"
-                onClick={() => {
-                  setNewGoalName('');
-                  setNewGoalTarget('');
-                  setNewGoalCurrent('');
-                  setIsAddingGoal(false);
-                }}
+                onClick={resetGoalForm}
                 className="px-4 py-3 sm:py-1.5 border border-stone-200 hover:bg-stone-50 text-stone-600 rounded font-medium cursor-pointer min-h-[44px] sm:min-h-0 flex items-center justify-center"
               >
                 Hủy
@@ -314,18 +432,18 @@ export default function GoalsTab({
                 <div key={goal.id} className="border border-[#E6DEC9] p-4 rounded-lg bg-white space-y-4 shadow-sm">
                   {/* Goal header info */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-100 pb-2">
-                    <div>
-                      <h4 className="font-serif text-lg font-bold text-emerald-950 flex items-center gap-1.5">
+                    <div className="min-w-0">
+                      <h4 className="font-serif text-lg font-bold text-emerald-950 flex items-center gap-1.5 [overflow-wrap:anywhere]">
                         <PiggyBank size={18} className="text-amber-600 shrink-0" />
                         {goal.name}
                       </h4>
-                      <p className="text-[10px] text-stone-400">Thiết lập ngày: {goal.createdAt}</p>
+                      <p className="text-[10px] text-stone-400">Thiết lập ngày: {formatDateShort(goal.createdAt)}</p>
                     </div>
 
                     <button
                       onClick={() => {
                         if (confirm(`Bạn chắc chắn muốn xóa mục tiêu "${goal.name}"?`)) {
-                          onDeleteGoal(goal.id);
+                          void handleDelete(goal.id);
                         }
                       }}
                       className="p-1 text-stone-300 hover:text-red-700 hover:bg-red-50 rounded transition self-end sm:self-center cursor-pointer"
@@ -342,7 +460,7 @@ export default function GoalsTab({
                     <div className="md:col-span-7 space-y-2">
                       <div className="flex justify-between text-xs">
                         <span className="text-stone-500 font-medium">Tiến độ tích lũy</span>
-                        <span className="font-mono font-bold text-emerald-900">{pct.toFixed(1)}%</span>
+                        <span className="font-mono font-bold text-emerald-900">{formatPercent(pct)}</span>
                       </div>
                       
                       {/* Clean flat progress bar */}
@@ -408,30 +526,20 @@ export default function GoalsTab({
                         placeholder="Số khác, vd: 200k..."
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
-                            const inputVal = (e.currentTarget as HTMLInputElement).value;
-                            let cleanVal = inputVal.toLowerCase().replace(/\s/g, '');
-                            
-                            let factor = 1;
-                            if (cleanVal.endsWith('k')) {
-                              factor = 1000;
-                              cleanVal = cleanVal.slice(0, -1);
-                            } else if (cleanVal.endsWith('tr')) {
-                              factor = 1000000;
-                              cleanVal = cleanVal.slice(0, -2);
-                            }
-                            
-                            cleanVal = cleanVal.replace(/[.,\s]/g, '');
-                            const num = parseFloat(cleanVal);
-                            if (!isNaN(num) && num > 0) {
-                              handleQuickAdd(goal.id, goal.current, num * factor);
-                              (e.currentTarget as HTMLInputElement).value = '';
-                            }
+                            e.preventDefault();
+                            void handleCustomDeposit(goal, e.currentTarget);
                           }
                         }}
                         className="w-full sm:w-32 px-3 py-2.5 sm:py-1 border border-stone-200 bg-[#FAF9F6] rounded text-sm sm:text-xs font-mono text-stone-700 focus:outline-none focus:border-emerald-700 min-h-[44px] sm:min-h-0"
                       />
                     </div>
                   </div>
+
+                  {cardError?.goalId === goal.id && (
+                    <p role="alert" className="text-xs text-red-700">
+                      {cardError.message}
+                    </p>
+                  )}
 
                 </div>
               );

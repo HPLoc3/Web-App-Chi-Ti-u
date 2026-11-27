@@ -1,4 +1,5 @@
 import { AggregatedFinancialFacts, CategoryMetricFact, GoalMetricFact } from './ai.types';
+import { totalMonthlyRecurring } from '../../utils/recurringSchedule';
 
 const CATEGORY_NAMES: Record<string, string> = {
   an_uong: 'Ăn uống',
@@ -25,7 +26,7 @@ export class AiFactsAggregator {
       expenses = [],
       goals = [],
       categoryLimits = {},
-      income = 15000000,
+      income = 0,
       recurringExpenses = [],
     } = context;
 
@@ -54,14 +55,15 @@ export class AiFactsAggregator {
     const totalSpentPreviousMonth = prevMonthExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
     const transactionCountThisMonth = thisMonthExpenses.length;
-    const netSavingsThisMonth = Math.max(0, income - totalSpentThisMonth);
+    // Số thật (âm = chi vượt) để khớp với savingsRatePct; chưa có thu nhập thì để 0
+    const netSavingsThisMonth = income > 0 ? income - totalSpentThisMonth : 0;
     const savingsRatePct = income > 0 ? Math.round(((income - totalSpentThisMonth) / income) * 100) : 0;
 
     // Burn rate & projections
     const daysPassed = Math.max(1, currentDay);
     const dailyBurnRate = Math.round(totalSpentThisMonth / daysPassed);
     const projectedEndMonthSpent = totalSpentThisMonth + dailyBurnRate * daysRemaining;
-    const projectedEndMonthSavings = Math.max(0, income - projectedEndMonthSpent);
+    const projectedEndMonthSavings = income > 0 ? income - projectedEndMonthSpent : 0;
 
     // Month over Month Growth
     const momDiff = totalSpentThisMonth - totalSpentPreviousMonth;
@@ -75,6 +77,9 @@ export class AiFactsAggregator {
       const cId = e.categoryId || 'khac';
       catSpending[cId] = (catSpending[cId] || 0) + (Number(e.amount) || 0);
     });
+
+    const previousInCategory = (cId: string) =>
+      prevMonthExpenses.filter((e) => (e.categoryId || 'khac') === cId);
 
     const categoryFacts: CategoryMetricFact[] = Object.keys({ ...CATEGORY_NAMES, ...categoryLimits, ...catSpending }).map((cId) => {
       const spent = catSpending[cId] || 0;
@@ -100,6 +105,9 @@ export class AiFactsAggregator {
         categoryId: cId,
         categoryName: CATEGORY_NAMES[cId] || cId,
         spent,
+        transactionCount: thisMonthExpenses.filter((e) => (e.categoryId || 'khac') === cId).length,
+        previousMonthSpent: previousInCategory(cId).reduce((sum, e) => sum + (Number(e.amount) || 0), 0),
+        previousMonthTransactionCount: previousInCategory(cId).length,
         percentageOfTotal,
         limit,
         limitUsagePct,
@@ -118,8 +126,8 @@ export class AiFactsAggregator {
     const nearLimitCategories = categoryFacts.filter((c) => c.status === 'near_limit');
 
     // Recurring expenses
-    const upcomingRecurringList = recurringExpenses
-      .filter((r) => r.dayOfMonth >= currentDay && r.isActive !== false)
+    const upcomingRecurring = recurringExpenses.filter((r) => r.dayOfMonth >= currentDay && r.isActive !== false);
+    const upcomingRecurringList = upcomingRecurring
       .map((r) => ({
         name: r.note || CATEGORY_NAMES[r.categoryId] || 'Khoản định kỳ',
         amount: Number(r.amount) || 0,
@@ -127,18 +135,27 @@ export class AiFactsAggregator {
         categoryId: r.categoryId,
       }));
 
-    const upcomingRecurringTotal = upcomingRecurringList.reduce((sum, r) => sum + r.amount, 0);
+    // Quy đổi theo tháng như các màn hình khác (khoản tuần/năm)
+    const upcomingRecurringTotal = totalMonthlyRecurring(
+      upcomingRecurring.map((r) => ({ amount: Number(r.amount) || 0, frequency: r.frequency }))
+    );
 
     // Goals calculation
-    const monthlyNetSavingsEstimated = Math.max(500000, income - projectedEndMonthSpent);
+    // Chưa có thu nhập thì không ước tính tốc độ tích lũy
+    // Không còn phần dư (hiện tại hoặc dự kiến cuối tháng) thì cũng không ước tính, không đặt mức sàn giả
+    const monthlyNetSavingsEstimated =
+      income > 0 && income > totalSpentThisMonth ? Math.max(0, income - projectedEndMonthSpent) : 0;
     const goalsFacts: GoalMetricFact[] = goals.map((g) => {
       const target = Number(g.target) || 0;
       const current = Number(g.current) || 0;
       const remaining = Math.max(0, target - current);
       const progressPct = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0;
-      const estimatedMonthsNeeded = remaining > 0 && monthlyNetSavingsEstimated > 0
-        ? Math.ceil((remaining / monthlyNetSavingsEstimated) * 10) / 10
-        : 0;
+      let estimatedMonthsNeeded: number | null = 0; // đã đạt mục tiêu
+      if (remaining > 0) {
+        estimatedMonthsNeeded = monthlyNetSavingsEstimated > 0
+          ? Math.ceil((remaining / monthlyNetSavingsEstimated) * 10) / 10
+          : null;
+      }
 
       return {
         id: g.id || 'goal-default',
@@ -168,6 +185,7 @@ export class AiFactsAggregator {
       projectedEndMonthSavings,
       totalSpentPreviousMonth,
       monthOverMonthGrowthPct,
+      categoryFacts,
       topCategories,
       overBudgetCategories,
       nearLimitCategories,

@@ -10,7 +10,7 @@ export class ReportsRepository {
         include: { budgetLimits: true },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.findBudgetByUserId(userId);
       }
       throw error;
@@ -28,7 +28,7 @@ export class ReportsRepository {
         },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         const txs = devFallbackStore.getUserTransactions(userId).filter((t) => {
           const d = new Date(t.date);
           return t.type === 'INCOME' && d >= startDate && d <= endDate;
@@ -51,7 +51,7 @@ export class ReportsRepository {
         },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         const txs = devFallbackStore.getUserTransactions(userId).filter((t) => {
           const d = new Date(t.date);
           return t.type === 'EXPENSE' && d >= startDate && d <= endDate;
@@ -70,7 +70,7 @@ export class ReportsRepository {
         where: { userId },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         const wallets = devFallbackStore.getUserWallets(userId);
         const total = wallets.reduce((acc, w) => acc.add(w.balance), new Prisma.Decimal(0));
         return { _sum: { balance: total } };
@@ -95,7 +95,7 @@ export class ReportsRepository {
         },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         const map = new Map<string, { sum: Prisma.Decimal; count: number }>();
         const txs = devFallbackStore.getUserTransactions(userId).filter((t) => {
           const d = new Date(t.date);
@@ -131,7 +131,7 @@ export class ReportsRepository {
         select: { id: true, name: true, icon: true, color: true },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return categoryIds
           .map((id) => devFallbackStore.categories.get(id))
           .filter(Boolean)
@@ -148,7 +148,7 @@ export class ReportsRepository {
         include: { category: true },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.getUserTransactions(userId).filter((t) => {
           const d = new Date(t.date);
           return d >= startDate && d <= endDate;
@@ -164,7 +164,7 @@ export class ReportsRepository {
         where: { userId },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.getUserGoals(userId);
       }
       throw error;
@@ -177,7 +177,7 @@ export class ReportsRepository {
         where: { userId, isActive: true },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.getUserRecurring(userId).filter((r) => r.isActive);
       }
       throw error;

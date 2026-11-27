@@ -1,6 +1,35 @@
 import { apiClient } from '../../lib/apiClient';
 import { RecurringExpense } from '../../types';
 
+const toRecurringExpense = (d: any): RecurringExpense => ({
+  id: d.id,
+  amount: Number(d.amount) || 0,
+  categoryId: d.categoryId || 'khac',
+  dayOfMonth: Number(d.dayOfMonth) || 1,
+  note: d.note || '',
+  frequency: d.frequency || 'monthly',
+  startDate: d.startDate || undefined,
+  nextPaymentDate: d.nextPaymentDate || undefined,
+  isActive: d.isActive !== false,
+});
+
+const toPayload = (item: Omit<RecurringExpense, 'id'>) => ({
+  amount: item.amount,
+  categoryId: item.categoryId,
+  dayOfMonth: item.dayOfMonth,
+  note: item.note,
+  frequency: item.frequency || 'monthly',
+  startDate: item.startDate || undefined,
+  isActive: item.isActive !== false,
+});
+
+export interface RecurringSyncResponse {
+  syncedCount: number;
+  skippedMissed: number;
+  failedCount: number;
+  message: string;
+}
+
 export const recurringExpenseService = {
   /**
    * Lấy danh sách chi tiêu định kỳ từ PostgreSQL
@@ -8,15 +37,7 @@ export const recurringExpenseService = {
   async getRecurringExpenses(): Promise<RecurringExpense[]> {
     const response = await apiClient.get('/api/recurring');
     if (response.data && response.data.success && Array.isArray(response.data.data)) {
-      return response.data.data.map((item: any) => ({
-        id: item.id,
-        amount: Number(item.amount) || 0,
-        categoryId: item.categoryId || 'khac',
-        dayOfMonth: Number(item.dayOfMonth) || 1,
-        note: item.note || '',
-        frequency: item.frequency || 'monthly',
-        isActive: item.isActive !== false,
-      }));
+      return response.data.data.map(toRecurringExpense);
     }
     return [];
   },
@@ -28,26 +49,10 @@ export const recurringExpenseService = {
     userId: string,
     item: Omit<RecurringExpense, 'id'>
   ): Promise<RecurringExpense> {
-    const response = await apiClient.post('/api/recurring', {
-      amount: item.amount,
-      categoryId: item.categoryId,
-      dayOfMonth: item.dayOfMonth,
-      note: item.note,
-      frequency: item.frequency || 'monthly',
-      isActive: item.isActive !== false,
-    });
+    const response = await apiClient.post('/api/recurring', toPayload(item));
 
     if (response.data && response.data.success && response.data.data) {
-      const d = response.data.data;
-      return {
-        id: d.id,
-        amount: Number(d.amount) || item.amount,
-        categoryId: d.categoryId || item.categoryId,
-        dayOfMonth: Number(d.dayOfMonth) || item.dayOfMonth,
-        note: d.note || item.note,
-        frequency: d.frequency || 'monthly',
-        isActive: d.isActive !== false,
-      };
+      return toRecurringExpense(response.data.data);
     }
 
     throw new Error(response.data?.message || 'Không thể tạo khoản định kỳ.');
@@ -60,26 +65,10 @@ export const recurringExpenseService = {
     userId: string,
     item: RecurringExpense
   ): Promise<RecurringExpense> {
-    const response = await apiClient.put(`/api/recurring/${item.id}`, {
-      amount: item.amount,
-      categoryId: item.categoryId,
-      dayOfMonth: item.dayOfMonth,
-      note: item.note,
-      frequency: item.frequency || 'monthly',
-      isActive: item.isActive !== false,
-    });
+    const response = await apiClient.put(`/api/recurring/${item.id}`, toPayload(item));
 
     if (response.data && response.data.success && response.data.data) {
-      const d = response.data.data;
-      return {
-        id: d.id,
-        amount: Number(d.amount) || item.amount,
-        categoryId: d.categoryId || item.categoryId,
-        dayOfMonth: Number(d.dayOfMonth) || item.dayOfMonth,
-        note: d.note || item.note,
-        frequency: d.frequency || 'monthly',
-        isActive: d.isActive !== false,
-      };
+      return toRecurringExpense(response.data.data);
     }
 
     throw new Error(response.data?.message || 'Không thể cập nhật khoản định kỳ.');
@@ -101,11 +90,13 @@ export const recurringExpenseService = {
   /**
    * Kích hoạt đồng bộ giao dịch tự động từ định kỳ
    */
-  async syncRecurring(): Promise<{ syncedCount: number; message: string }> {
+  async syncRecurring(): Promise<RecurringSyncResponse> {
     const response = await apiClient.post('/api/recurring/sync');
     if (response.data && response.data.success) {
       return {
         syncedCount: response.data.syncedCount || 0,
+        skippedMissed: response.data.skippedMissed || 0,
+        failedCount: response.data.failedCount || 0,
         message: response.data.message || 'Đồng bộ thành công.',
       };
     }

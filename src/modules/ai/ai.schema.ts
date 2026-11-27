@@ -8,5 +8,6 @@ export const aiAssistantSchema = z.object({
     goals: z.array(z.any()).optional(),
     categoryLimits: z.record(z.string(), z.number()).optional(),
     income: z.number().optional(),
+    recurringExpenses: z.array(z.any()).max(500, 'Tối đa 500 khoản định kỳ').optional(),
   }).optional(),
 });

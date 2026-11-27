@@ -18,6 +18,8 @@ interface LandingPageProps {
   onOpenLogin: () => void;
   onOpenRegister: () => void;
   onStartDemo: () => void;
+  /** Mở app ở tab Trợ lý AI */
+  onTryChatbot?: () => void;
   isLoggedIn: boolean;
   userName?: string | null;
 }
@@ -26,6 +28,7 @@ export default function LandingPage({
   onOpenLogin,
   onOpenRegister,
   onStartDemo,
+  onTryChatbot,
   isLoggedIn,
   userName,
 }: LandingPageProps) {
@@ -88,7 +91,7 @@ export default function LandingPage({
         <CoreFeaturesSection />
 
         {/* 7. AI Copilot Interactive Live Demonstration (WOW Moment, conversation breakdown) */}
-        <AiCopilotSection onTryChatbot={onStartDemo} />
+        <AiCopilotSection onTryChatbot={onTryChatbot} />
 
         {/* 8. Product Showcase (Interactive mockup tabs: Dashboard, Transactions, Budget, Reports, AI Copilot) */}
         <ProductShowcaseSection />

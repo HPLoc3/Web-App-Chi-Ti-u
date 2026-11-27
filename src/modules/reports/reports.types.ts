@@ -30,6 +30,7 @@ export interface SummaryReportResult {
 
 export interface FinancialInsightsResult {
   healthScore: {
+    assessable: boolean; // false khi chưa có thu nhập -> "Chưa đánh giá"
     savingsRateScore: number;
     budgetAdherenceScore: number;
     spendingStabilityScore: number;

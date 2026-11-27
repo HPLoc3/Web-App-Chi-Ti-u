@@ -9,7 +9,7 @@ import { ToastProvider } from '../../../src/context/ToastContext';
 
 describe('Frontend Component Tests', () => {
   describe('ExpensesTab Currency Input & Caret Management', () => {
-    it('should maintain raw value on focus and format with vi-VN on blur', () => {
+    it('should keep vi-VN grouping while focused, on blur and on re-focus', () => {
       const handleAdd = vi.fn();
       render(
         <ToastProvider>
@@ -24,18 +24,18 @@ describe('Frontend Component Tests', () => {
 
       const input = screen.getByPlaceholderText(/Ví dụ: 50.000/i) as HTMLInputElement;
 
-      // Focus -> shows raw input
+      // MoneyInput nhóm nghìn ngay khi gõ
       fireEvent.focus(input);
       fireEvent.change(input, { target: { value: '15000' } });
-      expect(input.value).toBe('15000');
+      expect(input.value).toBe('15.000');
 
       // Blur -> displays formatted currency
       fireEvent.blur(input);
       expect(input.value).toBe((15000).toLocaleString('vi-VN'));
 
-      // Re-focus -> returns to raw 15000 for effortless caret editing
+      // Re-focus -> giá trị không đổi
       fireEvent.focus(input);
-      expect(input.value).toBe('15000');
+      expect(input.value).toBe('15.000');
     });
 
     it('should correctly handle incremental typing without injecting extra digits (15000 -> 115000 -> 1000000)', () => {
@@ -57,7 +57,7 @@ describe('Frontend Component Tests', () => {
       const sequence = ['1', '15', '150', '1500', '15000', '115000', '1000000', '999999999'];
       for (const val of sequence) {
         fireEvent.change(input, { target: { value: val } });
-        expect(input.value).toBe(val);
+        expect(input.value).toBe(Number(val).toLocaleString('vi-VN'));
       }
 
       fireEvent.blur(input);
@@ -82,19 +82,19 @@ describe('Frontend Component Tests', () => {
 
       // Paste "15.000"
       fireEvent.change(input, { target: { value: '15.000' } });
-      expect(input.value).toBe('15000');
+      expect(input.value).toBe('15.000');
 
       // Paste "15,000"
       fireEvent.change(input, { target: { value: '15,000' } });
-      expect(input.value).toBe('15000');
+      expect(input.value).toBe('15.000');
 
       // Paste "15 000"
       fireEvent.change(input, { target: { value: '15 000' } });
-      expect(input.value).toBe('15000');
+      expect(input.value).toBe('15.000');
 
       // Paste "115.000 ₫"
       fireEvent.change(input, { target: { value: '115.000 ₫' } });
-      expect(input.value).toBe('115000');
+      expect(input.value).toBe('115.000');
     });
 
     it('should submit exact numeric amount (number type, not formatted string)', async () => {
@@ -199,10 +199,10 @@ describe('Frontend Component Tests', () => {
       fireEvent.click(parseBtn);
 
       const amountInput = screen.getByPlaceholderText('45000') as HTMLInputElement;
-      expect(amountInput.value).toBe('45000');
+      expect(amountInput.value).toBe('45.000');
     });
 
-    it('should call onAddExpense with correct data on submit', () => {
+    it('should call onAddExpense with correct data on submit', async () => {
       const handleAdd = vi.fn();
       const handleClose = vi.fn();
 
@@ -232,7 +232,8 @@ describe('Frontend Component Tests', () => {
           note: 'Tiền chợ',
         })
       );
-      expect(handleClose).toHaveBeenCalledTimes(1);
+      // Modal chỉ đóng sau khi lưu xong
+      await waitFor(() => expect(handleClose).toHaveBeenCalledTimes(1));
     });
   });
 

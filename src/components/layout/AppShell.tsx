@@ -12,7 +12,7 @@ interface AppShellProps {
   onOpenAuth: () => void;
   onOpenQuickAdd: () => void;
   onNavigateHome: () => void;
-  onLoadSampleData: () => void;
+  onLoadSampleData?: () => void;
   selectedMonth?: string;
   stats?: {
     totalExpensesCount?: number;

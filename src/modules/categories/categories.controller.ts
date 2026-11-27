@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { CategoriesService } from './categories.service';
 import { sendSuccess, sendError } from '../../utils/response';
+import { sendHttpError } from '../../utils/httpError';
 
 export class CategoriesController {
   static async getCategories(req: Request, res: Response): Promise<void> {
@@ -9,7 +10,7 @@ export class CategoriesController {
       const categories = await CategoriesService.getCategories(userId);
       sendSuccess(res, 200, categories, undefined, { count: categories.length });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'CATEGORY_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'CATEGORY_ERROR', req.id);
     }
   }
 
@@ -24,7 +25,7 @@ export class CategoriesController {
       const category = await CategoriesService.createCategory(userId, req.body);
       sendSuccess(res, 201, category, undefined, { message: 'Tạo danh mục mới thành công.' });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'CREATE_CATEGORY_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'CREATE_CATEGORY_ERROR', req.id);
     }
   }
 
@@ -39,7 +40,7 @@ export class CategoriesController {
       await CategoriesService.deleteCategory(req.params.id, userId);
       sendSuccess(res, 200, undefined, undefined, { message: 'Đã xóa danh mục thành công.' });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'DELETE_CATEGORY_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'DELETE_CATEGORY_ERROR', req.id);
     }
   }
 }

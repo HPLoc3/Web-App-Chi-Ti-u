@@ -69,83 +69,118 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Biến lưu trữ Promise làm mới Token để tránh gọi nhiều lần đồng thời
-let refreshPromise: Promise<boolean> | null = null;
+const GENERIC_ERROR = 'Đã xảy ra lỗi. Vui lòng thử lại.';
+const NETWORK_ERROR = 'Không thể kết nối máy chủ. Vui lòng kiểm tra mạng và thử lại.';
 
-// Response Interceptor: Tự động refresh token khi Access Token hết hạn (401)
+/**
+ * Lấy thông báo lỗi để hiện cho người dùng.
+ * Server trả { error: { message } } (sendError) hoặc chỉ { message } (validate, auth, rate limit).
+ */
+export const getApiErrorMessage = (err: any, fallback?: string): string => {
+  const data = err?.response?.data;
+  const serverMessage = data?.error?.message || data?.message;
+  if (serverMessage) return String(serverMessage);
+  // Có phản hồi nhưng không có message: không lộ câu tiếng Anh của axios
+  if (err?.response) return fallback || GENERIC_ERROR;
+  if (err?.code === 'ERR_NETWORK' || err?.code === 'ECONNABORTED' || err?.message === 'Network Error') {
+    return NETWORK_ERROR;
+  }
+  return err?.message || fallback || GENERIC_ERROR;
+};
+
+const REFRESH_LOCK_NAME = 'qlct-auth-refresh';
+const REFRESH_IN_PROGRESS_DELAY_MS = 300;
+
+type RefreshOutcome = 'refreshed' | 'in_progress' | 'expired';
+
+/**
+ * Gọi /auth/refresh. Chỉ xóa token khi server trả 401;
+ * lỗi mạng hoặc lỗi khác được ném ra và giữ nguyên token.
+ */
+const requestRefresh = async (tokenBeforeWait: string | null): Promise<RefreshOutcome> => {
+  const currentToken = getStoredRefreshToken();
+  // Tab khác đã xoay token trong lúc chờ khóa: dùng luôn token mới
+  if (currentToken && currentToken !== tokenBeforeWait) return 'refreshed';
+
+  try {
+    const res = await axios.post(
+      `${getApiBaseUrl()}/api/v1/auth/refresh`,
+      // Người dùng chỉ có cookie: không gửi refreshToken: null (server từ chối)
+      currentToken ? { refreshToken: currentToken } : {},
+      { withCredentials: true }
+    );
+    if (res.data?.success !== true) return 'expired';
+    if (res.data.accessToken) {
+      setStoredTokens(res.data.accessToken, res.data.refreshToken);
+    }
+    return 'refreshed';
+  } catch (err: any) {
+    const status = err?.response?.status;
+    if (status === 401) {
+      clearStoredTokens();
+      return 'expired';
+    }
+    const code = err?.response?.data?.error?.code || err?.response?.data?.code;
+    if (status === 409 && code === 'REFRESH_IN_PROGRESS') return 'in_progress';
+    throw err;
+  }
+};
+
+// Web Locks giúp nhiều tab không cùng xoay một refresh token
+const refreshWithLock = (): Promise<RefreshOutcome> => {
+  const tokenBeforeWait = getStoredRefreshToken();
+  const locks = typeof navigator !== 'undefined' ? (navigator as any).locks : undefined;
+  if (locks?.request) {
+    return locks.request(REFRESH_LOCK_NAME, () => requestRefresh(tokenBeforeWait));
+  }
+  return requestRefresh(tokenBeforeWait);
+};
+
+// Biến lưu trữ Promise làm mới Token để tránh gọi nhiều lần đồng thời trong cùng tab
+let refreshPromise: Promise<RefreshOutcome> | null = null;
+
+// Các endpoint mà 401 là lỗi nghiệp vụ, không được kích hoạt refresh
+const NO_REFRESH_ENDPOINTS = [
+  '/auth/login',
+  '/auth/register',
+  '/auth/google',
+  '/auth/refresh',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+];
+
+// Response Interceptor: Tự động refresh token khi Access Token hết hạn (401), kể cả /auth/me
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError<any>) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    // 1. Xử lý trường hợp endpoint /auth/me trả về 401: coi như trạng thái ANONYMOUS hợp lệ
-    if (error.response?.status === 401 && originalRequest?.url?.includes('/auth/me')) {
-      clearStoredTokens();
-      return Promise.resolve({
-        data: { success: false, user: null },
-        status: 401,
-        statusText: 'Unauthorized',
-        headers: error.response?.headers || {},
-        config: originalRequest,
+    const skipRefresh = NO_REFRESH_ENDPOINTS.some((path) => originalRequest?.url?.includes(path));
+    if (error.response?.status !== 401 || !originalRequest || originalRequest._retry || skipRefresh) {
+      return Promise.reject(error);
+    }
+    originalRequest._retry = true;
+
+    if (!refreshPromise) {
+      refreshPromise = refreshWithLock().finally(() => {
+        refreshPromise = null;
       });
     }
+    const outcome = await refreshPromise;
 
-    // 2. Bỏ qua nếu lỗi xảy ra ngay tại các endpoint auth cơ bản (login, register, google, forgot-password, refresh)
-    const isAuthEndpoint =
-      originalRequest?.url?.includes('/auth/login') ||
-      originalRequest?.url?.includes('/auth/register') ||
-      originalRequest?.url?.includes('/auth/google') ||
-      originalRequest?.url?.includes('/auth/refresh') ||
-      originalRequest?.url?.includes('/auth/forgot-password') ||
-      originalRequest?.url?.includes('/auth/reset-password');
-
-    if (error.response?.status === 401 && !originalRequest?._retry && !isAuthEndpoint) {
-      originalRequest._retry = true;
-
-      try {
-        if (!refreshPromise) {
-          const storedRefreshToken = getStoredRefreshToken();
-          refreshPromise = axios
-            .post(
-              `${getApiBaseUrl()}/api/v1/auth/refresh`,
-              { refreshToken: storedRefreshToken },
-              { withCredentials: true }
-            )
-            .then((res) => {
-              if (res.data?.success === true) {
-                if (res.data.accessToken) {
-                  setStoredTokens(res.data.accessToken, res.data.refreshToken);
-                }
-                return true;
-              }
-              clearStoredTokens();
-              return false;
-            })
-            .catch(() => {
-              clearStoredTokens();
-              return false;
-            })
-            .finally(() => {
-              refreshPromise = null;
-            });
-        }
-
-        const isRefreshed = await refreshPromise;
-
-        if (isRefreshed) {
-          const newToken = getStoredAccessToken();
-          if (newToken && originalRequest.headers) {
-            originalRequest.headers.Authorization = `Bearer ${newToken}`;
-          }
-          return apiClient(originalRequest);
-        }
-      } catch (refreshErr) {
-        clearStoredTokens();
-        return Promise.reject(refreshErr);
-      }
+    if (outcome === 'expired') {
+      return Promise.reject(error);
+    }
+    if (outcome === 'in_progress') {
+      // Một yêu cầu khác đang xoay token: chờ rồi thử lại request gốc đúng một lần
+      await new Promise((resolve) => setTimeout(resolve, REFRESH_IN_PROGRESS_DELAY_MS));
     }
 
-    return Promise.reject(error);
+    const newToken = getStoredAccessToken();
+    if (newToken && originalRequest.headers) {
+      originalRequest.headers.Authorization = `Bearer ${newToken}`;
+    }
+    return apiClient(originalRequest);
   }
 );
 

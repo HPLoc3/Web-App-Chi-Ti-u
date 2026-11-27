@@ -100,6 +100,7 @@ async function main() {
         balance: 5000000,
         currency: 'VND',
         isDefault: true,
+        type: 'cash',
         userId: testUser.id,
       },
     });
@@ -117,6 +118,7 @@ async function main() {
         balance: 25000000,
         currency: 'VND',
         isDefault: false,
+        type: 'bank',
         userId: testUser.id,
       },
     });

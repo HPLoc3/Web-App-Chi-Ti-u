@@ -12,19 +12,25 @@ import {
   Clock
 } from 'lucide-react';
 import { FinancialInsight } from '../../../types';
+import { maskMoneyInText } from '../../../utils/format';
 
 interface ActionableInsightSectionProps {
   insights: FinancialInsight[];
+  showBalance?: boolean;
   onNavigateTab: (tab: any) => void;
   onOpenChatbot: () => void;
 }
 
 export const ActionableInsightSection: React.FC<ActionableInsightSectionProps> = ({
   insights,
+  showBalance: showBalanceProp,
   onNavigateTab,
   onOpenChatbot,
 }) => {
   const [activeInsightIndex, setActiveInsightIndex] = useState(0);
+  const showBalance =
+    showBalanceProp ?? (typeof window !== 'undefined' ? localStorage.getItem('so_tay_show_balance') !== 'false' : true);
+  const maskMoney = (text: string): string => maskMoneyInText(text, showBalance);
 
   if (!insights || insights.length === 0) {
     return (
@@ -146,24 +152,24 @@ export const ActionableInsightSection: React.FC<ActionableInsightSectionProps> =
       </div>
 
       {/* Main 3-Step Decision Making Card */}
-      <div className={`border ${currentStyle.border} ${currentStyle.bg} rounded-xl p-4 sm:p-5 transition-all duration-200 space-y-4`}>
+      <div className={`border ${currentStyle.border} ${currentStyle.bg} rounded-xl p-4 sm:p-5 transition-all duration-200 space-y-4 [overflow-wrap:anywhere]`}>
         {/* Title + Badges */}
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             {currentStyle.icon}
             <h4 className={`font-serif text-base sm:text-lg font-bold ${currentStyle.accent}`}>
-              {currentInsight.title}
+              {maskMoney(currentInsight.title)}
             </h4>
           </div>
 
           <div className="flex items-center gap-2">
             {currentInsight.dailyImpact && (
               <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-md bg-white border border-stone-300 text-stone-800 shadow-2xs">
-                ⚡ {currentInsight.dailyImpact}
+                ⚡ {maskMoney(currentInsight.dailyImpact)}
               </span>
             )}
             <span className={`text-[11px] font-sans font-bold px-2.5 py-1 rounded-full border ${currentStyle.badge}`}>
-              {currentInsight.severity === 'critical' ? 'Cần xử lý ngay' : currentInsight.severity === 'warning' ? 'Cảnh báo rủi ro' : 'Cơ hội tích lũy'}
+              {currentInsight.severity === 'critical' ? 'Cần xử lý ngay' : currentInsight.severity === 'warning' ? 'Cảnh báo rủi ro' : currentInsight.severity === 'positive' ? 'Cơ hội tích lũy' : 'Gợi ý'}
             </span>
           </div>
         </div>
@@ -176,7 +182,7 @@ export const ActionableInsightSection: React.FC<ActionableInsightSectionProps> =
               1. Hiện trạng ghi nhận
             </span>
             <p className="text-stone-800 leading-relaxed font-sans font-medium">
-              {currentInsight.observation || currentInsight.message}
+              {maskMoney(currentInsight.observation || currentInsight.message)}
             </p>
           </div>
 
@@ -186,7 +192,7 @@ export const ActionableInsightSection: React.FC<ActionableInsightSectionProps> =
               2. Dự báo xu hướng
             </span>
             <p className="text-stone-800 leading-relaxed font-sans font-medium">
-              {currentInsight.projection || 'Cần kiểm soát định kỳ để không làm ảnh hưởng đến dòng tiền cuối tháng.'}
+              {maskMoney(currentInsight.projection || 'Cần kiểm soát định kỳ để không làm ảnh hưởng đến dòng tiền cuối tháng.')}
             </p>
           </div>
 
@@ -197,7 +203,7 @@ export const ActionableInsightSection: React.FC<ActionableInsightSectionProps> =
               3. Vậy tôi nên làm gì?
             </span>
             <p className="text-amber-950 font-bold leading-relaxed font-sans">
-              {currentInsight.suggestedAction || currentInsight.actionableStep}
+              {maskMoney(currentInsight.suggestedAction || currentInsight.actionableStep || '')}
             </p>
           </div>
         </div>

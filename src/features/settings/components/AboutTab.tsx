@@ -96,7 +96,7 @@ export default function AboutTab({ onGoToApp, onGoToChatbot }: AboutTabProps) {
           <div className="pt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-medium text-emerald-300">
             <div className="flex items-center gap-1.5">
               <CheckCircle2 size={14} className="text-amber-400" />
-              <span>Ghi chép bằng AI &lt; 10 giây</span>
+              <span>Ghi chép bằng một câu tiếng Việt</span>
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 size={14} className="text-amber-400" />
@@ -104,7 +104,7 @@ export default function AboutTab({ onGoToApp, onGoToChatbot }: AboutTabProps) {
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 size={14} className="text-amber-400" />
-              <span>Bảo mật dữ liệu cá nhân</span>
+              <span>Mỗi tài khoản có dữ liệu riêng</span>
             </div>
           </div>
 

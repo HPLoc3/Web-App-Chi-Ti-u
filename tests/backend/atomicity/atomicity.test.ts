@@ -49,7 +49,8 @@ describe('Database Transaction Atomicity Tests', () => {
         date: new Date(),
       } as any,
       'wallet-1',
-      new Prisma.Decimal(-50000)
+      new Prisma.Decimal(-50000),
+      'user-1'
     );
 
     expect(transactionCallbackCalled).toBe(true);
@@ -75,7 +76,8 @@ describe('Database Transaction Atomicity Tests', () => {
       TransactionsRepository.createWithWalletUpdate(
         { amount: new Prisma.Decimal(50000), type: 'EXPENSE' } as any,
         'wallet-1',
-        new Prisma.Decimal(-50000)
+        new Prisma.Decimal(-50000),
+        'user-1'
       )
     ).rejects.toThrow('DATABASE_CONSTRAINT_VIOLATION');
   });
@@ -85,6 +87,7 @@ describe('Database Transaction Atomicity Tests', () => {
 
     vi.spyOn(prisma, '$transaction').mockImplementation(async (callback: any) => {
       const fakeTx = {
+        $queryRaw: vi.fn().mockResolvedValue([]),
         wallet: {
           update: vi.fn().mockImplementation(async ({ data }: any) => {
             walletIncrementCalledWith = data.balance.increment;
@@ -92,18 +95,19 @@ describe('Database Transaction Atomicity Tests', () => {
           }),
         },
         transaction: {
-          delete: vi.fn().mockResolvedValue({ id: 'tx-to-delete' }),
+          delete: vi.fn().mockResolvedValue({
+            id: 'tx-to-delete',
+            amount: new Prisma.Decimal(50000),
+            type: 'EXPENSE',
+            walletId: 'wallet-1',
+          }),
         },
       };
       return callback(fakeTx);
     });
 
     // Reverting an expense of 50k means incrementing wallet by +50k
-    await TransactionsRepository.deleteWithWalletAdjustment(
-      'tx-to-delete',
-      'wallet-1',
-      new Prisma.Decimal(50000)
-    );
+    await TransactionsRepository.deleteWithWalletAdjustment('tx-to-delete', 'user-1');
 
     expect(walletIncrementCalledWith.toNumber()).toBe(50000);
   });

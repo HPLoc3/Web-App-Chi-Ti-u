@@ -16,7 +16,7 @@ export default function BenefitsSection() {
     {
       icon: <Compass className="w-6 h-6 text-emerald-700" />,
       title: "Biết tiền đang đi đâu",
-      description: "Mọi khoản chi được phân loại minh bạch theo nhóm và ví tiền, giúp bạn luôn nắm rõ dòng tiền từng ngày.",
+      description: "Mọi khoản chi được phân loại theo danh mục, giúp bạn luôn nắm rõ dòng tiền từng ngày.",
       color: "emerald",
       preview: (
         <div className="bg-emerald-50/60 rounded-xl p-3 border border-emerald-100 space-y-1.5 text-xs font-sans">
@@ -37,7 +37,7 @@ export default function BenefitsSection() {
     {
       icon: <ShieldAlert className="w-6 h-6 text-amber-700" />,
       title: "Kiểm soát ngân sách",
-      description: "Quy tắc 50/30/20 cùng hạn mức thông minh chủ động cảnh báo khi bạn chuẩn bị tiêu lố ngân sách.",
+      description: "Gợi ý phân bổ 50/30/20 cùng hạn mức danh mục do bạn đặt, có cảnh báo trong ứng dụng khi gần chạm hoặc vượt mức.",
       color: "amber",
       preview: (
         <div className="bg-amber-50/60 rounded-xl p-3 border border-amber-200/80 space-y-1.5 text-xs font-sans">
@@ -58,7 +58,7 @@ export default function BenefitsSection() {
     {
       icon: <Zap className="w-6 h-6 text-blue-700" />,
       title: "Tiết kiệm thời gian nhập liệu",
-      description: "Không còn phải mở form phức tạp hay chọn tay từng danh mục; ghi chép chỉ với một câu nói dưới 10 giây.",
+      description: "Gõ một câu tiếng Việt, hệ thống gợi ý số tiền và danh mục để bạn xác nhận.",
       color: "blue",
       preview: (
         <div className="bg-blue-50/60 rounded-xl p-3 border border-blue-100 space-y-1 text-xs font-mono">
@@ -67,7 +67,7 @@ export default function BenefitsSection() {
           </div>
           <div className="flex items-center gap-1 text-[10px] text-blue-700 font-bold font-sans pt-0.5">
             <Clock size={11} />
-            <span>Xử lý & lưu tức thì trong 0.2 giây</span>
+            <span>Xem lại rồi xác nhận để lưu</span>
           </div>
         </div>
       )
@@ -75,16 +75,16 @@ export default function BenefitsSection() {
     {
       icon: <Sparkles className="w-6 h-6 text-purple-700" />,
       title: "Hiểu tài chính bằng AI",
-      description: "Trợ lý Copilot thông minh phân tích thói quen, chấm điểm sức khỏe và gợi ý các khoản cần cắt giảm hiệu quả.",
+      description: "Trợ lý Copilot thông minh phân tích thói quen, chấm điểm sức khỏe và gợi ý các khoản nên xem lại.",
       color: "purple",
       preview: (
         <div className="bg-purple-50/60 rounded-xl p-3 border border-purple-100 space-y-1 text-xs font-sans">
           <div className="flex items-center gap-1.5 text-[11px] font-bold text-purple-950">
             <Bot size={13} className="text-purple-700" />
-            <span>Đánh giá tài chính tuần:</span>
+            <span>Ví dụ minh họa:</span>
           </div>
           <p className="text-[11px] text-purple-900 leading-snug">
-            "Bạn đã tiết kiệm được thêm 15% so với tuần trước nhờ giảm chi tiêu ăn ngoài!"
+            "Ăn uống đang là danh mục chiếm nhiều chi tiêu nhất tháng này."
           </p>
         </div>
       )

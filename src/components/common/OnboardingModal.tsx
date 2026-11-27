@@ -18,9 +18,19 @@ interface OnboardingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onNavigateTab?: (tab: 'overview' | 'chatbot' | 'budget' | 'expenses' | 'goals' | 'about') => void;
+  /** Chế độ dùng thử (chưa đăng nhập) */
+  isGuest?: boolean;
+  /** Khóa localStorage ghi nhận đã xem, riêng cho từng tài khoản */
+  storageKey?: string;
 }
 
-export default function OnboardingModal({ isOpen, onClose, onNavigateTab }: OnboardingModalProps) {
+export default function OnboardingModal({
+  isOpen,
+  onClose,
+  onNavigateTab,
+  isGuest = true,
+  storageKey = 'so_tay_onboarding_completed',
+}: OnboardingModalProps) {
   const [currentStep, setCurrentStep] = useState(0);
 
   if (!isOpen) return null;
@@ -30,7 +40,7 @@ export default function OnboardingModal({ isOpen, onClose, onNavigateTab }: Onbo
       id: 'chatbot',
       badge: 'BƯỚC 1 / 4 • TÍNH NĂNG ĐỘT PHÁ',
       title: 'Ghi Chi Tiêu Siêu Tốc Bằng Chatbot AI',
-      subtitle: 'Xóa bỏ hoàn toàn ma sát nhập liệu bằng ngôn ngữ tự nhiên Tiếng Việt',
+      subtitle: 'Nhập khoản chi bằng ngôn ngữ tự nhiên Tiếng Việt',
       icon: <Bot className="w-10 h-10 text-amber-400" />,
       color: 'from-emerald-950 via-emerald-900 to-emerald-950',
       borderColor: 'border-amber-500',
@@ -55,7 +65,7 @@ export default function OnboardingModal({ isOpen, onClose, onNavigateTab }: Onbo
 
           <div className="flex items-center gap-2 text-emerald-900 bg-emerald-50 p-2.5 rounded-lg border border-emerald-200 text-xs font-semibold">
             <Zap size={16} className="text-amber-600 shrink-0" />
-            <span>Thời gian nhập liệu thực tế chỉ tốn <strong>dưới 10 giây/ngày</strong>!</span>
+            <span>Bạn <strong>xem lại và xác nhận</strong> trước khi khoản chi được lưu.</span>
           </div>
         </div>
       )
@@ -71,7 +81,7 @@ export default function OnboardingModal({ isOpen, onClose, onNavigateTab }: Onbo
       content: (
         <div className="space-y-4 text-stone-700 text-xs sm:text-sm">
           <p className="leading-relaxed">
-            Áp dụng mô hình quản lý tài chính kinh điển <strong>50/30/20</strong> giúp bạn cân bằng hoàn hảo giữa sinh hoạt hằng ngày và tích lũy tương lai:
+            Áp dụng mô hình quản lý tài chính kinh điển <strong>50/30/20</strong> giúp bạn cân đối giữa sinh hoạt hằng ngày và tích lũy:
           </p>
 
           <div className="grid grid-cols-3 gap-2 text-center text-xs">
@@ -93,7 +103,7 @@ export default function OnboardingModal({ isOpen, onClose, onNavigateTab }: Onbo
           </div>
 
           <p className="text-stone-600 text-xs">
-            💡 Hệ thống sẽ tự động tính toán hạn mức cho từng nhóm và hiển thị thanh tiến độ cảnh báo màu cam/đỏ khi bạn sắp vượt hạn mức.
+            💡 Tab Ngân sách tính mức gợi ý cho từng nhóm từ thu nhập. Thanh tiến độ và cảnh báo vượt mức áp dụng cho hạn mức danh mục bạn tự đặt.
           </p>
         </div>
       )
@@ -102,7 +112,7 @@ export default function OnboardingModal({ isOpen, onClose, onNavigateTab }: Onbo
       id: 'goals',
       badge: 'BƯỚC 3 / 4 • ĐỘNG LỰC TÍCH LŨY',
       title: 'Thiết Lập & Theo Dõi Mục Tiêu',
-      subtitle: 'Cụ thể hóa ước mơ bằng các hũ tiết kiệm có kỳ hạn rõ ràng',
+      subtitle: 'Đặt số tiền cần đạt và theo dõi tiến độ từng mục tiêu',
       icon: <Target className="w-10 h-10 text-amber-400" />,
       color: 'from-emerald-950 via-emerald-900 to-emerald-950',
       borderColor: 'border-amber-500',
@@ -147,8 +157,8 @@ export default function OnboardingModal({ isOpen, onClose, onNavigateTab }: Onbo
     {
       id: 'data',
       badge: 'BƯỚC 4 / 4 • BẢO MẬT & DỮ LIỆU',
-      title: 'Đồng Bộ Cloud & Dữ Liệu Mẫu',
-      subtitle: 'An toàn tuyệt đối, dễ dàng trải nghiệm ngay không cần chờ đợi',
+      title: isGuest ? 'Dùng Thử & Lưu Dữ Liệu' : 'Dữ Liệu Tài Khoản Của Bạn',
+      subtitle: 'Biết rõ dữ liệu của bạn đang được lưu ở đâu',
       icon: <Database className="w-10 h-10 text-amber-400" />,
       color: 'from-emerald-900 via-emerald-850 to-emerald-900',
       borderColor: 'border-amber-400',
@@ -162,9 +172,13 @@ export default function OnboardingModal({ isOpen, onClose, onNavigateTab }: Onbo
             <div className="flex items-start gap-2.5 bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl">
               <ShieldCheck className="w-5 h-5 text-emerald-800 shrink-0 mt-0.5" />
               <div>
-                <h5 className="font-bold text-emerald-950 text-xs">Đồng bộ Firebase Firestore</h5>
+                <h5 className="font-bold text-emerald-950 text-xs">
+                  {isGuest ? 'Đăng nhập để lưu trên máy chủ' : 'Lưu trên máy chủ'}
+                </h5>
                 <p className="text-[11px] text-stone-600 mt-0.5">
-                  Đăng nhập qua Google hoặc Email để lưu trữ dữ liệu an toàn trên đám mây, sử dụng xuyên suốt nhiều thiết bị.
+                  {isGuest
+                    ? 'Đăng nhập qua Google hoặc Email để có sổ tay riêng lưu trên máy chủ, dùng được trên nhiều thiết bị.'
+                    : 'Dữ liệu bạn nhập được lưu vào tài khoản. Đăng nhập cùng tài khoản trên thiết bị khác để xem.'}
                 </p>
               </div>
             </div>
@@ -172,9 +186,13 @@ export default function OnboardingModal({ isOpen, onClose, onNavigateTab }: Onbo
             <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-200 p-2.5 rounded-xl">
               <Sparkles className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
               <div>
-                <h5 className="font-bold text-amber-950 text-xs">Trải nghiệm Dữ Liệu Mẫu (3 Tuần)</h5>
+                <h5 className="font-bold text-amber-950 text-xs">
+                  {isGuest ? 'Đang dùng thử với dữ liệu mẫu' : 'Sổ tay của riêng bạn'}
+                </h5>
                 <p className="text-[11px] text-stone-600 mt-0.5">
-                  App đã nạp sẵn 3 tuần dữ liệu thực tế. Bạn có thể nhấn nút <strong className="text-red-800">"Xóa dữ liệu mẫu"</strong> ở góc trên bất kỳ lúc nào để bắt đầu sổ tay trống!
+                  {isGuest
+                    ? 'Lần đầu dùng thử, sổ tay có sẵn 3 tuần dữ liệu mẫu. Dữ liệu dùng thử chỉ lưu trên trình duyệt này.'
+                    : 'Tài khoản không có dữ liệu mẫu: sổ tay mới bắt đầu trống, hãy nhập thu nhập tháng và khoản chi đầu tiên.'}
                 </p>
               </div>
             </div>
@@ -187,7 +205,7 @@ export default function OnboardingModal({ isOpen, onClose, onNavigateTab }: Onbo
   const activeStepObj = steps[currentStep];
 
   const handleFinish = () => {
-    localStorage.setItem('so_tay_onboarding_completed', 'true');
+    localStorage.setItem(storageKey, 'true');
     onClose();
   };
 
@@ -224,7 +242,8 @@ export default function OnboardingModal({ isOpen, onClose, onNavigateTab }: Onbo
             <div className="p-2.5 rounded-xl bg-emerald-900/80 border border-amber-400/40 shrink-0 shadow-xs">
               {activeStepObj.icon}
             </div>
-            <div>
+            {/* pr-8: chừa chỗ cho nút X ở góc phải */}
+            <div className="min-w-0 pr-8">
               <span className="text-[10px] font-mono font-bold tracking-widest text-amber-300 uppercase block mb-0.5">
                 {activeStepObj.badge}
               </span>
