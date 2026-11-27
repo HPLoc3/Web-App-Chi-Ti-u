@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { UsersService } from './users.service';
 import { sendSuccess, sendError } from '../../utils/response';
+import { sendHttpError } from '../../utils/httpError';
+import { setAuthCookies } from '../auth/auth.cookies';
 
 export class UsersController {
   static async getProfile(req: Request, res: Response): Promise<void> {
@@ -14,7 +16,7 @@ export class UsersController {
       const user = await UsersService.getProfile(userId);
       sendSuccess(res, 200, user, undefined, { user });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'USER_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'USER_ERROR', req.id);
     }
   }
 
@@ -29,7 +31,7 @@ export class UsersController {
       const updated = await UsersService.updateProfile(userId, req.body);
       sendSuccess(res, 200, updated, undefined, { user: updated, message: 'Cập nhật thông tin thành công.' });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'UPDATE_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'UPDATE_ERROR', req.id);
     }
   }
 
@@ -41,10 +43,16 @@ export class UsersController {
         return;
       }
 
-      await UsersService.changePassword(userId, req.body);
-      sendSuccess(res, 200, undefined, undefined, { message: 'Đổi mật khẩu thành công.' });
+      const { user, tokens } = await UsersService.changePassword(userId, req.body);
+      setAuthCookies(res, req, tokens);
+      sendSuccess(res, 200, user, undefined, {
+        message: 'Đổi mật khẩu thành công.',
+        user,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'CHANGE_PASSWORD_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'CHANGE_PASSWORD_ERROR', req.id);
     }
   }
 
@@ -59,7 +67,7 @@ export class UsersController {
       await UsersService.deleteAccount(userId);
       sendSuccess(res, 200, undefined, undefined, { message: 'Tài khoản đã được xóa thành công.' });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'DELETE_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'DELETE_ERROR', req.id);
     }
   }
 }

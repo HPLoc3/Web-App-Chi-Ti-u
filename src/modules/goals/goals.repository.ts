@@ -10,7 +10,7 @@ export class GoalsRepository {
         orderBy: { createdAt: 'desc' },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.getUserGoals(userId);
       }
       throw error;
@@ -23,7 +23,7 @@ export class GoalsRepository {
         where: { id, userId },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.goals.get(id) || null;
       }
       throw error;
@@ -36,7 +36,7 @@ export class GoalsRepository {
         data,
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         const id = `dev-goal-${Date.now()}`;
         const g: Goal = {
           id,
@@ -64,7 +64,7 @@ export class GoalsRepository {
         data,
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         const g = devFallbackStore.goals.get(id);
         if (g) {
           if (data.name) g.name = String(data.name);
@@ -85,7 +85,7 @@ export class GoalsRepository {
         where: { id },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         devFallbackStore.goals.delete(id);
         return;
       }

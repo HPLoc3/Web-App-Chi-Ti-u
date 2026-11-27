@@ -45,6 +45,9 @@ export interface CategoryMetricFact {
   categoryId: string;
   categoryName: string;
   spent: number;
+  transactionCount: number;
+  previousMonthSpent: number;
+  previousMonthTransactionCount: number;
   percentageOfTotal: number;
   limit: number;
   limitUsagePct: number;
@@ -59,7 +62,7 @@ export interface GoalMetricFact {
   current: number;
   remaining: number;
   progressPct: number;
-  estimatedMonthsNeeded: number;
+  estimatedMonthsNeeded: number | null; // null = chưa tính được (chưa có thu nhập); 0 = đã đạt
 }
 
 export interface AggregatedFinancialFacts {
@@ -83,6 +86,7 @@ export interface AggregatedFinancialFacts {
   totalSpentPreviousMonth: number;
   monthOverMonthGrowthPct: number;
 
+  categoryFacts: CategoryMetricFact[];
   topCategories: CategoryMetricFact[];
   overBudgetCategories: CategoryMetricFact[];
   nearLimitCategories: CategoryMetricFact[];

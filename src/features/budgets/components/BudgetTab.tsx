@@ -1,9 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { AppState, RecurringExpense, Expense } from '../../../types';
 import { CATEGORIES } from '../../../constants/categories';
-import { formatCurrency } from '../../../utils/format';
+import { formatCurrency, formatPercent } from '../../../utils/format';
 import { useToast } from '../../../context/ToastContext';
 import { CategoryIcon } from '../../transactions/components/ExpensesTab';
+import MoneyInput from '../../../components/common/MoneyInput';
+import { EMPTY_MONEY, moneyDraft, moneyDraftError } from '../../../utils/moneyDraft';
+import { getBusinessDate, formatBusinessDate } from '../../../utils/dateParser';
+import { getApiErrorMessage } from '../../../lib/apiClient';
+import { displayNextDue, totalMonthlyRecurring } from '../../../utils/recurringSchedule';
 import { 
   Plus, 
   Trash2, 
@@ -24,11 +29,11 @@ interface BudgetTabProps {
   budgetTemplate: AppState['budgetTemplate'];
   categoryLimits: Record<string, number>;
   recurringExpenses: RecurringExpense[];
-  onUpdateTemplate: (template: AppState['budgetTemplate']) => void;
-  onUpdateCategoryLimit: (categoryId: string, limit: number) => void;
-  onAddRecurringExpense: (item: Omit<RecurringExpense, 'id'>) => void;
-  onDeleteRecurringExpense: (id: string) => void;
-  onTriggerManualRecurringSync: () => void;
+  onUpdateTemplate: (template: AppState['budgetTemplate']) => void | Promise<unknown>;
+  onUpdateCategoryLimit: (categoryId: string, limit: number) => void | Promise<unknown>;
+  onAddRecurringExpense: (item: Omit<RecurringExpense, 'id'>) => void | Promise<unknown>;
+  onDeleteRecurringExpense: (id: string) => void | Promise<unknown>;
+  onTriggerManualRecurringSync: () => void | Promise<unknown>;
 }
 
 export default function BudgetTab({
@@ -46,14 +51,16 @@ export default function BudgetTab({
   const { showToast } = useToast();
 
   const [editingLimitCategoryId, setEditingLimitCategoryId] = useState<string | null>(null);
-  const [tempLimitVal, setTempLimitVal] = useState('');
+  const [tempLimit, setTempLimit] = useState(EMPTY_MONEY);
 
   // Recurring Form State
-  const [recAmount, setRecAmount] = useState('');
+  const [recAmount, setRecAmount] = useState<number | null>(null);
   const [recCategory, setRecCategory] = useState(CATEGORIES[0].id);
   const [recDay, setRecDay] = useState('1');
   const [recNote, setRecNote] = useState('');
   const [recFrequency, setRecFrequency] = useState<'monthly' | 'yearly' | 'weekly'>('monthly');
+  const [recStartDate, setRecStartDate] = useState(() => getBusinessDate());
+  const [isSavingRec, setIsSavingRec] = useState(false);
 
   const today = new Date();
   const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
@@ -76,15 +83,9 @@ export default function BudgetTab({
   }, [expenses, currentMonthStr]);
 
   // Subscriptions & Recurring Metrics (Priority 8)
-  const totalMonthlyRecurring = useMemo(() => {
-    return recurringExpenses.reduce((sum, r) => {
-      if (r.frequency === 'yearly') return sum + Math.round(r.amount / 12);
-      if (r.frequency === 'weekly') return sum + Math.round(r.amount * 4);
-      return sum + r.amount;
-    }, 0);
-  }, [recurringExpenses]);
+  const monthlyRecurringTotal = useMemo(() => totalMonthlyRecurring(recurringExpenses), [recurringExpenses]);
 
-  const recurringIncomeRatio = income > 0 ? ((totalMonthlyRecurring / income) * 100).toFixed(1) : '0';
+  const recurringIncomeRatio = income > 0 ? formatPercent((monthlyRecurringTotal / income) * 100) : '';
 
   const templatesInfo = {
     none: {
@@ -124,45 +125,71 @@ export default function BudgetTab({
     }
   };
 
-  const handleSaveLimit = (categoryId: string) => {
-    const parsed = parseFloat(tempLimitVal.replace(/[.,\s]/g, ''));
-    if (!isNaN(parsed) && parsed >= 0) {
-      onUpdateCategoryLimit(categoryId, parsed);
-      setEditingLimitCategoryId(null);
-      setTempLimitVal('');
-      showToast('Đã cập nhật hạn mức chi tiêu!', 'success');
-    } else if (tempLimitVal === '') {
-      onUpdateCategoryLimit(categoryId, 0);
-      setEditingLimitCategoryId(null);
-      showToast('Đã bỏ hạn mức chi tiêu.', 'info');
+  // Chạy một thao tác lưu; lỗi API được hiện nguyên, chỉ báo thành công khi lưu được
+  const runAction = async (action: () => void | Promise<unknown>, fallback: string): Promise<boolean> => {
+    try {
+      await action();
+      return true;
+    } catch (err) {
+      showToast(getApiErrorMessage(err, fallback), 'error');
+      return false;
     }
   };
 
-  const handleAddRecurringSubmit = (e: React.FormEvent) => {
+  const handleSaveLimit = async (categoryId: string) => {
+    // Bỏ trống là bỏ hạn mức; gõ sai thì phải báo, không được tự đổi thành số khác
+    const clearing = tempLimit.raw.trim() === '';
+    const invalid = clearing ? null : moneyDraftError(tempLimit, 'nonNegative');
+    if (invalid) {
+      showToast(invalid, 'warning');
+      return;
+    }
+    const saved = await runAction(
+      () => onUpdateCategoryLimit(categoryId, clearing ? 0 : tempLimit.value!),
+      'Không thể lưu hạn mức chi tiêu.'
+    );
+    if (!saved) return;
+    setEditingLimitCategoryId(null);
+    setTempLimit(EMPTY_MONEY);
+    showToast(clearing ? 'Đã bỏ hạn mức chi tiêu.' : 'Đã cập nhật hạn mức chi tiêu!', clearing ? 'info' : 'success');
+  };
+
+  const handleAddRecurringSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const numericAmount = parseFloat(recAmount.replace(/[.,\s]/g, ''));
     const day = parseInt(recDay, 10);
 
-    if (isNaN(numericAmount) || numericAmount <= 0) {
+    if (recAmount === null || recAmount <= 0) {
       showToast('Vui lòng nhập số tiền hợp lệ.', 'warning');
       return;
     }
-    if (isNaN(day) || day < 1 || day > 31) {
+    if (recFrequency === 'monthly' && (isNaN(day) || day < 1 || day > 31)) {
       showToast('Vui lòng nhập ngày từ 1 đến 31.', 'warning');
       return;
     }
+    if (!recStartDate) {
+      showToast('Vui lòng chọn ngày bắt đầu.', 'warning');
+      return;
+    }
 
-    onAddRecurringExpense({
-      amount: numericAmount,
-      categoryId: recCategory,
-      dayOfMonth: day,
-      note: recNote.trim() || 'Đăng ký định kỳ',
-      frequency: recFrequency,
-    });
+    setIsSavingRec(true);
+    const saved = await runAction(
+      () =>
+        onAddRecurringExpense({
+          amount: recAmount,
+          categoryId: recCategory,
+          dayOfMonth: recFrequency === 'monthly' ? day : Number(recStartDate.slice(8, 10)),
+          note: recNote.trim() || 'Đăng ký định kỳ',
+          frequency: recFrequency,
+          startDate: recStartDate,
+          isActive: true,
+        }),
+      'Không thể lưu dịch vụ định kỳ.'
+    );
+    setIsSavingRec(false);
+    if (!saved) return;
 
-    setRecAmount('');
+    setRecAmount(null);
     setRecNote('');
-    showToast('Đã thêm dịch vụ / hóa đơn định kỳ mới thành công!', 'success');
   };
 
   return (
@@ -182,14 +209,14 @@ export default function BudgetTab({
             </p>
           </div>
 
-          <div className="flex gap-3 text-right">
+          <div className="flex flex-wrap gap-3 text-right">
             <div className="bg-emerald-900/60 border border-emerald-700/60 p-3 rounded-xl">
               <p className="text-[10px] font-mono text-emerald-300 uppercase">Tổng chi cố định/tháng</p>
-              <p className="text-lg font-mono font-bold text-amber-300">{formatCurrency(totalMonthlyRecurring)}</p>
+              <p className="text-lg font-mono font-bold text-amber-300 whitespace-nowrap">{formatCurrency(monthlyRecurringTotal)}</p>
             </div>
             <div className="bg-emerald-900/60 border border-emerald-700/60 p-3 rounded-xl">
               <p className="text-[10px] font-mono text-emerald-300 uppercase">Tỷ trọng/Thu nhập</p>
-              <p className="text-lg font-mono font-bold text-emerald-300">{recurringIncomeRatio}%</p>
+              <p className="text-lg font-mono font-bold text-emerald-300">{income > 0 ? recurringIncomeRatio : 'Chưa đánh giá'}</p>
             </div>
           </div>
         </div>
@@ -205,14 +232,11 @@ export default function BudgetTab({
 
             <div>
               <label className="block text-[11px] font-mono uppercase text-emerald-300 mb-1">Số tiền (VNĐ)</label>
-              <input
-                type="text"
+              <MoneyInput
                 required
+                aria-label="Số tiền định kỳ"
                 value={recAmount}
-                onChange={(e) => {
-                  const digits = e.target.value.replace(/[^\d]/g, '');
-                  setRecAmount(digits ? parseInt(digits, 10).toLocaleString('vi-VN') : '');
-                }}
+                onChange={(value) => setRecAmount(value)}
                 placeholder="VD: 220.000 (Netflix, Spotify...)"
                 className="w-full bg-emerald-950/80 border border-emerald-700/80 rounded-xl px-3 py-2 text-xs text-amber-300 font-mono font-bold focus:outline-none focus:border-amber-400"
               />
@@ -245,6 +269,20 @@ export default function BudgetTab({
               </div>
 
               <div>
+                <label className="block text-[11px] font-mono uppercase text-emerald-300 mb-1">Ngày bắt đầu</label>
+                <input
+                  type="date"
+                  required
+                  aria-label="Ngày bắt đầu"
+                  value={recStartDate}
+                  onChange={(e) => setRecStartDate(e.target.value)}
+                  className="w-full bg-emerald-950/80 border border-emerald-700/80 rounded-xl px-3 py-2 text-xs font-mono text-emerald-100 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {recFrequency === 'monthly' ? (
+              <div>
                 <label className="block text-[11px] font-mono uppercase text-emerald-300 mb-1">Ngày gia hạn (1-31)</label>
                 <input
                   type="number"
@@ -256,7 +294,9 @@ export default function BudgetTab({
                   className="w-full bg-emerald-950/80 border border-emerald-700/80 rounded-xl px-3 py-2 text-xs font-mono text-emerald-100 focus:outline-none"
                 />
               </div>
-            </div>
+            ) : (
+              <p className="text-[11px] text-emerald-300/80">Lặp lại theo ngày bắt đầu.</p>
+            )}
 
             <div>
               <label className="block text-[11px] font-mono uppercase text-emerald-300 mb-1">Danh mục</label>
@@ -275,7 +315,8 @@ export default function BudgetTab({
 
             <button
               type="submit"
-              className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold text-xs shadow-md transition-all"
+              disabled={isSavingRec}
+              className="w-full py-2.5 rounded-xl disabled:opacity-60 bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold text-xs shadow-md transition-all"
             >
               Lưu dịch vụ định kỳ
             </button>
@@ -289,14 +330,11 @@ export default function BudgetTab({
                 <span>Danh sách đăng ký ({recurringExpenses.length})</span>
               </h4>
               <button
-                onClick={() => {
-                  onTriggerManualRecurringSync();
-                  showToast('Đã đồng bộ hóa đơn tháng này!', 'success');
-                }}
+                onClick={() => runAction(onTriggerManualRecurringSync, 'Lỗi đồng bộ chi tiêu định kỳ')}
                 className="text-[11px] text-amber-300 hover:text-amber-200 bg-emerald-900/80 hover:bg-emerald-800 px-2.5 py-1 rounded-lg border border-emerald-700/60 flex items-center gap-1 transition"
               >
                 <RefreshCw size={11} />
-                <span>Đồng bộ tháng này</span>
+                <span>Ghi khoản đến hạn</span>
               </button>
             </div>
 
@@ -311,7 +349,9 @@ export default function BudgetTab({
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <span className="text-[10px] font-mono text-amber-300 bg-emerald-900/80 px-2 py-0.5 rounded border border-emerald-700/60 shrink-0">
-                          Tháng / Ngày {item.dayOfMonth}
+                          {item.isActive === false
+                            ? 'Tạm dừng'
+                            : `Kỳ tới ${formatBusinessDate(displayNextDue(item, getBusinessDate()), 'DD/MM/YYYY')}`}
                         </span>
                         <div className="min-w-0">
                           <p className="font-bold text-emerald-100 truncate">{item.note}</p>
@@ -324,10 +364,9 @@ export default function BudgetTab({
                           {formatCurrency(item.amount)}
                         </span>
                         <button
-                          onClick={() => {
-                            onDeleteRecurringExpense(item.id);
-                            showToast('Đã xóa dịch vụ định kỳ.', 'info');
-                          }}
+                          onClick={() =>
+                            runAction(() => onDeleteRecurringExpense(item.id), 'Không thể xóa dịch vụ định kỳ.')
+                          }
                           className="p-1 text-emerald-400 hover:text-red-400 hover:bg-white/10 rounded transition"
                         >
                           <Trash2 size={13} />
@@ -362,9 +401,10 @@ export default function BudgetTab({
             return (
               <button
                 key={key}
-                onClick={() => {
-                  onUpdateTemplate(key);
-                  showToast(`Đã áp dụng mẫu ngân sách: ${templatesInfo[key].name}`, 'success');
+                onClick={async () => {
+                  if (await runAction(() => onUpdateTemplate(key), 'Không thể áp dụng mẫu ngân sách.')) {
+                    showToast(`Đã áp dụng mẫu ngân sách: ${templatesInfo[key].name}`, 'success');
+                  }
                 }}
                 className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between cursor-pointer ${
                   isSelected
@@ -391,10 +431,10 @@ export default function BudgetTab({
         {budgetTemplate !== 'none' && (
           <div className="border border-[#E6DEC9] bg-[#FAF9F6] p-4 rounded-xl space-y-4">
             <h4 className="font-serif text-sm font-bold text-emerald-950 border-b border-[#E6DEC9] pb-2 flex justify-between items-center">
-              <span>CHI TIẾT PHÂN BỔ (Dựa trên thu nhập {formatCurrency(income)})</span>
+              <span>CHI TIẾT PHÂN BỔ ({income > 0 ? `Dựa trên thu nhập ${formatCurrency(income)}` : 'Chưa nhập thu nhập'})</span>
             </h4>
 
-            {income === 0 ? (
+            {income <= 0 ? (
               <div className="text-stone-500 text-xs py-2">
                 ⚠️ Vui lòng cập nhật Thu nhập hằng tháng lớn hơn 0 ở trang Tổng quan.
               </div>
@@ -443,7 +483,8 @@ export default function BudgetTab({
             const actual = currentMonthExpensesByCategory[cat.id] || 0;
             const limit = categoryLimits[cat.id] || 0;
             const isExceeded = limit > 0 && actual > limit;
-            const percent = limit > 0 ? Math.min(100, (actual / limit) * 100) : 0;
+            const realPercent = limit > 0 ? (actual / limit) * 100 : 0;
+            const barPercent = Math.min(100, Math.max(0, realPercent));
 
             return (
               <div key={cat.id} className="border border-[#E6DEC9] bg-white p-3.5 rounded-xl space-y-2 shadow-2xs">
@@ -465,19 +506,17 @@ export default function BudgetTab({
 
                   {editingLimitCategoryId === cat.id ? (
                     <div className="flex items-center gap-1">
-                      <input
-                        type="text"
-                        value={tempLimitVal}
-                        onChange={(e) => {
-                          const digits = e.target.value.replace(/[^\d]/g, '');
-                          setTempLimitVal(digits ? parseInt(digits, 10).toLocaleString('vi-VN') : '');
-                        }}
+                      <MoneyInput
+                        value={tempLimit.value}
+                        onChange={(value, raw) => setTempLimit({ value, raw })}
+                        aria-label={`Hạn mức cho ${cat.name}`}
                         placeholder="Không hạn mức"
                         className="w-28 bg-stone-50 border border-stone-300 rounded-lg px-2.5 py-1 text-xs font-mono text-stone-800 focus:outline-none focus:border-emerald-700"
                         autoFocus
                       />
                       <button
                         onClick={() => handleSaveLimit(cat.id)}
+                        aria-label="Lưu hạn mức"
                         className="p-1.5 bg-emerald-900 text-white rounded-lg hover:bg-emerald-850"
                       >
                         <Check size={14} />
@@ -487,7 +526,7 @@ export default function BudgetTab({
                     <button
                       onClick={() => {
                         setEditingLimitCategoryId(cat.id);
-                        setTempLimitVal(limit > 0 ? limit.toLocaleString('vi-VN') : '');
+                        setTempLimit(limit > 0 ? moneyDraft(limit) : EMPTY_MONEY);
                       }}
                       className="text-[10px] text-emerald-800 hover:text-emerald-900 border border-emerald-100 hover:border-emerald-300 bg-emerald-50 px-2 py-0.5 rounded-md font-medium"
                     >
@@ -501,11 +540,11 @@ export default function BudgetTab({
                     <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden border border-stone-200">
                       <div
                         className={`h-full rounded-full transition-all duration-300 ${isExceeded ? 'bg-red-700' : 'bg-emerald-800'}`}
-                        style={{ width: `${percent}%` }}
+                        style={{ width: `${barPercent}%` }}
                       ></div>
                     </div>
                     <div className="flex justify-between items-center text-[10px]">
-                      <span className="font-mono text-stone-400">{percent.toFixed(0)}% đã dùng</span>
+                      <span className="font-mono text-stone-400">{formatPercent(realPercent, 0)} đã dùng</span>
                       {isExceeded && (
                         <span className="text-red-700 font-bold flex items-center gap-0.5">
                           <AlertTriangle size={10} /> Vượt {formatCurrency(actual - limit)}

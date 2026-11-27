@@ -31,6 +31,22 @@ export class DevFallbackStore {
   public resetTokens: Map<string, PasswordResetToken> = new Map();
 
   constructor() {
+    // Dữ liệu mẫu (kể cả tài khoản test) chỉ được nạp khi chạy dev không có DB.
+    if (DevFallbackStore.isEnabled()) {
+      this.seed();
+    }
+  }
+
+  /** Chỉ bật khi KHÔNG phải production và người chạy tự đặt DEV_FALLBACK_STORE=true */
+  public static isEnabled(): boolean {
+    return process.env.NODE_ENV !== 'production' && process.env.DEV_FALLBACK_STORE === 'true';
+  }
+
+  public static shouldFallback(error: any): boolean {
+    return DevFallbackStore.isEnabled() && DevFallbackStore.isConnectionError(error);
+  }
+
+  private seed(): void {
     // 1. Populate default system categories
     DEFAULT_SYSTEM_CATEGORIES.forEach((cat) => this.categories.set(cat.id, cat));
 
@@ -58,6 +74,7 @@ export class DevFallbackStore {
       balance: new Prisma.Decimal(5000000),
       currency: 'VND',
       isDefault: true,
+      type: 'cash',
       userId: testUserId,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -68,6 +85,7 @@ export class DevFallbackStore {
       balance: new Prisma.Decimal(25000000),
       currency: 'VND',
       isDefault: false,
+      type: 'bank',
       userId: testUserId,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -210,6 +228,10 @@ export class DevFallbackStore {
       type: 'EXPENSE',
       note: 'Tiền thuê phòng trọ cố định hàng tháng',
       dayOfMonth: 5,
+      frequency: 'monthly',
+      anchorDate: null,
+      nextDueDate: null,
+      lastDueDate: null,
       isActive: true,
       lastRunAt: null,
       categoryId: 'hoa_don',
@@ -273,6 +295,7 @@ export class DevFallbackStore {
       balance: new Prisma.Decimal(0),
       currency: 'VND',
       isDefault: true,
+      type: 'cash',
       userId: id,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -332,9 +355,22 @@ export class DevFallbackStore {
 
   public findRefreshToken(hashedToken: string): RefreshToken | null {
     const rt = this.refreshTokens.get(hashedToken);
-    if (!rt) return null;
-    if (rt.revokedAt) return null;
-    return rt;
+    return rt ? { ...rt } : null;
+  }
+
+  public claimRefreshToken(id: string): boolean {
+    for (const rt of this.refreshTokens.values()) {
+      if (rt.id === id && !rt.revokedAt) {
+        rt.revokedAt = new Date();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  public revokeRefreshTokenByHash(hashedToken: string): void {
+    const rt = this.refreshTokens.get(hashedToken);
+    if (rt && !rt.revokedAt) this.refreshTokens.delete(hashedToken);
   }
 
   public revokeRefreshToken(id: string): void {
@@ -349,8 +385,7 @@ export class DevFallbackStore {
   public revokeAllUserTokensAndSessions(userId: string): void {
     for (const [key, rt] of this.refreshTokens.entries()) {
       if (rt.userId === userId) {
-        rt.revokedAt = new Date();
-        this.refreshTokens.set(key, rt);
+        this.refreshTokens.delete(key);
       }
     }
     for (const [key, sess] of this.sessions.entries()) {
@@ -373,6 +408,7 @@ export class DevFallbackStore {
         balance: new Prisma.Decimal(0),
         currency: 'VND',
         isDefault: true,
+        type: 'cash',
         userId,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -391,6 +427,7 @@ export class DevFallbackStore {
       balance: data.balance ? new Prisma.Decimal(data.balance.toString()) : new Prisma.Decimal(0),
       currency: data.currency || 'VND',
       isDefault: data.isDefault || false,
+      type: data.type || 'cash',
       userId: (data.user as any)?.connect?.id || 'dev-user',
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -423,6 +460,8 @@ export class DevFallbackStore {
       walletId: data.walletId || data.wallet?.connect?.id || `dev-wallet-${data.userId}`,
       categoryId: data.categoryId || data.category?.connect?.id || 'an_uong',
       userId: data.userId || data.user?.connect?.id || 'dev-user',
+      recurringId: data.recurringId || null,
+      recurringDueDate: data.recurringDueDate || null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -469,7 +508,7 @@ export class DevFallbackStore {
     const id = `dev-budget-${Date.now()}`;
     const newBudget = {
       id,
-      income: new Prisma.Decimal(Math.max(Number(income) || 25000000, 0)),
+      income: new Prisma.Decimal(Math.max(Number(income) || 0, 0)),
       budgetTemplate: budgetTemplate || '50_30_20',
       needsPercent: 50,
       wantsPercent: 30,
@@ -530,6 +569,12 @@ export class DevFallbackStore {
       type: data.type || 'EXPENSE',
       note: data.note || '',
       dayOfMonth: Number(data.dayOfMonth) || 1,
+      frequency: data.frequency || 'monthly',
+      anchorDate: data.anchorDate || null,
+      nextDueDate: data.nextDueDate || null,
+      lastDueDate: null,
+      lastRunAt: null,
+      isActive: data.isActive !== false,
       categoryId: data.categoryId || data.category?.connect?.id || 'an_uong',
       userId: data.userId || data.user?.connect?.id || 'dev-user',
       createdAt: new Date(),

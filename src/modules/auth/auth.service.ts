@@ -9,8 +9,23 @@ import { EmailService } from '../../services/email.service';
 import { prisma } from '../../lib/prisma';
 import { devFallbackStore, DevFallbackStore } from '../../lib/devFallbackStore';
 import { Logger } from '../../utils/logger';
+import { AppError } from '../../middleware/errorHandler.middleware';
 
 export const FORGOT_PASSWORD_MIN_RESPONSE_MS = 1500;
+
+/** Token vừa bị thu hồi trong khoảng này được coi là request refresh chạy song song, không phải bị đánh cắp */
+export const REFRESH_REUSE_GRACE_MS = 20_000;
+
+const refreshInProgress = () =>
+  new AppError('Phiên đăng nhập đang được làm mới. Vui lòng thử lại.', 409, 'REFRESH_IN_PROGRESS');
+
+const invalidRefresh = (message: string) => new AppError(message, 401, 'INVALID_REFRESH_TOKEN');
+
+const googleFailed = (message = 'Xác thực Google không thành công. Vui lòng thử lại.') =>
+  new AppError(message, 400, 'GOOGLE_AUTH_FAILED');
+
+const invalidCredentials = (message = 'Email hoặc mật khẩu không chính xác.') =>
+  new AppError(message, 401, 'INVALID_CREDENTIALS');
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
@@ -38,43 +53,117 @@ export class AuthService {
     return '';
   }
 
-  private static getGoogleOAuthClient(): OAuth2Client | null {
+  /** Xác minh danh tính hoàn toàn từ Google; không tin bất kỳ email/tên nào do client gửi */
+  private static async verifyGoogleIdentity(
+    payload: GoogleAuthPayload
+  ): Promise<{ email: string; name?: string; avatar?: string }> {
     const clientId = this.getGoogleClientId();
     if (!clientId) {
-      return null;
+      throw new AppError('Đăng nhập Google chưa được cấu hình trên máy chủ.', 503, 'GOOGLE_NOT_CONFIGURED');
     }
     const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || '').replace(/^["']|["']$/g, '').trim();
-    return new OAuth2Client(clientId, clientSecret || undefined);
+    const googleClient = new OAuth2Client(clientId, clientSecret || undefined);
+
+    const idToken = payload.credential || payload.idToken || payload.token;
+    const accessToken = payload.accessToken || payload.access_token;
+
+    if (idToken) {
+      let claims;
+      try {
+        const ticket = await googleClient.verifyIdToken({ idToken, audience: clientId });
+        claims = ticket.getPayload();
+      } catch (error: any) {
+        Logger.warn(`Google verifyIdToken thất bại: ${error?.name || 'Error'}`);
+        throw googleFailed();
+      }
+      if (!claims?.email) throw googleFailed();
+      if (claims.email_verified !== true) throw googleFailed('Email Google chưa được xác thực.');
+      return { email: claims.email, name: claims.name, avatar: claims.picture };
+    }
+
+    if (!accessToken) {
+      throw googleFailed('Không nhận được mã xác thực hoặc Access Token từ Google.');
+    }
+
+    let info: Awaited<ReturnType<OAuth2Client['getTokenInfo']>>;
+    try {
+      info = await googleClient.getTokenInfo(accessToken);
+    } catch (error: any) {
+      Logger.warn(`Google getTokenInfo thất bại: ${error?.name || 'Error'}`);
+      throw googleFailed();
+    }
+
+    // Access token phải được cấp cho chính ứng dụng này
+    if (info.aud !== clientId) throw googleFailed();
+    if (info.azp !== undefined && info.azp !== clientId) throw googleFailed();
+    // Endpoint tokeninfo trả chuỗi "true", trong khi kiểu của thư viện khai báo boolean
+    if (String(info.email_verified) !== 'true') throw googleFailed('Email Google chưa được xác thực.');
+    if (!info.email) throw googleFailed();
+
+    let userInfo: { email?: string; name?: string; picture?: string };
+    try {
+      const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      userInfo = (await response.json()) as typeof userInfo;
+    } catch (error: any) {
+      Logger.warn(`Google UserInfo thất bại: ${error?.name || 'Error'}`);
+      throw googleFailed();
+    }
+
+    if (userInfo.email?.toLowerCase() !== info.email.toLowerCase()) throw googleFailed();
+
+    return { email: info.email, name: userInfo.name, avatar: userInfo.picture };
+  }
+
+  private static toUserDTO(user: UserDTO): UserDTO {
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      avatar: user.avatar,
+      provider: user.provider,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  }
+
+  private static createTokenSet(user: { id: string; email: string; name?: string | null }) {
+    const accessToken = jwt.sign(
+      { id: user.id, email: user.email, name: user.name },
+      getJwtSecret(),
+      { expiresIn: '15m' }
+    );
+    const refreshToken = crypto.randomBytes(40).toString('hex');
+    return {
+      tokens: { accessToken, refreshToken } as AuthTokens,
+      hashedRefreshToken: this.hashToken(refreshToken),
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 ngày
+    };
   }
 
   static async generateTokens(
     user: { id: string; email: string; name?: string | null },
-    meta?: { userAgent?: string; ipAddress?: string }
+    meta?: { userAgent?: string; ipAddress?: string },
+    expectedPasswordHash?: string
   ): Promise<AuthTokens> {
-    const jwtSecret = getJwtSecret();
+    const { tokens, hashedRefreshToken, expiresAt } = this.createTokenSet(user);
 
-    const accessToken = jwt.sign(
-      { id: user.id, email: user.email, name: user.name },
-      jwtSecret,
-      { expiresIn: '15m' }
-    );
-
-    const rawRefreshToken = crypto.randomBytes(40).toString('hex');
-    const hashedRefreshToken = this.hashToken(rawRefreshToken);
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 ngày
-
-    await AuthRepository.createTokensAndSession(
+    // Không nuốt lỗi: refresh token không lưu được thì phiên này không hợp lệ
+    const issued = await AuthRepository.createTokensAndSession(
       user.id,
       hashedRefreshToken,
       expiresAt,
       meta?.userAgent,
-      meta?.ipAddress
-    ).catch(() => {});
+      meta?.ipAddress,
+      expectedPasswordHash
+    );
+    if (issued === false) {
+      throw invalidCredentials('Thông tin đăng nhập vừa thay đổi. Vui lòng đăng nhập lại.');
+    }
 
-    return {
-      accessToken,
-      refreshToken: rawRefreshToken,
-    };
+    return tokens;
   }
 
   static async register(name: string, email: string, password: string): Promise<{ user: UserDTO; tokens: AuthTokens }> {
@@ -82,7 +171,11 @@ export class AuthService {
 
     const existingUser = await AuthRepository.findUserByEmail(cleanEmail);
     if (existingUser) {
-      throw new Error('Email này đã được sử dụng. Vui lòng chọn email khác hoặc đăng nhập.');
+      throw new AppError(
+        'Email này đã được sử dụng. Vui lòng chọn email khác hoặc đăng nhập.',
+        400,
+        'REGISTER_FAILED'
+      );
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -104,6 +197,8 @@ export class AuthService {
             name: 'Ví Tiền Mặt',
             balance: 0,
             currency: 'VND',
+            type: 'cash',
+            isDefault: true,
             userId: newUser.id,
           },
         });
@@ -111,7 +206,7 @@ export class AuthService {
         return newUser;
       });
     } catch (error: any) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         user = devFallbackStore.createUser({
           name: name.trim(),
           email: cleanEmail,
@@ -123,20 +218,9 @@ export class AuthService {
       }
     }
 
-    const tokens = await this.generateTokens(user);
+    const tokens = await this.generateTokens(user, undefined, hashedPassword);
 
-    return {
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        avatar: user.avatar,
-        provider: user.provider,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      },
-      tokens,
-    };
+    return { user: this.toUserDTO(user), tokens };
   }
 
   static async login(email: string, password: string): Promise<{ user: UserDTO; tokens: AuthTokens }> {
@@ -144,143 +228,25 @@ export class AuthService {
 
     const user = await AuthRepository.findUserByEmail(cleanEmail);
     if (!user) {
-      throw new Error('Email hoặc mật khẩu không chính xác.');
+      throw invalidCredentials();
     }
 
     if (!user.password) {
-      throw new Error('Tài khoản này được đăng ký qua Google. Vui lòng bấm Đăng nhập bằng Google.');
+      throw invalidCredentials('Tài khoản này được đăng ký qua Google. Vui lòng bấm Đăng nhập bằng Google.');
     }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      throw new Error('Email hoặc mật khẩu không chính xác.');
+      throw invalidCredentials();
     }
 
-    const tokens = await this.generateTokens(user);
+    const tokens = await this.generateTokens(user, undefined, user.password);
 
-    return {
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        avatar: user.avatar,
-        provider: user.provider,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      },
-      tokens,
-    };
+    return { user: this.toUserDTO(user), tokens };
   }
 
   static async googleAuth(payload: GoogleAuthPayload): Promise<{ user: UserDTO; tokens: AuthTokens }> {
-    const tokenToVerify = payload.credential || payload.idToken || payload.token;
-    const rawAccessToken = payload.accessToken || payload.access_token;
-    let email: string | undefined = payload.email;
-    let name: string | undefined = payload.name;
-    let avatar: string | undefined = payload.picture;
-
-    const clientId = this.getGoogleClientId();
-
-    if (tokenToVerify) {
-      let verifiedSuccessfully = false;
-      const googleClient = this.getGoogleOAuthClient();
-
-      if (googleClient && clientId) {
-        try {
-          const ticket = await googleClient.verifyIdToken({
-            idToken: tokenToVerify,
-            audience: clientId,
-          });
-          const tokenPayload = ticket.getPayload();
-          if (tokenPayload && tokenPayload.email) {
-            if (tokenPayload.email_verified === false) {
-              throw new Error('Email Google chưa được xác thực.');
-            }
-            email = tokenPayload.email;
-            name = tokenPayload.name || name;
-            avatar = tokenPayload.picture || avatar;
-            verifiedSuccessfully = true;
-          }
-        } catch (clientErr: any) {
-          console.warn('Google Client verifyIdToken failed, attempting TokenInfo fallback:', clientErr.message);
-        }
-      }
-
-      // Fallback verification using Google's public tokeninfo endpoint
-      if (!verifiedSuccessfully) {
-        try {
-          const tokenInfoRes = await fetch(
-            `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(tokenToVerify)}`
-          );
-          if (!tokenInfoRes.ok) {
-            throw new Error(`Google TokenInfo returned HTTP ${tokenInfoRes.status}`);
-          }
-          const tokenInfo = (await tokenInfoRes.json()) as {
-            email?: string;
-            name?: string;
-            picture?: string;
-            email_verified?: string | boolean;
-            aud?: string;
-          };
-
-          if (!tokenInfo.email) {
-            throw new Error('Google ID Token không chứa thông tin email.');
-          }
-
-          if (tokenInfo.email_verified === false || tokenInfo.email_verified === 'false') {
-            throw new Error('Email Google chưa được xác thực.');
-          }
-
-          email = tokenInfo.email;
-          name = tokenInfo.name || name;
-          avatar = tokenInfo.picture || avatar;
-          verifiedSuccessfully = true;
-        } catch (tokenInfoErr: any) {
-          console.error('Google TokenInfo fallback verification failed:', tokenInfoErr);
-          throw new Error('Xác thực Google ID Token không thành công. Vui lòng thử lại.');
-        }
-      }
-    } else if (rawAccessToken) {
-      try {
-        const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-          headers: {
-            Authorization: `Bearer ${rawAccessToken}`,
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error(`Google UserInfo API trả về HTTP ${response.status}`);
-        }
-
-        const userInfo = (await response.json()) as {
-          email?: string;
-          name?: string;
-          picture?: string;
-          email_verified?: boolean;
-        };
-
-        if (userInfo.email_verified === false) {
-          throw new Error('Email Google chưa được xác thực.');
-        }
-
-        if (!userInfo.email) {
-          throw new Error('Không thể lấy địa chỉ Email từ Google Account.');
-        }
-
-        email = userInfo.email;
-        name = userInfo.name || name;
-        avatar = userInfo.picture || avatar;
-      } catch (err: any) {
-        console.error('Lỗi lấy thông tin Google UserInfo:', err);
-        throw new Error(err.message || 'Không thể xác thực Google Access Token.');
-      }
-    } else {
-      throw new Error('Không nhận được mã xác thực hoặc Access Token từ Google.');
-    }
-
-    if (!email) {
-      throw new Error('Không thể lấy thông tin Email từ Google.');
-    }
+    const { email, name, avatar } = await this.verifyGoogleIdentity(payload);
 
     const cleanEmail = email.trim().toLowerCase();
     let user = await AuthRepository.findUserByEmail(cleanEmail);
@@ -302,6 +268,8 @@ export class AuthService {
               name: 'Ví Tiền Mặt',
               balance: 0,
               currency: 'VND',
+              type: 'cash',
+              isDefault: true,
               userId: newUser.id,
             },
           });
@@ -309,7 +277,7 @@ export class AuthService {
           return newUser;
         });
       } catch (error: any) {
-        if (DevFallbackStore.isConnectionError(error)) {
+        if (DevFallbackStore.shouldFallback(error)) {
           user = devFallbackStore.createUser({
             email: cleanEmail,
             name: name || cleanEmail.split('@')[0],
@@ -321,6 +289,11 @@ export class AuthService {
         }
       }
     } else {
+      // Tài khoản mật khẩu chưa xác minh email: chủ email (Google đã xác minh) nhận lại tài khoản
+      if (user.provider === 'local') {
+        user = await AuthRepository.claimUnverifiedAccountForGoogle(user.id);
+      }
+
       // User exists: update missing avatar/name and link if appropriate
       const updateData: { avatar?: string; name?: string } = {};
       if (avatar && (!user.avatar || user.avatar.includes('googleusercontent.com'))) {
@@ -336,7 +309,7 @@ export class AuthService {
             data: updateData,
           });
         } catch (error: any) {
-          if (DevFallbackStore.isConnectionError(error)) {
+          if (DevFallbackStore.shouldFallback(error)) {
             user = devFallbackStore.updateUser(user.id, updateData);
           }
         }
@@ -345,67 +318,56 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user);
 
-    return {
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        avatar: user.avatar,
-        provider: user.provider,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      },
-      tokens,
-    };
+    return { user: this.toUserDTO(user), tokens };
   }
 
   static async refreshTokens(rawRefreshToken: string): Promise<{ user: UserDTO; tokens: AuthTokens }> {
     if (!rawRefreshToken) {
-      throw new Error('Thiếu Refresh Token.');
+      throw invalidRefresh('Thiếu Refresh Token.');
     }
 
     const hashedToken = this.hashToken(rawRefreshToken);
     const tokenRecord = await AuthRepository.findRefreshToken(hashedToken);
 
     if (!tokenRecord) {
-      throw new Error('Refresh Token không hợp lệ hoặc không tồn tại.');
+      throw invalidRefresh('Refresh Token không hợp lệ hoặc không tồn tại.');
     }
 
     if (tokenRecord.revokedAt) {
+      if (Date.now() - tokenRecord.revokedAt.getTime() <= REFRESH_REUSE_GRACE_MS) {
+        throw refreshInProgress();
+      }
       await AuthRepository.revokeAllUserTokensAndSessions(tokenRecord.userId);
-      throw new Error('Cảnh báo bảo mật: Refresh token đã bị hủy trước đó. Vui lòng đăng nhập lại.');
+      throw invalidRefresh('Cảnh báo bảo mật: Refresh token đã bị hủy trước đó. Vui lòng đăng nhập lại.');
     }
 
     if (new Date() > tokenRecord.expiresAt) {
-      throw new Error('Refresh Token đã hết hạn. Vui lòng đăng nhập lại.');
+      throw invalidRefresh('Refresh Token đã hết hạn. Vui lòng đăng nhập lại.');
     }
-
-    await AuthRepository.revokeRefreshToken(tokenRecord.id);
 
     const user = await AuthRepository.findUserById(tokenRecord.userId);
     if (!user) {
-      throw new Error('Người dùng không tồn tại.');
+      throw invalidRefresh('Người dùng không tồn tại.');
     }
 
-    const tokens = await this.generateTokens(user);
+    const { tokens, hashedRefreshToken, expiresAt } = this.createTokenSet(user);
+    const rotated = await AuthRepository.rotateRefreshToken({
+      oldTokenId: tokenRecord.id,
+      userId: user.id,
+      newHashedToken: hashedRefreshToken,
+      expiresAt,
+    });
+    if (!rotated) {
+      throw refreshInProgress();
+    }
 
-    return {
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        avatar: user.avatar,
-        provider: user.provider,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      },
-      tokens,
-    };
+    return { user: this.toUserDTO(user), tokens };
   }
 
   static async logout(rawRefreshToken?: string, userId?: string): Promise<void> {
     if (rawRefreshToken) {
       const hashedToken = this.hashToken(rawRefreshToken);
+      await AuthRepository.revokeRefreshTokenByHash(hashedToken);
       await AuthRepository.deleteSessionByToken(hashedToken);
     } else if (userId) {
       await this.logoutAllDevices(userId);
@@ -456,35 +418,28 @@ export class AuthService {
   }
 
   static async resetPassword(rawToken: string, newPass: string): Promise<void> {
+    const invalidToken = () =>
+      new AppError('Mã đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.', 400, 'RESET_PASSWORD_FAILED');
+
     const hashedToken = this.hashToken(rawToken);
     const resetRecord = await AuthRepository.findValidResetToken(hashedToken);
 
     if (!resetRecord) {
-      throw new Error('Mã đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.');
+      throw invalidToken();
     }
 
     const hashedPassword = await bcrypt.hash(newPass, 10);
-
-    try {
-      await prisma.$transaction(async () => {
-        await AuthRepository.updateUserPassword(resetRecord.userId, hashedPassword);
-        await AuthRepository.markResetTokenUsed(resetRecord.id);
-        await AuthRepository.revokeAllUserTokensAndSessions(resetRecord.userId);
-      });
-    } catch (error: any) {
-      if (DevFallbackStore.isConnectionError(error)) {
-        await AuthRepository.updateUserPassword(resetRecord.userId, hashedPassword);
-      } else {
-        throw error;
-      }
+    const done = await AuthRepository.resetPasswordWithToken(resetRecord.id, resetRecord.userId, hashedPassword);
+    if (!done) {
+      throw invalidToken();
     }
   }
 
-  static async getMe(userId: string) {
+  static async getMe(userId: string): Promise<UserDTO> {
     const user = await AuthRepository.findUserById(userId);
     if (!user) {
-      throw new Error('Không tìm thấy tài khoản người dùng.');
+      throw new AppError('Không tìm thấy tài khoản người dùng.', 404, 'USER_NOT_FOUND');
     }
-    return user;
+    return this.toUserDTO(user);
   }
 }

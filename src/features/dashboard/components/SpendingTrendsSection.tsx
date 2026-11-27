@@ -12,13 +12,14 @@ import {
   Cell
 } from 'recharts';
 import { CATEGORIES } from '../../../constants/categories';
-import { formatCurrency } from '../../../utils/format';
+import { formatMaskedCurrency, formatPercent } from '../../../utils/format';
 import { TrendingUp, PieChart as PieIcon, BarChart3, ChevronRight } from 'lucide-react';
 
 interface SpendingTrendsSectionProps {
   filteredExpenses: { categoryId: string; amount: number; date: string }[];
   allExpenses: { categoryId: string; amount: number; date: string }[];
   totalExpenseThisMonth: number;
+  showBalance?: boolean;
   onNavigateToExpenses?: () => void;
 }
 
@@ -26,6 +27,7 @@ export const SpendingTrendsSection: React.FC<SpendingTrendsSectionProps> = React
   filteredExpenses,
   allExpenses,
   totalExpenseThisMonth,
+  showBalance = true,
   onNavigateToExpenses,
 }) => {
   const [chartView, setChartView] = useState<'7days' | 'byCategory'>('7days');
@@ -157,7 +159,7 @@ export const SpendingTrendsSection: React.FC<SpendingTrendsSectionProps> = React
 
                       <div className="font-mono text-right">
                         <span className="font-extrabold text-stone-900 block">
-                          {formatCurrency(cat.value)}
+                          {formatMaskedCurrency(cat.value, showBalance)}
                         </span>
                       </div>
                     </div>
@@ -170,7 +172,7 @@ export const SpendingTrendsSection: React.FC<SpendingTrendsSectionProps> = React
                         />
                       </div>
                       <span className="text-[10px] font-mono text-stone-500 w-10 text-right">
-                        {percentage.toFixed(1)}%
+                        {formatPercent(percentage)}
                       </span>
                     </div>
                   </div>
@@ -208,13 +210,17 @@ export const SpendingTrendsSection: React.FC<SpendingTrendsSectionProps> = React
                       tickLine={false}
                     />
                     <YAxis 
-                      tickFormatter={(val) => `${val >= 1000000 ? (val / 1000000).toFixed(1) + 'M' : val >= 1000 ? (val / 1000).toFixed(0) + 'k' : val}`}
+                      tickFormatter={(val) =>
+                        showBalance
+                          ? `${val >= 1000000 ? (val / 1000000).toFixed(1) + 'M' : val >= 1000 ? (val / 1000).toFixed(0) + 'k' : val}`
+                          : '••'
+                      }
                       tick={{ fill: '#78716c', fontSize: 10, fontFamily: 'JetBrains Mono' }}
                       axisLine={{ stroke: '#E6DEC9' }}
                       tickLine={false}
                     />
                     <Tooltip
-                      formatter={(value: number) => [formatCurrency(value), 'Chi tiêu']}
+                      formatter={(value: number) => [formatMaskedCurrency(value, showBalance), 'Chi tiêu']}
                       labelFormatter={(label, items) => {
                         if (items && items[0]) {
                           const payload = items[0].payload;
@@ -243,7 +249,7 @@ export const SpendingTrendsSection: React.FC<SpendingTrendsSectionProps> = React
                   Cơ cấu tỷ trọng danh mục (Pie Chart)
                 </span>
                 <span className="text-[11px] font-mono text-stone-500">
-                  Tổng: {formatCurrency(totalExpenseThisMonth)}
+                  Tổng: {formatMaskedCurrency(totalExpenseThisMonth, showBalance)}
                 </span>
               </div>
 
@@ -265,7 +271,7 @@ export const SpendingTrendsSection: React.FC<SpendingTrendsSectionProps> = React
                         ))}
                       </Pie>
                       <Tooltip 
-                        formatter={(value: number) => [formatCurrency(value), 'Số tiền']}
+                        formatter={(value: number) => [formatMaskedCurrency(value, showBalance), 'Số tiền']}
                         contentStyle={{ 
                           backgroundColor: '#FAF7F0', 
                           borderColor: '#E6DEC9', 

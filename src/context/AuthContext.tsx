@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { apiClient, setStoredTokens, clearStoredTokens } from '../lib/apiClient';
+import { apiClient, setStoredTokens, clearStoredTokens, getApiErrorMessage } from '../lib/apiClient';
+
+// Cache ví cục bộ (chế độ khách); phải xóa khi đăng xuất để không lộ dữ liệu tài khoản trước
+const WALLETS_CACHE_KEY = 'so_tay_wallets_data';
 
 export interface AppUser {
   id: string;
@@ -31,6 +34,7 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<{ success: boolean; message: string }>;
   resetPasswordWithToken: (token: string, newPass: string) => Promise<void>;
   logout: () => Promise<void>;
+  logoutAll: () => Promise<void>;
   checkAuthStatus: () => Promise<void>;
 }
 
@@ -86,7 +90,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Đăng nhập bằng Google ID Token hoặc Access Token
   const loginWithGoogleToken = async (tokenData: string | { idToken?: string; accessToken?: string }) => {
-    setIsLoading(true);
     try {
       const payload = typeof tokenData === 'string' ? { idToken: tokenData } : tokenData;
       const response = await apiClient.post('/api/v1/auth/google', payload);
@@ -110,8 +113,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       setAuthState('ANONYMOUS');
       throw new Error(errorMsg);
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -122,7 +123,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Đăng nhập bằng Email & Mật khẩu
   const loginWithEmail = async (email: string, pass: string) => {
-    setIsLoading(true);
     try {
       const response = await apiClient.post('/api/v1/auth/login', { email, password: pass });
       if (response.data && response.data.success && response.data.user) {
@@ -147,14 +147,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       setAuthState('ANONYMOUS');
       throw new Error(errorMsg);
-    } finally {
-      setIsLoading(false);
     }
   };
 
   // Đăng ký bằng Email & Mật khẩu
   const registerWithEmail = async (name: string, email: string, pass: string) => {
-    setIsLoading(true);
     try {
       const response = await apiClient.post('/api/v1/auth/register', { name, email, password: pass });
       if (response.data && response.data.success && response.data.user) {
@@ -178,14 +175,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       setAuthState('ANONYMOUS');
       throw new Error(errorMsg);
-    } finally {
-      setIsLoading(false);
     }
   };
 
   // Quên mật khẩu: Gửi yêu cầu nhận mã token / link reset
   const resetPassword = async (email: string) => {
-    setIsLoading(true);
     try {
       const response = await apiClient.post('/api/v1/auth/forgot-password', { email });
       if (!response.data || !response.data.success) {
@@ -202,14 +196,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         error.message ||
         'Gửi yêu cầu thất bại. Vui lòng kiểm tra lại địa chỉ email.';
       throw new Error(errorMsg);
-    } finally {
-      setIsLoading(false);
     }
   };
 
   // Đặt lại mật khẩu mới bằng Token
   const resetPasswordWithToken = async (token: string, newPass: string) => {
-    setIsLoading(true);
     try {
       const response = await apiClient.post('/api/v1/auth/reset-password', {
         token,
@@ -225,24 +216,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         error.message ||
         'Đặt lại mật khẩu thất bại. Mã token không hợp lệ hoặc đã hết hạn.';
       throw new Error(errorMsg);
-    } finally {
-      setIsLoading(false);
     }
+  };
+
+  const clearLocalSession = () => {
+    clearStoredTokens();
+    localStorage.removeItem(WALLETS_CACHE_KEY);
+    setUser(null);
+    setAuthState('ANONYMOUS');
   };
 
   // Đăng xuất người dùng
   const logout = async () => {
-    setIsLoading(true);
     try {
       await apiClient.post('/api/v1/auth/logout');
     } catch (error) {
       console.warn('Lỗi khi đăng xuất ở server:', error);
     } finally {
-      clearStoredTokens();
-      setUser(null);
-      setAuthState('ANONYMOUS');
-      setIsLoading(false);
+      clearLocalSession();
     }
+  };
+
+  // Đăng xuất mọi thiết bị: chỉ kết thúc phiên cục bộ khi server xác nhận thành công
+  const logoutAll = async () => {
+    try {
+      await apiClient.post('/api/v1/auth/logout-all');
+    } catch (error: any) {
+      throw new Error(getApiErrorMessage(error, 'Không thể đăng xuất tất cả thiết bị. Vui lòng thử lại.'));
+    }
+    clearLocalSession();
   };
 
   return (
@@ -261,6 +263,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         resetPassword,
         resetPasswordWithToken,
         logout,
+        logoutAll,
         checkAuthStatus,
       }}
     >

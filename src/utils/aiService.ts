@@ -1,8 +1,22 @@
+import { formatPercent, formatDateShort } from './format';
 import { Expense, Goal } from '../types';
+import { INCOME_MISSING_INVITE } from './incomeMessages';
 import { CATEGORIES } from '../constants/categories';
-import { parseTransactionText, parseMultipleTransactions } from './parser';
+import { parseMultipleTransactions } from './parser';
 import { getBusinessDate, formatVietnameseDisplayDate, DateConfidenceType } from './dateParser';
 import { apiClient } from '../lib/apiClient';
+import {
+  INCOME_NOT_SUPPORTED_REPLY,
+  DELETE_CLARIFY_REPLY,
+  detectIncomeSegments,
+  isIncomeOnlyMessage,
+  isDeleteRequest,
+  parseExpensePart,
+  buildMixedIncomeReply,
+  detectCategoryQuery,
+  answerCategoryQuery,
+  findDeleteTarget,
+} from './aiIntent';
 
 export type FinancialIntent =
   | 'CREATE_EXPENSE'
@@ -123,9 +137,27 @@ export function computeFinancialQueryResponse(query: string, context: AssistantC
   const dailyBurnRate = Math.round(totalCurrent / Math.max(1, currentDay));
   const projectedEndMonth = totalCurrent + dailyBurnRate * daysRemaining;
 
+  const hasIncome = income > 0;
+
+  const categoryQuery = detectCategoryQuery(query);
+  if (categoryQuery) {
+    return answerCategoryQuery(categoryQuery, expenses, categoryLimits, bizCurrentDate);
+  }
+
+  // Thu trừ chi: số âm nghĩa là đã chi vượt thu nhập khai báo
+  const remaining = income - totalCurrent;
+  const vnd = (n: number) => `${n.toLocaleString('vi-VN')}₫`;
+  const remainingLine = (label: string, value: number) =>
+    value < 0 ? `Thâm hụt: **${vnd(-value)}**` : `${label}: **${vnd(value)}**`;
+  const overspentAdvice = `${remaining < 0 ? `Bạn đã chi vượt thu nhập khai báo **${vnd(-remaining)}**` : 'Bạn đã dùng hết thu nhập khai báo'}, hãy hạn chế tối đa các khoản chi chưa cần thiết.`;
+  const dailyAllowance = vnd(Math.round(remaining / Math.max(1, daysRemaining)));
+
   // 1. "tháng này tôi tiêu bao nhiêu" / "tổng chi tiêu tháng này"
   if (lower.includes('tháng này') && (lower.includes('bao nhiêu') || lower.includes('tổng'))) {
-    return `📊 **Thống kê chi tiêu tháng ${currentMonthNum}/${currentYear}:**\n\n• Tổng chi tiêu hiện tại: **${totalCurrent.toLocaleString('vi-VN')}₫** (${currentMonthExpenses.length} giao dịch).\n• Tích lũy còn lại: **${Math.max(0, income - totalCurrent).toLocaleString('vi-VN')}₫**.\n• Tốc độ chi: **~${dailyBurnRate.toLocaleString('vi-VN')}₫/ngày**.\n\n💡 **Khuyến nghị Copilot**: Trong ${daysRemaining} ngày tới, hạn mức chi tiêu trung bình an toàn là **${Math.round(Math.max(0, income - totalCurrent) / Math.max(1, daysRemaining)).toLocaleString('vi-VN')}₫/ngày**.`;
+    if (!hasIncome) {
+      return `📊 **Thống kê chi tiêu tháng ${currentMonthNum}/${currentYear}:**\n\n• Tổng chi tiêu hiện tại: **${totalCurrent.toLocaleString('vi-VN')}₫** (${currentMonthExpenses.length} giao dịch).\n• Tốc độ chi: **~${dailyBurnRate.toLocaleString('vi-VN')}₫/ngày**.\n\n💡 ${INCOME_MISSING_INVITE}`;
+    }
+    return `📊 **Thống kê chi tiêu tháng ${currentMonthNum}/${currentYear}:**\n\n• Tổng chi tiêu hiện tại: **${totalCurrent.toLocaleString('vi-VN')}₫** (${currentMonthExpenses.length} giao dịch).\n• ${remainingLine('Tích lũy còn lại', remaining)}.\n• Tốc độ chi: **~${dailyBurnRate.toLocaleString('vi-VN')}₫/ngày**.\n\n💡 **Khuyến nghị Copilot**: ${remaining <= 0 ? overspentAdvice : `Trong ${daysRemaining} ngày tới, hạn mức chi tiêu trung bình an toàn là **${dailyAllowance}/ngày**.`}`;
   }
 
   // 2. "tiêu nhiều nhất vào đâu" / "danh mục nào tiêu nhiều nhất"
@@ -145,13 +177,17 @@ export function computeFinancialQueryResponse(query: string, context: AssistantC
     });
 
     const topCatObj = CATEGORIES.find((c) => c.id === topCatId) || CATEGORIES[CATEGORIES.length - 1];
-    const pct = totalCurrent > 0 ? ((maxAmt / totalCurrent) * 100).toFixed(1) : '0';
+    const pct = formatPercent(totalCurrent > 0 ? (maxAmt / totalCurrent) * 100 : 0);
 
     return `🏆 **Danh mục chiếm chi tiêu lớn nhất tháng này:**\n\n• **${topCatObj.name}**: **${maxAmt.toLocaleString('vi-VN')}₫** (chiếm **${pct}%** tổng chi tiêu tháng này).\n\n💡 **Khuyến nghị Copilot**: Kiểm tra các giao dịch trong danh mục ${topCatObj.name} để tìm các khoản chi có thể tối ưu hóa.`;
   }
 
   // 3. "vượt ngân sách" / "hạn mức"
   if (lower.includes('ngân sách') || lower.includes('hạn mức') || lower.includes('vượt')) {
+    const hasCategoryLimits = Object.values(categoryLimits || {}).some((l) => Number(l) > 0);
+    const isDeficit = hasIncome && remaining < 0;
+    const isExhausted = hasIncome && remaining === 0;
+
     const overList: string[] = [];
     Object.entries(categoryLimits).forEach(([catId, limit]) => {
       if (limit > 0) {
@@ -163,11 +199,37 @@ export function computeFinancialQueryResponse(query: string, context: AssistantC
       }
     });
 
+    const limitStatusLine = hasCategoryLimits
+      ? '• Các danh mục có hạn mức đều đang nằm trong ngưỡng cho phép.'
+      : '• Chưa có danh mục nào được thiết lập hạn mức chi tiêu nên chưa thể đối chiếu theo danh mục.';
+
     if (overList.length > 0) {
+      if (isDeficit) {
+        return `🚨 **Cảnh báo vượt ngân sách tháng này:**\n\n• **Ngân sách tổng tháng**: đã chi **${vnd(totalCurrent)}** / thu nhập **${vnd(income)}** (thâm hụt **${vnd(-remaining)}**).\n${overList.join('\n')}\n\n💡 **"Vậy tôi nên làm gì?":**\nTạm dừng các khoản chi không thiết yếu cho đến hết tháng và ngừng chi thêm trong các danh mục vượt hạn mức trên.`;
+      }
       return `🚨 **Cảnh báo vượt ngân sách tháng này (${overList.length} danh mục):**\n\n${overList.join('\n')}\n\n💡 **"Vậy tôi nên làm gì?":**\nNgừng các chi tiêu phát sinh trong các danh mục trên, hoặc điều chuyển bớt ngân sách từ các danh mục còn dư.`;
-    } else {
-      return `✅ **Tuyệt vời!** Tất cả các danh mục chi tiêu của bạn trong tháng này đều đang nằm trong hạn mức an toàn cho phép.`;
     }
+
+    if (isDeficit) {
+      return `🚨 **Cảnh báo vượt ngân sách tổng tháng:**\n\n• Bạn đã chi **${vnd(totalCurrent)}**, vượt thu nhập khai báo **${vnd(income)}** (thâm hụt **${vnd(-remaining)}**).\n${limitStatusLine}\n\n💡 **"Vậy tôi nên làm gì?":**\n${overspentAdvice}`;
+    }
+
+    if (isExhausted) {
+      return `⚠️ **Ngân sách tháng này đã dùng hết thu nhập khai báo (${vnd(totalCurrent)} / ${vnd(income)}).**\n${limitStatusLine}\n\n💡 **"Vậy tôi nên làm gì?":**\nTháng này không còn phần dư. Hãy tạm dừng các khoản chi không thiết yếu cho đến hết tháng.`;
+    }
+
+    if (!hasIncome) {
+      if (!hasCategoryLimits) {
+        return `ℹ️ **Chưa đủ dữ liệu đánh giá ngân sách:**\n\n• Tổng chi tiêu tháng này: **${vnd(totalCurrent)}**.\n• Bạn chưa nhập thu nhập tháng và chưa thiết lập hạn mức danh mục.\n\n💡 ${INCOME_MISSING_INVITE}`;
+      }
+      return `ℹ️ **Báo cáo hạn mức danh mục tháng này:**\n\n${limitStatusLine}\n• Tổng chi tiêu hiện tại: **${vnd(totalCurrent)}**, nhưng bạn chưa nhập thu nhập tháng nên chưa thể đánh giá cân đối thu chi tổng thể.\n\n💡 ${INCOME_MISSING_INVITE}`;
+    }
+
+    if (!hasCategoryLimits) {
+      return `📊 **Tình hình ngân sách tháng này:**\n\n• Tổng chi tiêu: **${vnd(totalCurrent)}** / thu nhập **${vnd(income)}** (còn dư **${vnd(remaining)}**).\n• Bạn chưa thiết lập hạn mức cho từng danh mục nên chưa thể kiểm tra vượt hạn mức theo danh mục.\n\n💡 **"Vậy tôi nên làm gì?":**\nBạn có thể vào tab **Ngân sách** để đặt hạn mức cho các nhóm chi tiêu chính.`;
+    }
+
+    return `✅ **Tuyệt vời!** Tất cả các danh mục có hạn mức đều đang nằm trong ngưỡng an toàn cho phép và bạn còn dư **${vnd(remaining)}** so với thu nhập khai báo.`;
   }
 
   // 4. "mục tiêu" / "bao lâu nữa"
@@ -178,20 +240,34 @@ export function computeFinancialQueryResponse(query: string, context: AssistantC
 
     const firstGoal = goals[0];
     const remaining = Math.max(0, firstGoal.target - firstGoal.current);
-    const monthlySavings = Math.max(1000000, income - totalCurrent);
-    const monthsNeeded = monthlySavings > 0 ? (remaining / monthlySavings).toFixed(1) : 'Không xác định';
+    if (!hasIncome) {
+      return `🎯 **Tiến độ mục tiêu "${firstGoal.name}":**\n\n• Đã tích lũy: **${firstGoal.current.toLocaleString('vi-VN')}₫** / **${firstGoal.target.toLocaleString('vi-VN')}₫**.\n• Cần thêm: **${remaining.toLocaleString('vi-VN')}₫**.\n\n💡 ${INCOME_MISSING_INVITE}`;
+    }
+
+    const monthlySavings = income - totalCurrent;
+    if (monthlySavings <= 0 && remaining > 0) {
+      return `🎯 **Tiến độ mục tiêu "${firstGoal.name}":**\n\n• Đã tích lũy: **${firstGoal.current.toLocaleString('vi-VN')}₫** / **${firstGoal.target.toLocaleString('vi-VN')}₫**.\n• Cần thêm: **${remaining.toLocaleString('vi-VN')}₫**.\n\n💡 Tháng này không còn phần dư nên chưa ước tính được thời gian đạt mục tiêu. Hãy ưu tiên cân đối thu chi trước.`;
+    }
+    const monthsNeeded =
+      remaining > 0 ? (remaining / monthlySavings).toLocaleString('vi-VN', { maximumFractionDigits: 1 }) : '0';
 
     return `🎯 **Tiến độ mục tiêu "${firstGoal.name}":**\n\n• Đã tích lũy: **${firstGoal.current.toLocaleString('vi-VN')}₫** / **${firstGoal.target.toLocaleString('vi-VN')}₫** (${((firstGoal.current / firstGoal.target) * 100).toFixed(0)}%).\n• Cần thêm: **${remaining.toLocaleString('vi-VN')}₫**.\n• Ước tính với tốc độ tích lũy hiện tại (~${monthlySavings.toLocaleString('vi-VN')}₫/tháng), bạn sẽ hoàn thành sau khoảng **${monthsNeeded} tháng** nữa!`;
   }
 
   // 5. "dự báo dòng tiền"
   if (lower.includes('dự báo') || lower.includes('dòng tiền') || lower.includes('cuối tháng')) {
-    const projectedSavings = Math.max(0, income - projectedEndMonth);
-    return `📊 **Dự báo dòng tiền tháng ${currentMonthNum}/${currentYear}:**\n\n• **Tốc độ đốt tiền (Burn Rate)**: ~**${dailyBurnRate.toLocaleString('vi-VN')}₫/ngày**.\n• **Dự kiến tổng chi hết tháng**: **${projectedEndMonth.toLocaleString('vi-VN')}₫**.\n• **Dự kiến tích lũy cuối tháng**: **${projectedSavings.toLocaleString('vi-VN')}₫**.\n\n💡 **Khuyến nghị Copilot**: Giữ mức chi tiêu hằng ngày dưới **${Math.round(Math.max(0, income - totalCurrent) / Math.max(1, daysRemaining)).toLocaleString('vi-VN')}₫/ngày** để bảo toàn số dư.`;
+    if (!hasIncome) {
+      return `📊 **Dự báo dòng tiền tháng ${currentMonthNum}/${currentYear}:**\n\n• **Tốc độ đốt tiền (Burn Rate)**: ~**${dailyBurnRate.toLocaleString('vi-VN')}₫/ngày**.\n• **Dự kiến tổng chi hết tháng**: **${projectedEndMonth.toLocaleString('vi-VN')}₫**.\n\n💡 ${INCOME_MISSING_INVITE}`;
+    }
+    const projectedSavings = income - projectedEndMonth;
+    return `📊 **Dự báo dòng tiền tháng ${currentMonthNum}/${currentYear}:**\n\n• **Tốc độ đốt tiền (Burn Rate)**: ~**${dailyBurnRate.toLocaleString('vi-VN')}₫/ngày**.\n• **Dự kiến tổng chi hết tháng**: **${projectedEndMonth.toLocaleString('vi-VN')}₫**.\n• ${projectedSavings < 0 ? `**Dự kiến thâm hụt cuối tháng**: **${vnd(-projectedSavings)}**` : `**Dự kiến tích lũy cuối tháng**: **${vnd(projectedSavings)}**`}.\n\n💡 **Khuyến nghị Copilot**: ${remaining <= 0 ? overspentAdvice : `Giữ mức chi tiêu hằng ngày dưới **${dailyAllowance}/ngày** để không vượt thu nhập khai báo.`}`;
   }
 
   // Default query overview
-  return `💡 **Tổng quan tài chính tháng ${currentMonthNum}/${currentYear}:**\n\n• Tổng chi tiêu: **${totalCurrent.toLocaleString('vi-VN')}₫**\n• Số giao dịch: **${currentMonthExpenses.length}**\n• Số dư dự kiến: **${Math.max(0, income - totalCurrent).toLocaleString('vi-VN')}₫**.\n\nBạn có thể hỏi: *"Dự báo dòng tiền cuối tháng"*, *"Tôi có vượt ngân sách không?"*, *"Tôi tiêu nhiều nhất vào đâu?"*.`;
+  if (!hasIncome) {
+    return `💡 **Tổng quan tài chính tháng ${currentMonthNum}/${currentYear}:**\n\n• Tổng chi tiêu: **${totalCurrent.toLocaleString('vi-VN')}₫**\n• Số giao dịch: **${currentMonthExpenses.length}**\n\n💡 ${INCOME_MISSING_INVITE}`;
+  }
+  return `💡 **Tổng quan tài chính tháng ${currentMonthNum}/${currentYear}:**\n\n• Tổng chi tiêu: **${totalCurrent.toLocaleString('vi-VN')}₫**\n• Số giao dịch: **${currentMonthExpenses.length}**\n• ${remainingLine('Còn lại so với thu nhập khai báo', remaining)}.\n\nBạn có thể hỏi: *"Dự báo dòng tiền cuối tháng"*, *"Tôi có vượt ngân sách không?"*, *"Tôi tiêu nhiều nhất vào đâu?"*.`;
 }
 
 /**
@@ -204,6 +280,10 @@ export async function sendToAIAssistant(
 ): Promise<AIResponseData> {
   const trimmedMessage = message.trim();
   const runtimeCurrentDate = getBusinessDate(context.currentDate);
+
+  if (isIncomeOnlyMessage(trimmedMessage)) {
+    return { intent: 'GENERAL_CHAT', reply: INCOME_NOT_SUPPORTED_REPLY, confidence: 1 };
+  }
 
   // If user is authenticated, call server-side Gemini Financial Copilot
   if (isAuthenticated) {
@@ -284,40 +364,43 @@ export async function sendToAIAssistant(
   const lowerMsg = trimmedMessage.toLowerCase();
 
   // 1. Check if user is trying to delete an expense
-  if (lowerMsg.includes('xóa') || lowerMsg.includes('hủy bỏ') || lowerMsg.includes('bỏ khoản')) {
-    const matched = context.expenses[0];
-    if (matched) {
-      const catObj = CATEGORIES.find((c) => c.id === matched.categoryId) || CATEGORIES[CATEGORIES.length - 1];
-      const deleteAction: StructuredAction = {
-        type: 'DELETE_EXPENSE',
-        targetExpenseId: matched.id,
-        targetSummary: `${matched.note} (${matched.amount.toLocaleString('vi-VN')}₫)`,
-        requiresConfirmation: true,
-        confidence: 0.9,
-        expense: {
-          id: matched.id,
-          amount: matched.amount,
-          currency: 'VND',
-          category: matched.categoryId,
-          categoryName: catObj.name,
-          date: matched.date,
-          note: matched.note,
-        },
-      };
-
-      return {
-        intent: 'DELETE_EXPENSE',
-        actions: [deleteAction],
-        action: deleteAction,
-        reply: 'Bạn có muốn xóa giao dịch này khỏi sổ tay chi tiêu không?',
-        confidence: 0.9,
-        isFallback: true,
-      };
+  if (isDeleteRequest(trimmedMessage)) {
+    const matched = findDeleteTarget(trimmedMessage, context.expenses, runtimeCurrentDate);
+    if (!matched) {
+      return { intent: 'DELETE_EXPENSE', reply: DELETE_CLARIFY_REPLY, confidence: 0.9, isFallback: true };
     }
+
+    const catObj = CATEGORIES.find((c) => c.id === matched.categoryId) || CATEGORIES[CATEGORIES.length - 1];
+    const deleteAction: StructuredAction = {
+      type: 'DELETE_EXPENSE',
+      targetExpenseId: matched.id,
+      targetSummary: `${matched.note} (${matched.amount.toLocaleString('vi-VN')}₫)`,
+      requiresConfirmation: true,
+      confidence: 0.9,
+      expense: {
+        id: matched.id,
+        amount: matched.amount,
+        currency: 'VND',
+        category: matched.categoryId,
+        categoryName: catObj.name,
+        date: matched.date,
+        note: matched.note,
+      },
+    };
+
+    return {
+      intent: 'DELETE_EXPENSE',
+      actions: [deleteAction],
+      action: deleteAction,
+      reply: 'Bạn có muốn xóa giao dịch này khỏi sổ tay chi tiêu không?',
+      confidence: 0.9,
+      isFallback: true,
+    };
   }
 
   // 2. Check if user input matches financial query patterns
   const isQueryPattern =
+    detectCategoryQuery(trimmedMessage) !== null ||
     lowerMsg.includes('bao nhiêu') ||
     lowerMsg.includes('top 3') ||
     lowerMsg.includes('tiêu nhiều') ||
@@ -350,7 +433,10 @@ export async function sendToAIAssistant(
   }
 
   // 3. Otherwise try rule-based expense parser with deterministic multi-transaction engine
-  const parsedList = parseMultipleTransactions(trimmedMessage, runtimeCurrentDate);
+  const hasIncomePart = detectIncomeSegments(trimmedMessage).incomeSegments.length > 0;
+  const parsedList = hasIncomePart
+    ? parseExpensePart(trimmedMessage, runtimeCurrentDate)
+    : parseMultipleTransactions(trimmedMessage, runtimeCurrentDate);
 
   if (parsedList.length > 0) {
     const actions: StructuredAction[] = parsedList.map((parsed) => ({
@@ -373,11 +459,13 @@ export async function sendToAIAssistant(
     let reply = '';
     if (actions.length === 1) {
       const p = parsedList[0];
-      reply = `Tôi đã nhận diện giao dịch: **${p.note}** (${p.amount.toLocaleString('vi-VN')}₫) vào ngày **${p.date}**. Bạn có muốn lưu vào sổ không?`;
+      reply = `Tôi đã nhận diện giao dịch: **${p.note}** (${p.amount.toLocaleString('vi-VN')}₫) vào ngày **${formatDateShort(p.date)}**. Bạn có muốn lưu vào sổ không?`;
     } else {
       const totalAmount = actions.reduce((sum, a) => sum + (a.expense?.amount || 0), 0);
       reply = `Tôi đã nhận diện **${actions.length} giao dịch** (Tổng số tiền: **${totalAmount.toLocaleString('vi-VN')}₫**). Bạn có muốn thêm các giao dịch này vào sổ không?`;
     }
+
+    if (hasIncomePart) reply = buildMixedIncomeReply(actions);
 
     return {
       intent: 'CREATE_EXPENSE',

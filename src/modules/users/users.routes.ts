@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { UsersController } from './users.controller';
 import { authMiddleware } from '../../middleware/auth.middleware';
+import { authRateLimiter } from '../../middleware/rateLimiter.middleware';
 import { validateRequest } from '../../middleware/validate.middleware';
 import { updateProfileSchema, changePasswordSchema } from './users.schema';
 
@@ -21,6 +22,7 @@ router.put(
 // POST /api/v1/users/change-password
 router.post(
   '/change-password',
+  authRateLimiter,
   validateRequest(changePasswordSchema, 'body'),
   UsersController.changePassword
 );

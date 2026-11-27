@@ -8,7 +8,7 @@ import {
   TrendingDown
 } from 'lucide-react';
 import { CATEGORIES } from '../../../constants/categories';
-import { formatCurrency } from '../../../utils/format';
+import { formatMaskedCurrency, formatPercent } from '../../../utils/format';
 
 interface CategorySpendInfo {
   categoryId: string;
@@ -26,6 +26,7 @@ interface BudgetProgressCardProps {
   expensesThisMonth: { categoryId: string; amount: number }[];
   income: number;
   totalExpenseThisMonth: number;
+  showBalance?: boolean;
   onNavigateToBudget: () => void;
 }
 
@@ -34,6 +35,7 @@ export const BudgetProgressCard: React.FC<BudgetProgressCardProps> = React.memo(
   expensesThisMonth,
   income,
   totalExpenseThisMonth,
+  showBalance = true,
   onNavigateToBudget,
 }) => {
   // Aggregate category spend and sort by highest usage (memoized)
@@ -74,11 +76,18 @@ export const BudgetProgressCard: React.FC<BudgetProgressCardProps> = React.memo(
 
   const overBudgetCategories = useMemo(() => budgetList.filter((b) => b.isOver), [budgetList]);
 
-  const totalPlannedBudget = useMemo(() => {
-    return Object.values(categoryLimits).reduce<number>((acc, l) => acc + Number(l), 0) || income;
-  }, [categoryLimits, income]);
+  const limitTotal = useMemo(
+    () => Object.values(categoryLimits).reduce<number>((acc, l) => acc + Number(l), 0),
+    [categoryLimits]
+  );
+  const totalPlannedBudget = limitTotal || income;
+  // Ngân sách là tổng hạn mức danh mục thì chỉ tính chi của các danh mục đó; chưa đặt hạn mức thì so với thu nhập
+  const usedAmount =
+    limitTotal > 0
+      ? budgetList.reduce((sum, item) => (item.limit > 0 ? sum + item.spent : sum), 0)
+      : totalExpenseThisMonth;
 
-  const overallUsagePct = totalPlannedBudget > 0 ? (totalExpenseThisMonth / totalPlannedBudget) * 100 : 0;
+  const overallUsagePct = totalPlannedBudget > 0 ? (usedAmount / totalPlannedBudget) * 100 : 0;
 
   return (
     <div className="bg-[#FAF7F0] border border-[#E6DEC9] rounded-2xl p-5 shadow-xs flex flex-col justify-between">
@@ -112,12 +121,14 @@ export const BudgetProgressCard: React.FC<BudgetProgressCardProps> = React.memo(
 
         {/* Overall budget meter */}
         <div className="bg-white border border-[#E6DEC9] p-3.5 rounded-xl mb-4 space-y-2">
-          <div className="flex items-center justify-between text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-x-2 text-xs">
             <span className="font-serif font-bold text-stone-800">
-              Tổng ngân sách tháng đã dùng
+              {limitTotal > 0 ? 'Đã dùng trong các danh mục có hạn mức' : 'Tổng ngân sách tháng đã dùng'}
             </span>
             <span className="font-mono font-bold text-emerald-950">
-              {formatCurrency(totalExpenseThisMonth)} / {formatCurrency(totalPlannedBudget)} ({overallUsagePct.toFixed(0)}%)
+              {totalPlannedBudget > 0
+                ? `${formatMaskedCurrency(usedAmount, showBalance)} / ${formatMaskedCurrency(totalPlannedBudget, showBalance)} (${formatPercent(overallUsagePct, 0)})`
+                : `${formatMaskedCurrency(totalExpenseThisMonth, showBalance)} (chưa đặt ngân sách)`}
             </span>
           </div>
 
@@ -168,8 +179,8 @@ export const BudgetProgressCard: React.FC<BudgetProgressCardProps> = React.memo(
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-stone-600 text-[11px]">
                         <strong className={item.isOver ? 'text-rose-700' : 'text-stone-900'}>
-                          {formatCurrency(item.spent)}
-                        </strong> / {formatCurrency(item.limit)}
+                          {formatMaskedCurrency(item.spent, showBalance)}
+                        </strong> / {formatMaskedCurrency(item.limit, showBalance)}
                       </span>
 
                       <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
@@ -179,7 +190,7 @@ export const BudgetProgressCard: React.FC<BudgetProgressCardProps> = React.memo(
                           ? 'bg-amber-200 text-amber-900' 
                           : 'bg-stone-100 text-stone-700'
                       }`}>
-                        {item.percent.toFixed(0)}%
+                        {formatPercent(item.percent, 0)}
                       </span>
                     </div>
                   </div>

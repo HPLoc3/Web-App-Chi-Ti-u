@@ -18,7 +18,7 @@ interface AppTopbarProps {
   activeTab: NavTabKey;
   onNavigateHome: () => void;
   onOpenQuickAdd: () => void;
-  onLoadSampleData: () => void;
+  onLoadSampleData?: () => void;
   onOpenAuth: () => void;
   onLogout: () => void;
   currentUser: AppUser | null;
@@ -132,14 +132,16 @@ export const AppTopbar: React.FC<AppTopbarProps> = ({
           </button>
 
           {/* Sample Data Loader */}
-          <button
-            onClick={onLoadSampleData}
-            className="hidden sm:flex items-center gap-1 px-3 py-2 min-h-[44px] border border-[#E6DEC9] bg-[#FCFAF4] hover:bg-white text-stone-700 rounded-xl text-xs font-semibold transition cursor-pointer shadow-2xs"
-            title="Nạp 3 tuần dữ liệu mẫu thực tế"
-          >
-            <Sparkles size={13} className="text-amber-600" />
-            <span>Dữ liệu mẫu</span>
-          </button>
+          {onLoadSampleData && (
+            <button
+              onClick={onLoadSampleData}
+              className="hidden sm:flex items-center gap-1 px-3 py-2 min-h-[44px] border border-[#E6DEC9] bg-[#FCFAF4] hover:bg-white text-stone-700 rounded-xl text-xs font-semibold transition cursor-pointer shadow-2xs"
+              title="Nạp 3 tuần dữ liệu mẫu thực tế"
+            >
+              <Sparkles size={13} className="text-amber-600" />
+              <span>Dữ liệu mẫu</span>
+            </button>
+          )}
 
           {/* Landing / Intro link */}
           <button

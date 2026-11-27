@@ -22,14 +22,14 @@ export default function HowItWorksSection() {
       num: "02",
       icon: <Cpu className="w-6 h-6 text-amber-700" />,
       title: "AI tự hiểu & phân tích",
-      desc: "Hệ thống bóc tách số tiền, gán đúng danh mục và tự động cập nhật số dư của ví tiền tương ứng.",
-      badge: "Tự động 100%"
+      desc: "Hệ thống bóc tách số tiền và gợi ý danh mục để bạn xác nhận. Khi đã đăng nhập, khoản chi được trừ vào ví mặc định.",
+      badge: "Bạn xác nhận"
     },
     {
       num: "03",
       icon: <PieChart className="w-6 h-6 text-blue-700" />,
       title: "Theo dõi ngân sách",
-      desc: "Hệ thống đối chiếu với mô hình 50/30/20 và gửi cảnh báo trực quan nếu khoản chi chạm ngưỡng.",
+      desc: "Đối chiếu chi tiêu với hạn mức danh mục bạn đặt và hiện cảnh báo trong ứng dụng; kèm gợi ý phân bổ 50/30/20.",
       badge: "Kiểm soát rủi ro"
     },
     {
@@ -57,7 +57,7 @@ export default function HowItWorksSection() {
           </h2>
 
           <p className="text-stone-600 text-sm sm:text-base leading-relaxed">
-            Quy trình khép kín và tự động hóa giúp bạn hình thành thói quen kiểm soát tài chính chỉ trong vài giây mỗi ngày.
+            Bốn bước giúp bạn hình thành thói quen theo dõi chi tiêu hằng ngày.
           </p>
         </div>
 
@@ -99,7 +99,7 @@ export default function HowItWorksSection() {
 
               <div className="pt-2 border-t border-stone-100 flex items-center gap-1 text-[11px] font-medium text-emerald-800">
                 <CheckCircle2 size={13} className="text-emerald-600" />
-                <span>Hoàn tất tức thì</span>
+                <span>Theo từng bước</span>
               </div>
             </div>
           ))}

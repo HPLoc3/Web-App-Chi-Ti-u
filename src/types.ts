@@ -4,6 +4,8 @@ export interface Expense {
   categoryId: string; // e.g., 'an_uong', 'di_chuyen', etc.
   note: string;
   date: string; // YYYY-MM-DD
+  recurringId?: string; // Giao dịch sinh từ khoản định kỳ
+  recurringDueDate?: string; // YYYY-MM-DD của kỳ đã ghi
 }
 
 export interface Goal {
@@ -22,7 +24,9 @@ export interface RecurringExpense {
   note: string;
   frequency?: 'monthly' | 'yearly' | 'weekly';
   billingCycleMonth?: number; // 1-12 for yearly
-  nextPaymentDate?: string;
+  startDate?: string; // YYYY-MM-DD, mốc của chu kỳ tuần/năm
+  nextPaymentDate?: string; // YYYY-MM-DD
+  lastDueDate?: string; // chỉ dùng ở chế độ khách: kỳ gần nhất đã ghi
   isActive?: boolean;
 }
 
@@ -66,6 +70,7 @@ export interface FinancialInsight {
 }
 
 export interface HealthScoreBreakdown {
+  assessable: boolean; // false khi chưa nhập thu nhập -> hiển thị "Chưa đánh giá"
   savingsRateScore: number; // max 30
   budgetAdherenceScore: number; // max 25
   spendingStabilityScore: number; // max 20

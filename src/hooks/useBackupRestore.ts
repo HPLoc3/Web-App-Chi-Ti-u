@@ -6,11 +6,6 @@ const LOCAL_STORAGE_KEY = 'so_tay_ledger_data';
 
 export function useBackupRestore(
   userId: string | null,
-  apiActions?: {
-    updateBudget: (data: any) => Promise<any>;
-    addBulkExpenses: (expenses: any[]) => Promise<any>;
-    addGoal: (goal: any) => Promise<any>;
-  },
   showToast?: (message: string, type: 'success' | 'error' | 'info') => void
 ) {
   const [localState, setLocalState] = useState<AppState>(() => {
@@ -96,36 +91,14 @@ export function useBackupRestore(
   );
 
   const handleLoadSampleData = useCallback(async () => {
-    const sample = generateSampleState();
-    if (userId && apiActions) {
-      showToast?.('Đang nạp 3 tuần dữ liệu mẫu vào PostgreSQL...', 'info');
-      try {
-        await apiActions.updateBudget({
-          income: sample.income,
-          budgetTemplate: sample.budgetTemplate,
-          categoryLimits: sample.categoryLimits,
-        });
-        if (sample.expenses.length > 0) {
-          await apiActions.addBulkExpenses(sample.expenses);
-        }
-        for (const g of sample.goals) {
-          await apiActions.addGoal({
-            name: g.name,
-            target: g.target,
-            current: g.current,
-            createdAt: g.createdAt || new Date().toISOString().slice(0, 10),
-          });
-        }
-        showToast?.('Đã nạp 3 tuần dữ liệu mẫu thực tế vào PostgreSQL thành công!', 'success');
-      } catch (err) {
-        console.error('Error loading sample data to PostgreSQL:', err);
-        showToast?.('Lỗi khi nạp dữ liệu mẫu vào tài khoản.', 'error');
-      }
-    } else {
-      setLocalState(sample);
-      showToast?.('Đã nạp 3 tuần dữ liệu mẫu thực tế!', 'success');
+    // Không bao giờ ghi dữ liệu mẫu vào tài khoản thật
+    if (userId) {
+      showToast?.('Chỉ dùng ở chế độ dùng thử', 'info');
+      return;
     }
-  }, [userId, apiActions, showToast]);
+    setLocalState(generateSampleState());
+    showToast?.('Đã nạp 3 tuần dữ liệu mẫu thực tế!', 'success');
+  }, [userId, showToast]);
 
   const handleClearSampleData = useCallback(() => {
     setLocalState({

@@ -55,7 +55,7 @@ export async function ensureSystemCategoriesExist() {
     }
     systemCategoriesSeeded = true;
   } catch (error) {
-    if (DevFallbackStore.isConnectionError(error)) {
+    if (DevFallbackStore.shouldFallback(error)) {
       systemCategoriesSeeded = true;
       return;
     }
@@ -125,9 +125,11 @@ export async function resolveCategoryId(
       return byName.id;
     }
   } catch (error) {
-    if (DevFallbackStore.isConnectionError(error)) {
+    if (DevFallbackStore.shouldFallback(error)) {
       return 'khac';
     }
+    // Lỗi DB thật: không âm thầm đổi danh mục (và không cache kết quả sai)
+    throw error;
   }
 
   // 6. Fallback: Nếu không tìm thấy, trả về category 'khac'

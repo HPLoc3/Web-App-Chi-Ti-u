@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { 
   Plus, 
   Eye, 
@@ -16,7 +16,11 @@ import {
   ArrowUpRight,
   ArrowDownRight
 } from 'lucide-react';
-import { formatCurrency } from '../../../utils/format';
+import { formatMaskedCurrency, formatPercent } from '../../../utils/format';
+import { FitText } from '../../../components/common/FitText';
+import MoneyInput from '../../../components/common/MoneyInput';
+import { moneyDraft, moneyDraftError } from '../../../utils/moneyDraft';
+import { getApiErrorMessage } from '../../../lib/apiClient';
 
 interface DashboardHeroProps {
   totalBalance: number;
@@ -27,8 +31,11 @@ interface DashboardHeroProps {
   dailyBurnRate: number;
   selectedMonth: string;
   availableMonths: string[];
+  showBalance?: boolean;
+  onToggleShowBalance?: () => void;
   onChangeMonth: (month: string) => void;
-  onUpdateIncome: (income: number) => void;
+  /** Ném lỗi nếu lưu thất bại; ô đang sửa được giữ nguyên */
+  onUpdateIncome: (income: number) => Promise<unknown> | void;
   onOpenQuickAdd: () => void;
   onOpenAiChat?: () => void;
 }
@@ -42,33 +49,58 @@ export const DashboardHero: React.FC<DashboardHeroProps> = ({
   dailyBurnRate,
   selectedMonth,
   availableMonths,
+  showBalance: showBalanceProp,
+  onToggleShowBalance,
   onChangeMonth,
   onUpdateIncome,
   onOpenQuickAdd,
   onOpenAiChat,
 }) => {
-  const [showBalance, setShowBalance] = useState(() => {
+  const [internalShowBalance, setInternalShowBalance] = useState(() => {
     return localStorage.getItem('so_tay_show_balance') !== 'false';
   });
+  const showBalance = showBalanceProp ?? internalShowBalance;
 
   const [isEditingIncome, setIsEditingIncome] = useState(false);
-  const [tempIncome, setTempIncome] = useState(income.toString());
+  const [tempIncome, setTempIncome] = useState(() => moneyDraft(income));
+  const [incomeError, setIncomeError] = useState<string | null>(null);
+  const savingRef = useRef(false);
 
   const toggleBalancePrivacy = () => {
-    const next = !showBalance;
-    setShowBalance(next);
+    if (onToggleShowBalance) {
+      onToggleShowBalance();
+      return;
+    }
+    const next = !internalShowBalance;
+    setInternalShowBalance(next);
     localStorage.setItem('so_tay_show_balance', String(next));
   };
 
-  const handleSaveIncome = () => {
-    const val = parseFloat(tempIncome.replace(/[.,\s]/g, ''));
-    if (!isNaN(val) && val >= 0) {
-      onUpdateIncome(val);
+  const handleSaveIncome = async () => {
+    if (savingRef.current) return;
+    const invalid = moneyDraftError(tempIncome, 'nonNegative', 'thu nhập');
+    setIncomeError(invalid);
+    if (invalid) return;
+    savingRef.current = true;
+    try {
+      await onUpdateIncome(tempIncome.value!);
       setIsEditingIncome(false);
+    } catch (err) {
+      setIncomeError(getApiErrorMessage(err, 'Không lưu được thu nhập.'));
+    } finally {
+      savingRef.current = false;
     }
   };
 
+  const startEditIncome = () => {
+    setTempIncome(moneyDraft(income > 0 ? income : null));
+    setIncomeError(null);
+    setIsEditingIncome(true);
+  };
+
   const [yearStr, monthStr] = selectedMonth.split('-');
+  const hasIncome = income > 0;
+  const isDeficit = hasIncome && monthlySavings < 0;
   const expensePercentageOfIncome = income > 0 ? (monthlyExpense / income) * 100 : 0;
   const isHealthySavings = savingsRate >= 20;
 
@@ -126,7 +158,7 @@ export const DashboardHero: React.FC<DashboardHeroProps> = ({
         </div>
       </div>
 
-      {/* Main Hero Card: Total Balance & 4 Core Metric Pillars */}
+      {/* Main Hero Card: Estimated Remaining & 4 Core Metric Pillars */}
       <div className="bg-gradient-to-br from-emerald-950 via-emerald-900 to-emerald-950 text-white rounded-2xl p-5 sm:p-6 shadow-md border border-emerald-800/80 relative overflow-hidden">
         {/* Subtle decorative background watermark */}
         <div className="absolute right-0 bottom-0 translate-x-8 translate-y-8 opacity-5 pointer-events-none text-white">
@@ -134,40 +166,47 @@ export const DashboardHero: React.FC<DashboardHeroProps> = ({
         </div>
 
         <div className="relative z-10 space-y-5">
-          {/* Row 1: "Tôi có bao nhiêu tiền?" - Total Balance */}
+          {/* Row 1: ước tính còn lại theo thu nhập khai báo (không phải số dư ví) */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-800/60 pb-4">
-            <div>
+            <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-serif uppercase tracking-widest text-emerald-200/80 font-bold">
-                  1. TỔNG SỐ DƯ TÀI CHÍNH HIỆN HỮU
+                  1. ƯỚC TÍNH CÒN LẠI THEO THU NHẬP KHAI BÁO
                 </span>
                 <button
                   onClick={toggleBalancePrivacy}
                   className="text-emerald-300 hover:text-white p-1 rounded transition cursor-pointer"
-                  title={showBalance ? 'Ẩn số dư' : 'Hiện số dư'}
+                  title={showBalance ? 'Ẩn số tiền' : 'Hiện số tiền'}
                 >
                   {showBalance ? <Eye size={15} /> : <EyeOff size={15} />}
                 </button>
               </div>
 
-              <div className="flex items-baseline gap-2 mt-1">
-                <span className="font-mono text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
-                  {showBalance ? formatCurrency(totalBalance) : '•••••••• ₫'}
-                </span>
-                <span className="text-xs text-emerald-300/80 font-sans">
-                  (Khả dụng & tích lũy)
-                </span>
+              <div className="mt-1">
+                <FitText
+                  text={formatMaskedCurrency(totalBalance, showBalance)}
+                  className="[--fit-max:1.5rem] sm:[--fit-max:1.875rem] lg:[--fit-max:2.25rem] leading-tight font-mono font-extrabold text-white tracking-tight"
+                />
               </div>
+              <p className="text-[11px] text-emerald-300/80 font-sans mt-1">
+                {hasIncome
+                  ? 'Thu nhập khai báo − đã chi trong tháng đang chọn + tổng tiền đã góp mục tiêu (không hiện số âm). Không phải số dư thật trong ví — xem tab Ví tiền.'
+                  : 'Chưa nhập thu nhập nên chỉ hiện tổng tiền đã góp mục tiêu, chưa trừ chi tiêu. Không phải số dư thật trong ví — xem tab Ví tiền.'}
+              </p>
             </div>
 
             <div className="flex items-center gap-2">
               <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${
-                monthlySavings >= 0 
-                  ? 'bg-emerald-800/80 text-emerald-200 border border-emerald-600/50' 
+                !isDeficit
+                  ? 'bg-emerald-800/80 text-emerald-200 border border-emerald-600/50'
                   : 'bg-rose-900/80 text-rose-200 border border-rose-700/50'
               }`}>
-                <span className={`w-2 h-2 rounded-full ${monthlySavings >= 0 ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
-                {monthlySavings >= 0 ? 'Dòng tiền thặng dư' : 'Đang thâm hụt'}
+                <span className={`w-2 h-2 rounded-full ${!isDeficit ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
+                {!hasIncome
+                  ? 'Chưa nhập thu nhập'
+                  : isDeficit
+                  ? 'Chi vượt thu nhập khai báo'
+                  : 'Chi ít hơn thu nhập khai báo'}
               </span>
 
               {onOpenAiChat && (
@@ -183,9 +222,10 @@ export const DashboardHero: React.FC<DashboardHeroProps> = ({
           </div>
 
           {/* Row 2: 4 Financial Core Pillars */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
             {/* Pillar 1: Monthly Income */}
-            <div className="bg-emerald-900/50 hover:bg-emerald-900/70 border border-emerald-700/50 rounded-xl p-3 sm:p-3.5 transition">
+            {/* Khi đang sửa ở lưới 4 cột, thẻ chiếm 2 cột để ô tiền và hai nút đủ rộng */}
+            <div className={`bg-emerald-900/50 hover:bg-emerald-900/70 border border-emerald-700/50 rounded-xl p-3 sm:p-3.5 transition ${isEditingIncome ? 'xl:col-span-2' : ''}`}>
               <div className="flex items-center justify-between text-xs text-emerald-200/90 font-medium mb-1">
                 <span className="flex items-center gap-1">
                   <Coins size={14} className="text-amber-300" />
@@ -193,10 +233,7 @@ export const DashboardHero: React.FC<DashboardHeroProps> = ({
                 </span>
                 {!isEditingIncome && (
                   <button
-                    onClick={() => {
-                      setTempIncome(income.toString());
-                      setIsEditingIncome(true);
-                    }}
+                    onClick={startEditIncome}
                     className="text-emerald-300 hover:text-white p-0.5 rounded cursor-pointer"
                     title="Chỉnh sửa thu nhập"
                   >
@@ -206,36 +243,67 @@ export const DashboardHero: React.FC<DashboardHeroProps> = ({
               </div>
 
               {isEditingIncome ? (
+                <>
                 <div className="flex items-center gap-1 mt-1">
-                  <input
-                    type="text"
-                    value={tempIncome}
-                    onChange={(e) => setTempIncome(e.target.value)}
-                    className="w-full bg-emerald-950 border border-emerald-500 rounded px-2 py-1 text-xs font-mono text-white focus:outline-none"
-                    placeholder="25000000"
+                  <MoneyInput
+                    aria-label="Thu nhập tháng"
+                    value={tempIncome.value}
+                    onChange={(value, raw) => setTempIncome({ value, raw })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void handleSaveIncome();
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        setIsEditingIncome(false);
+                      }
+                    }}
+                    className="flex-1 min-w-0 bg-emerald-950 border border-emerald-500 rounded px-2 py-1 text-xs font-mono text-white focus:outline-none"
+                    placeholder="VD: 15.000.000"
                     autoFocus
                   />
                   <button
-                    onClick={handleSaveIncome}
-                    className="p-1 bg-amber-400 text-emerald-950 rounded hover:bg-amber-300 cursor-pointer"
+                    onClick={() => void handleSaveIncome()}
+                    className="shrink-0 w-10 h-10 flex items-center justify-center bg-amber-400 text-emerald-950 rounded hover:bg-amber-300 cursor-pointer"
+                    aria-label="Lưu thu nhập"
+                    title="Lưu thu nhập"
                   >
-                    <Check size={12} />
+                    <Check size={16} />
                   </button>
                   <button
                     onClick={() => setIsEditingIncome(false)}
-                    className="p-1 bg-emerald-800 text-emerald-200 rounded hover:bg-emerald-700 cursor-pointer"
+                    className="shrink-0 w-10 h-10 flex items-center justify-center bg-emerald-800 text-emerald-200 rounded hover:bg-emerald-700 cursor-pointer"
+                    aria-label="Hủy sửa thu nhập"
+                    title="Hủy sửa thu nhập"
                   >
-                    <X size={12} />
+                    <X size={16} />
+                  </button>
+                </div>
+                {incomeError && (
+                  <p role="alert" className="text-[11px] text-rose-300 mt-1">
+                    {incomeError}
+                  </p>
+                )}
+                </>
+              ) : !hasIncome ? (
+                <div className="space-y-1">
+                  <div className="font-mono text-lg sm:text-xl font-bold text-white">Chưa nhập</div>
+                  <button
+                    onClick={startEditIncome}
+                    className="px-2 py-1 bg-amber-400 text-emerald-950 rounded text-[11px] font-bold hover:bg-amber-300 cursor-pointer"
+                  >
+                    Nhập thu nhập tháng
                   </button>
                 </div>
               ) : (
                 <div className="space-y-0.5">
-                  <div className="font-mono text-lg sm:text-xl font-bold text-white">
-                    {showBalance ? formatCurrency(income) : '•••••• ₫'}
-                  </div>
+                  <FitText
+                    text={formatMaskedCurrency(income, showBalance)}
+                    className="font-mono font-bold text-white"
+                  />
                   <div className="text-[11px] text-emerald-300/80 font-sans flex items-center gap-1">
                     <ArrowUpRight size={12} className="text-emerald-400" />
-                    Định mức ngân sách
+                    Do bạn khai báo
                   </div>
                 </div>
               )}
@@ -248,41 +316,51 @@ export const DashboardHero: React.FC<DashboardHeroProps> = ({
                   <TrendingDown size={14} className="text-rose-300" />
                   Đã chi tiêu
                 </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.2 bg-emerald-950/60 rounded text-emerald-300">
-                  {expensePercentageOfIncome.toFixed(0)}% thu nhập
-                </span>
+                {hasIncome && (
+                  <span className="text-[10px] font-mono px-1.5 py-0.2 bg-emerald-950/60 rounded text-emerald-300">
+                    {showBalance ? `${formatPercent(expensePercentageOfIncome)} thu nhập` : '••% thu nhập'}
+                  </span>
+                )}
               </div>
               <div className="space-y-0.5">
-                <div className="font-mono text-lg sm:text-xl font-bold text-amber-200">
-                  {showBalance ? formatCurrency(monthlyExpense) : '•••••• ₫'}
-                </div>
+                <FitText
+                  text={formatMaskedCurrency(monthlyExpense, showBalance)}
+                  className="font-mono font-bold text-amber-200"
+                />
                 <div className="text-[11px] text-emerald-300/80 font-sans">
-                  TB: <span className="font-mono font-semibold text-emerald-100">{formatCurrency(Math.round(dailyBurnRate))}</span>/ngày
+                  TB: <span className="font-mono font-semibold text-emerald-100">{formatMaskedCurrency(Math.round(dailyBurnRate), showBalance)}</span>/ngày
                 </div>
               </div>
             </div>
 
             {/* Pillar 3: Monthly Saving */}
             <div className={`border rounded-xl p-3 sm:p-3.5 transition ${
-              monthlySavings >= 0 
+              !isDeficit
                 ? 'bg-emerald-900/50 border-emerald-700/50' 
                 : 'bg-rose-950/40 border-rose-700/60'
             }`}>
               <div className="flex items-center justify-between text-xs text-emerald-200/90 font-medium mb-1">
                 <span className="flex items-center gap-1">
-                  <PiggyBank size={14} className={monthlySavings >= 0 ? 'text-emerald-300' : 'text-rose-300'} />
-                  Tiền tích lũy
+                  <PiggyBank size={14} className={!isDeficit ? 'text-emerald-300' : 'text-rose-300'} />
+                  Còn lại tháng này
                 </span>
-                <span className={`text-[10px] font-bold ${monthlySavings >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
-                  {monthlySavings >= 0 ? 'Thặng dư' : 'Thâm hụt'}
-                </span>
+                {hasIncome && (
+                  <span className={`text-[10px] font-bold ${!isDeficit ? 'text-emerald-300' : 'text-rose-300'}`}>
+                    {!isDeficit ? 'Thặng dư' : 'Thâm hụt'}
+                  </span>
+                )}
               </div>
               <div className="space-y-0.5">
-                <div className={`font-mono text-lg sm:text-xl font-bold ${monthlySavings >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
-                  {showBalance ? formatCurrency(monthlySavings) : '•••••• ₫'}
-                </div>
+                <FitText
+                  text={!hasIncome ? '—' : formatMaskedCurrency(monthlySavings, showBalance)}
+                  className={`font-mono font-bold ${!isDeficit ? 'text-emerald-300' : 'text-rose-300'}`}
+                />
                 <div className="text-[11px] text-emerald-300/80 font-sans">
-                  {monthlySavings >= 0 ? 'Sẵn sàng chuyển quỹ' : 'Cần thắt chặt chi tiêu'}
+                  {!hasIncome
+                    ? 'Chưa nhập thu nhập'
+                    : !isDeficit
+                    ? 'Thu nhập khai báo − đã chi'
+                    : 'Cần thắt chặt chi tiêu'}
                 </div>
               </div>
             </div>
@@ -294,23 +372,25 @@ export const DashboardHero: React.FC<DashboardHeroProps> = ({
                   <TrendingUp size={14} className="text-amber-300" />
                   Tỷ lệ tiết kiệm
                 </span>
-                <span className={`text-[10px] font-semibold px-1.5 py-0.2 rounded ${
-                  isHealthySavings 
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' 
-                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                }`}>
-                  {isHealthySavings ? 'Đạt chuẩn' : 'Mục tiêu ≥20%'}
-                </span>
+                {hasIncome && (
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.2 rounded ${
+                    isHealthySavings
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                  }`}>
+                    {isHealthySavings ? 'Đạt chuẩn' : 'Mục tiêu ≥20%'}
+                  </span>
+                )}
               </div>
               <div className="space-y-0.5">
                 <div className="font-mono text-lg sm:text-xl font-bold text-white flex items-baseline gap-1">
-                  <span>{savingsRate.toFixed(1)}%</span>
+                  <span>{hasIncome ? formatPercent(savingsRate) : 'Chưa đánh giá'}</span>
                 </div>
                 {/* Visual mini progress bar for saving rate */}
                 <div className="w-full bg-emerald-950/80 h-1.5 rounded-full overflow-hidden mt-1">
                   <div 
                     className={`h-full rounded-full transition-all duration-500 ${isHealthySavings ? 'bg-emerald-400' : 'bg-amber-400'}`}
-                    style={{ width: `${Math.min(100, Math.max(0, savingsRate))}%` }}
+                    style={{ width: `${hasIncome ? Math.min(100, Math.max(0, savingsRate)) : 0}%` }}
                   />
                 </div>
               </div>

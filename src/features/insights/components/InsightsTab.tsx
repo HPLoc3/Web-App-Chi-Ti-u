@@ -81,6 +81,10 @@ export const InsightsTab: React.FC<InsightsTabProps> = React.memo(({ state }) =>
             Chỉ số sức khỏe tài chính
           </p>
 
+          {!health.assessable ? (
+            <p className="my-3 text-sm font-semibold text-amber-200">Chưa đánh giá — hãy nhập thu nhập tháng</p>
+          ) : (
+            <>
           <div className="my-3">
             <span className="text-5xl font-serif font-black text-amber-300">{health.totalScore}</span>
             <span className="text-lg font-mono text-emerald-400/80"> / 100</span>
@@ -106,6 +110,8 @@ export const InsightsTab: React.FC<InsightsTabProps> = React.memo(({ state }) =>
               ? 'Mức trung bình - Cần tối ưu thêm'
               : 'Cảnh báo - Chi tiêu vượt ngưỡng an toàn'}
           </p>
+            </>
+          )}
         </div>
 
         {/* Breakdown Metric Bars */}
@@ -115,8 +121,14 @@ export const InsightsTab: React.FC<InsightsTabProps> = React.memo(({ state }) =>
               <ShieldCheck size={18} className="text-amber-400" />
               <span>Minh bạch công thức tính điểm (100đ)</span>
             </h3>
-            <span className="text-xs font-mono text-emerald-300">Tổng điểm: {health.totalScore}đ</span>
+            <span className="text-xs font-mono text-emerald-300">
+              Tổng điểm: {health.assessable ? `${health.totalScore}đ` : 'Chưa đánh giá'}
+            </span>
           </div>
+
+          {!health.assessable ? (
+            <p className="text-xs text-emerald-200/90">Chưa đánh giá — hãy nhập thu nhập tháng</p>
+          ) : (
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Savings Rate */}
@@ -185,6 +197,7 @@ export const InsightsTab: React.FC<InsightsTabProps> = React.memo(({ state }) =>
               <p className="text-[11px] text-emerald-300/80">Đang thực hiện các hũ tiết kiệm mục tiêu</p>
             </div>
           </div>
+          )}
         </div>
       </div>
 
@@ -279,7 +292,7 @@ export const InsightsTab: React.FC<InsightsTabProps> = React.memo(({ state }) =>
                     {item.severity === 'recommendation' && <Info size={20} className="text-emerald-300" />}
                   </div>
 
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 [overflow-wrap:anywhere]">
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <h4 className="text-sm font-bold text-amber-100">{item.title}</h4>
                       {item.metricValue && (

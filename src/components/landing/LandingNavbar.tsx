@@ -82,7 +82,7 @@ export default function LandingNavbar({
           : 'bg-emerald-950 text-white border-b-4 border-amber-500 py-3.5'
       }`}
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
+      <div className="max-w-7xl 2xl:max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-2 sm:gap-4">
         
         {/* Brand Logo */}
         <button 
@@ -90,30 +90,31 @@ export default function LandingNavbar({
             window.scrollTo({ top: 0, behavior: 'smooth' });
             setActiveSection('hero');
           }}
-          className="flex items-center gap-3 text-left group cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400 rounded-xl p-1"
+          className="flex items-center gap-2 sm:gap-3 shrink-0 text-left group cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400 rounded-xl p-1"
           aria-label="Về đầu trang Sổ Tay Chi Tiêu Thông Minh"
         >
-          <div className="w-10 h-10 bg-amber-500 text-emerald-950 rounded-xl flex items-center justify-center text-xl shadow-md font-serif font-black shrink-0 group-hover:scale-105 transition-transform duration-200">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-amber-500 text-emerald-950 rounded-xl flex items-center justify-center text-xl shadow-md font-serif font-black shrink-0 group-hover:scale-105 transition-transform duration-200">
             📔
           </div>
-          <div>
-            <div className="font-serif text-base sm:text-lg font-black tracking-wide text-amber-50 group-hover:text-amber-300 transition-colors flex items-center gap-2">
+          {/* Dưới 375px chỉ còn biểu tượng để nhường chỗ cho nút hành động */}
+          <div className="hidden min-[375px]:block">
+            <div className="font-serif text-sm sm:text-lg font-black tracking-wide whitespace-nowrap text-amber-50 group-hover:text-amber-300 transition-colors flex items-center gap-2">
               SỔ TAY CHI TIÊU
-              <span className="hidden xl:inline-block text-[10px] uppercase font-sans font-bold bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-400/30">
+              <span className="hidden 2xl:inline-block text-[10px] uppercase font-sans font-bold bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-400/30">
                 AI Copilot
               </span>
             </div>
-            <p className="text-[10px] sm:text-[11px] text-emerald-300 font-mono tracking-wider uppercase font-semibold">
+            <p className="hidden md:block xl:hidden 2xl:block whitespace-nowrap text-[11px] text-emerald-300 font-mono tracking-wider uppercase font-semibold">
               Quản lý Tài chính Thông minh
             </p>
           </div>
         </button>
 
         {/* Desktop Navigation Links */}
-        <nav className="hidden lg:flex items-center gap-1 xl:gap-2 text-xs font-semibold text-emerald-100/90" aria-label="Menu chính">
+        <nav className="hidden xl:flex items-center gap-0.5 whitespace-nowrap text-xs font-semibold text-emerald-100/90" aria-label="Menu chính">
           <button
             onClick={() => scrollToSection('problems')}
-            className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`px-2 py-1.5 rounded-lg transition-colors cursor-pointer ${
               activeSection === 'problems' 
                 ? 'text-amber-300 bg-emerald-900/90 font-bold' 
                 : 'hover:text-amber-200 hover:bg-emerald-900/50'
@@ -124,7 +125,7 @@ export default function LandingNavbar({
 
           <button
             onClick={() => scrollToSection('benefits')}
-            className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`px-2 py-1.5 rounded-lg transition-colors cursor-pointer ${
               activeSection === 'benefits' 
                 ? 'text-amber-300 bg-emerald-900/90 font-bold' 
                 : 'hover:text-amber-200 hover:bg-emerald-900/50'
@@ -135,7 +136,7 @@ export default function LandingNavbar({
 
           <button
             onClick={() => scrollToSection('how-it-works')}
-            className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`px-2 py-1.5 rounded-lg transition-colors cursor-pointer ${
               activeSection === 'how-it-works' 
                 ? 'text-amber-300 bg-emerald-900/90 font-bold' 
                 : 'hover:text-amber-200 hover:bg-emerald-900/50'
@@ -146,7 +147,7 @@ export default function LandingNavbar({
 
           <button
             onClick={() => scrollToSection('features')}
-            className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`px-2 py-1.5 rounded-lg transition-colors cursor-pointer ${
               activeSection === 'features' 
                 ? 'text-amber-300 bg-emerald-900/90 font-bold' 
                 : 'hover:text-amber-200 hover:bg-emerald-900/50'
@@ -157,7 +158,7 @@ export default function LandingNavbar({
 
           <button
             onClick={() => scrollToSection('ai-copilot')}
-            className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
+            className={`px-2 py-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
               activeSection === 'ai-copilot' 
                 ? 'text-amber-300 bg-emerald-900/90 font-bold' 
                 : 'text-amber-300/90 hover:text-amber-200 hover:bg-emerald-900/50'
@@ -169,7 +170,7 @@ export default function LandingNavbar({
 
           <button
             onClick={() => scrollToSection('budget')}
-            className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`px-2 py-1.5 rounded-lg transition-colors cursor-pointer ${
               activeSection === 'budget' 
                 ? 'text-amber-300 bg-emerald-900/90 font-bold' 
                 : 'hover:text-amber-200 hover:bg-emerald-900/50'
@@ -180,7 +181,7 @@ export default function LandingNavbar({
 
           <button
             onClick={() => scrollToSection('security')}
-            className={`px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`px-2 py-1.5 rounded-lg transition-colors cursor-pointer ${
               activeSection === 'security' 
                 ? 'text-amber-300 bg-emerald-900/90 font-bold' 
                 : 'hover:text-amber-200 hover:bg-emerald-900/50'
@@ -191,29 +192,32 @@ export default function LandingNavbar({
         </nav>
 
         {/* Action CTAs */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center justify-end gap-2 min-w-0 whitespace-nowrap">
           {isLoggedIn ? (
             <button
               onClick={onStartDemo}
-              className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold text-xs sm:text-sm rounded-xl transition cursor-pointer shadow-md min-h-[40px] focus:ring-2 focus:ring-amber-300"
+              className="flex items-center gap-2 px-2.5 sm:px-4 py-2 bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold text-xs sm:text-sm rounded-xl transition cursor-pointer shadow-md min-h-[40px] focus:ring-2 focus:ring-amber-300"
             >
-              <span>Vào ứng dụng ({userName || 'User'})</span>
-              <ArrowRight size={16} />
+              <span>Vào ứng dụng</span>
+              <span className="hidden sm:inline xl:hidden 2xl:inline max-w-[10rem] truncate">({userName || 'User'})</span>
+              <ArrowRight size={16} className="hidden sm:block" />
             </button>
           ) : (
             <>
               <button
                 onClick={onStartDemo}
-                className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 bg-emerald-900/80 hover:bg-emerald-900 text-amber-300 hover:text-amber-200 border border-amber-500/40 rounded-xl transition text-xs font-semibold cursor-pointer min-h-[40px] shadow-xs"
+                className="hidden sm:flex shrink-0 justify-center items-center gap-1.5 px-3.5 xl:px-3 2xl:px-3.5 py-2 min-w-[40px] bg-emerald-900/80 hover:bg-emerald-900 text-amber-300 hover:text-amber-200 border border-amber-500/40 rounded-xl transition text-xs font-semibold cursor-pointer min-h-[40px] shadow-xs"
                 title="Trải nghiệm trực tiếp không cần đăng ký"
+                aria-label="Xem Demo"
               >
                 <Sparkles size={14} className="text-amber-400" />
-                <span>Xem Demo</span>
+                {/* 640–767px và 1280–1535px thiếu chỗ nên chỉ còn biểu tượng */}
+                <span className="hidden md:inline xl:hidden 2xl:inline">Xem Demo</span>
               </button>
 
               <button
                 onClick={onOpenLogin}
-                className="flex items-center gap-1.5 px-3.5 py-2 text-emerald-100 hover:text-white hover:bg-emerald-900/80 border border-emerald-700/80 rounded-xl transition text-xs sm:text-sm font-semibold cursor-pointer min-h-[40px]"
+                className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 text-emerald-100 hover:text-white hover:bg-emerald-900/80 border border-emerald-700/80 rounded-xl transition text-xs sm:text-sm font-semibold cursor-pointer min-h-[40px]"
               >
                 <LogIn size={15} />
                 <span>Đăng nhập</span>
@@ -221,7 +225,7 @@ export default function LandingNavbar({
 
               <button
                 onClick={onOpenRegister}
-                className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold text-xs sm:text-sm rounded-xl transition cursor-pointer shadow-md min-h-[40px] focus:ring-2 focus:ring-amber-300"
+                className="flex items-center gap-1.5 px-3 sm:px-4 py-2 bg-amber-500 hover:bg-amber-400 text-emerald-950 font-bold text-xs sm:text-sm rounded-xl transition cursor-pointer shadow-md min-h-[40px] focus:ring-2 focus:ring-amber-300"
               >
                 <UserPlus size={15} />
                 <span>Bắt đầu</span>
@@ -232,7 +236,7 @@ export default function LandingNavbar({
           {/* Mobile menu trigger */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="lg:hidden p-2 rounded-xl bg-emerald-900/80 text-emerald-100 hover:text-white border border-emerald-700/80 focus:outline-none focus:ring-2 focus:ring-amber-400 min-h-[40px] min-w-[40px] flex items-center justify-center"
+            className="xl:hidden shrink-0 p-2 rounded-xl bg-emerald-900/80 text-emerald-100 hover:text-white border border-emerald-700/80 focus:outline-none focus:ring-2 focus:ring-amber-400 min-h-[40px] min-w-[40px] flex items-center justify-center"
             aria-label={mobileMenuOpen ? "Đóng menu" : "Mở menu điều hướng"}
             aria-expanded={mobileMenuOpen}
           >
@@ -243,7 +247,7 @@ export default function LandingNavbar({
 
       {/* Mobile Drawer Menu */}
       {mobileMenuOpen && (
-        <div className="lg:hidden bg-emerald-950 border-b border-emerald-800 px-4 pt-3 pb-6 space-y-3 animate-in fade-in slide-in-from-top-4 duration-200">
+        <div className="xl:hidden bg-emerald-950 border-b border-emerald-800 px-4 pt-3 pb-6 space-y-3 animate-in fade-in slide-in-from-top-4 duration-200">
           <div className="grid grid-cols-2 gap-2 pt-1 text-xs font-semibold text-emerald-100">
             <button
               onClick={() => scrollToSection('problems')}
@@ -297,6 +301,18 @@ export default function LandingNavbar({
           </div>
 
           <div className="pt-2 border-t border-emerald-800/80 flex flex-col gap-2">
+            {!isLoggedIn && (
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onOpenLogin();
+                }}
+                className="sm:hidden w-full py-2.5 px-4 border border-emerald-700/80 text-emerald-100 rounded-xl text-center text-xs font-bold flex items-center justify-center gap-2"
+              >
+                <LogIn size={14} />
+                <span>Đăng nhập</span>
+              </button>
+            )}
             {!isLoggedIn && (
               <button
                 onClick={() => {

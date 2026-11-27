@@ -23,6 +23,8 @@ import { Expense, Goal, RecurringExpense } from '../../../types';
 import { formatCurrency, formatDateVietnamese } from '../../../utils/format';
 import { getBusinessDate } from '../../../utils/dateParser';
 import { CATEGORIES } from '../../../constants/categories';
+import { renderInlineMarkdown } from '../../../utils/inlineMarkdown';
+import { MoneyInput } from '../../../components/common/MoneyInput';
 import { AppUser } from '../../../context/AuthContext';
 import {
   sendToAIAssistant,
@@ -35,7 +37,8 @@ import {
 export interface PendingActionState {
   id: string;
   type: 'CREATE_EXPENSE' | 'UPDATE_EXPENSE' | 'DELETE_EXPENSE';
-  amount: number;
+  /** null = ô tiền trống hoặc không hợp lệ, chặn lưu */
+  amount: number | null;
   currency?: string;
   category: string;
   categoryName: string;
@@ -71,7 +74,11 @@ export interface ChatMessage {
   pendingAction?: PendingActionState; // for backward compatibility
   financialSummary?: FinancialSummary;
   isFallback?: boolean;
+  saveError?: string;
 }
+
+const hasValidAmount = (a: PendingActionState) =>
+  a.type === 'DELETE_EXPENSE' || (a.amount !== null && a.amount > 0);
 
 interface ChatbotTabProps {
   expenses: Expense[];
@@ -91,7 +98,7 @@ export default function ChatbotTab({
   expenses,
   categoryLimits,
   goals = [],
-  income = 15000000,
+  income = 0,
   recurringExpenses = [],
   onAddExpense,
   onAddBulkExpenses,
@@ -113,6 +120,8 @@ export default function ChatbotTab({
   const [isProcessing, setIsProcessing] = useState(false);
   const [quota, setQuota] = useState<{ used: number; limit: number; remaining: number } | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  // Chặn bấm lặp khi đề xuất của một tin nhắn đang được lưu
+  const savingRef = useRef<Set<string>>(new Set());
 
   // Fetch initial quota on mount if user is logged in
   useEffect(() => {
@@ -224,7 +233,7 @@ export default function ChatbotTab({
             ? 'Bạn muốn cập nhật giao dịch này?'
             : 'Bạn có chắc chắn muốn xóa giao dịch này?';
       } else {
-        const total = pendingActions.reduce((sum, a) => sum + a.amount, 0);
+        const total = pendingActions.reduce((sum, a) => sum + (a.amount ?? 0), 0);
         promptTitle = `Tôi đã nhận diện được **${pendingActions.length} giao dịch** (Tổng: **${formatCurrency(total)}**). Bạn có muốn lưu vào sổ không?`;
       }
 
@@ -257,6 +266,82 @@ export default function ChatbotTab({
     }
   };
 
+  const setSaveError = (msgId: string, saveError?: string) => {
+    setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, saveError } : m)));
+  };
+
+  const markConfirmed = (msgId: string, actionIds: string[]) => {
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== msgId) return m;
+        const updatedActions = (m.pendingActions || (m.pendingAction ? [m.pendingAction] : [])).map((a) =>
+          actionIds.includes(a.id) ? { ...a, status: 'confirmed' as const, isEditing: false } : a
+        );
+        return { ...m, pendingActions: updatedActions, pendingAction: updatedActions[0] };
+      })
+    );
+  };
+
+  const toPayload = (a: PendingActionState) => ({
+    amount: a.amount as number,
+    categoryId: a.category,
+    note: a.note,
+    date: a.date,
+  });
+
+  const persistAction = async (act: PendingActionState) => {
+    if (act.type === 'DELETE_EXPENSE') {
+      if (!act.targetExpenseId || !onDeleteExpense) throw new Error('Không xác định được giao dịch cần xóa.');
+      await onDeleteExpense(act.targetExpenseId);
+    } else if (act.type === 'UPDATE_EXPENSE' && act.targetExpenseId && onUpdateExpense) {
+      await onUpdateExpense({ id: act.targetExpenseId, ...toPayload(act) });
+    } else {
+      await onAddExpense(toPayload(act));
+    }
+  };
+
+  // Lưu lần lượt, mục nào lưu xong mới đánh dấu; lỗi thì dừng và hiện nguyên nhân thật
+  const saveActions = async (msgId: string, list: PendingActionState[]) => {
+    if (list.length === 0 || savingRef.current.has(msgId)) return;
+    if (!list.every(hasValidAmount)) {
+      setSaveError(msgId, 'Số tiền chưa hợp lệ. Hãy bấm Sửa và nhập số tiền lớn hơn 0 trước khi lưu.');
+      return;
+    }
+
+    savingRef.current.add(msgId);
+    setSaveError(msgId, undefined);
+    const afterSaved = (saved: PendingActionState[]) => {
+      markConfirmed(msgId, saved.map((a) => a.id));
+      for (const a of saved) {
+        if (a.type !== 'DELETE_EXPENSE') {
+          checkBudgetLimitAlert(a.category, a.categoryName, a.amount as number, a.date);
+        }
+      }
+    };
+
+    try {
+      let queue = list;
+      const creates = list.filter((a) => a.type === 'CREATE_EXPENSE');
+      if (creates.length > 1 && onAddBulkExpenses) {
+        await onAddBulkExpenses(creates.map(toPayload));
+        afterSaved(creates);
+        queue = list.filter((a) => a.type !== 'CREATE_EXPENSE');
+      }
+      for (const act of queue) {
+        await persistAction(act);
+        afterSaved([act]);
+      }
+    } catch (err: any) {
+      console.error('Error confirming transaction:', err);
+      setSaveError(
+        msgId,
+        `Chưa lưu được: ${err?.response?.data?.message || err?.message || 'Lỗi không xác định.'}`
+      );
+    } finally {
+      savingRef.current.delete(msgId);
+    }
+  };
+
   // Confirm Single Action within a batch
   const handleConfirmSingleAction = async (msgId: string, actionId: string) => {
     const targetMsg = messages.find((m) => m.id === msgId);
@@ -267,58 +352,7 @@ export default function ChatbotTab({
     );
     if (!act || act.status !== 'pending') return;
 
-    try {
-      if (act.type === 'CREATE_EXPENSE') {
-        await onAddExpense({
-          amount: act.amount,
-          categoryId: act.category,
-          note: act.note,
-          date: act.date,
-        });
-      } else if (act.type === 'UPDATE_EXPENSE') {
-        if (act.targetExpenseId && onUpdateExpense) {
-          await onUpdateExpense({
-            id: act.targetExpenseId,
-            amount: act.amount,
-            categoryId: act.category,
-            note: act.note,
-            date: act.date,
-          });
-        } else {
-          await onAddExpense({
-            amount: act.amount,
-            categoryId: act.category,
-            note: act.note,
-            date: act.date,
-          });
-        }
-      } else if (act.type === 'DELETE_EXPENSE') {
-        if (act.targetExpenseId && onDeleteExpense) {
-          await onDeleteExpense(act.targetExpenseId);
-        }
-      }
-
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id === msgId) {
-            const updatedActions = (m.pendingActions || (m.pendingAction ? [m.pendingAction] : [])).map((a) =>
-              a.id === actionId ? { ...a, status: 'confirmed' as const, isEditing: false } : a
-            );
-            return {
-              ...m,
-              pendingActions: updatedActions,
-              pendingAction: updatedActions[0],
-            };
-          }
-          return m;
-        })
-      );
-
-      // Check budget limit alert
-      checkBudgetLimitAlert(act.category, act.categoryName, act.amount, act.date);
-    } catch (err: any) {
-      console.error('Error confirming transaction:', err);
-    }
+    await saveActions(msgId, [act]);
   };
 
   // Cancel Single Action within a batch
@@ -416,85 +450,7 @@ export default function ChatbotTab({
     if (!targetMsg) return;
 
     const actionList = targetMsg.pendingActions || (targetMsg.pendingAction ? [targetMsg.pendingAction] : []);
-    const pendingList = actionList.filter((a) => a.status === 'pending');
-    if (pendingList.length === 0) return;
-
-    try {
-      const creates = pendingList.filter((a) => a.type === 'CREATE_EXPENSE');
-      const updates = pendingList.filter((a) => a.type === 'UPDATE_EXPENSE');
-      const deletes = pendingList.filter((a) => a.type === 'DELETE_EXPENSE');
-
-      // 1. Process Creates (using bulk API if multiple)
-      if (creates.length > 1 && onAddBulkExpenses) {
-        const payload = creates.map((c) => ({
-          amount: c.amount,
-          categoryId: c.category,
-          note: c.note,
-          date: c.date,
-        }));
-        await onAddBulkExpenses(payload);
-      } else if (creates.length > 0) {
-        for (const c of creates) {
-          await onAddExpense({
-            amount: c.amount,
-            categoryId: c.category,
-            note: c.note,
-            date: c.date,
-          });
-        }
-      }
-
-      // 2. Process Updates
-      for (const u of updates) {
-        if (u.targetExpenseId && onUpdateExpense) {
-          await onUpdateExpense({
-            id: u.targetExpenseId,
-            amount: u.amount,
-            categoryId: u.category,
-            note: u.note,
-            date: u.date,
-          });
-        } else {
-          await onAddExpense({
-            amount: u.amount,
-            categoryId: u.category,
-            note: u.note,
-            date: u.date,
-          });
-        }
-      }
-
-      // 3. Process Deletes
-      for (const d of deletes) {
-        if (d.targetExpenseId && onDeleteExpense) {
-          await onDeleteExpense(d.targetExpenseId);
-        }
-      }
-
-      // Update message state
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id === msgId) {
-            const updatedActions = (m.pendingActions || (m.pendingAction ? [m.pendingAction] : [])).map((a) =>
-              a.status === 'pending' ? { ...a, status: 'confirmed' as const, isEditing: false } : a
-            );
-            return {
-              ...m,
-              pendingActions: updatedActions,
-              pendingAction: updatedActions[0],
-            };
-          }
-          return m;
-        })
-      );
-
-      // Check budget warnings
-      for (const c of creates) {
-        checkBudgetLimitAlert(c.category, c.categoryName, c.amount, c.date);
-      }
-    } catch (err: any) {
-      console.error('Error confirming all transactions:', err);
-    }
+    await saveActions(msgId, actionList.filter((a) => a.status === 'pending'));
   };
 
   // Cancel All Actions in a Message
@@ -632,9 +588,13 @@ export default function ChatbotTab({
           const actionList = msg.pendingActions || (msg.pendingAction ? [msg.pendingAction] : []);
           const hasActions = actionList.length > 0;
           const hasPending = actionList.some((a) => a.status === 'pending');
-          const totalPendingAmount = actionList
-            .filter((a) => a.status === 'pending')
-            .reduce((sum, a) => sum + (a.type === 'DELETE_EXPENSE' ? 0 : a.amount), 0);
+          const sumByStatus = (status: PendingActionState['status']) =>
+            actionList
+              .filter((a) => a.status === status)
+              .reduce((sum, a) => sum + (a.type === 'DELETE_EXPENSE' ? 0 : a.amount ?? 0), 0);
+          const batchTotalLabel = hasPending
+            ? `Tổng: ${formatCurrency(sumByStatus('pending'))}`
+            : `Đã lưu: ${formatCurrency(sumByStatus('confirmed'))}`;
 
           return (
             <div
@@ -661,7 +621,7 @@ export default function ChatbotTab({
                       <span className="w-2 h-2 rounded-full bg-emerald-600 animate-bounce [animation-delay:0.2s]"></span>
                       <span className="w-2 h-2 rounded-full bg-emerald-600 animate-bounce [animation-delay:0.4s]"></span>
                     </div>
-                    <span>{msg.text}</span>
+                    <span>{isBot ? renderInlineMarkdown(msg.text) : msg.text}</span>
                   </div>
                 ) : (
                   <div
@@ -676,7 +636,7 @@ export default function ChatbotTab({
                     {/* Main text / Markdown message */}
                     {msg.text && (
                       <div className="whitespace-pre-line leading-relaxed font-sans text-xs sm:text-sm">
-                        {msg.text}
+                        {isBot ? renderInlineMarkdown(msg.text) : msg.text}
                       </div>
                     )}
 
@@ -715,7 +675,7 @@ export default function ChatbotTab({
                               <span className="font-bold">Danh sách {actionList.length} giao dịch được tách</span>
                             </div>
                             <span className="font-mono text-amber-200 font-bold">
-                              Tổng: {formatCurrency(totalPendingAmount)}
+                              {batchTotalLabel}
                             </span>
                           </div>
                         )}
@@ -773,8 +733,8 @@ export default function ChatbotTab({
                               {act.type === 'UPDATE_EXPENSE' && act.originalExpense && (
                                 <div className="bg-amber-50 p-2 rounded-lg border border-amber-200 text-[11px] space-y-1 mb-1">
                                   <div className="text-stone-500 font-medium">Giao dịch gốc hiện tại:</div>
-                                  <div className="flex items-center gap-2 text-stone-700 font-mono">
-                                    <span>{act.originalExpense.note}</span>
+                                  <div className="flex flex-wrap items-center gap-2 text-stone-700 font-mono">
+                                    <span className="min-w-0 [overflow-wrap:anywhere]">{act.originalExpense.note}</span>
                                     <span>•</span>
                                     <span className="font-bold">{formatCurrency(act.originalExpense.amount)}</span>
                                     <span>•</span>
@@ -799,7 +759,7 @@ export default function ChatbotTab({
                                         act.type === 'DELETE_EXPENSE' ? 'text-red-700 line-through' : 'text-emerald-800'
                                       }`}
                                     >
-                                      {formatCurrency(act.amount)}
+                                      {act.amount === null ? 'Chưa hợp lệ' : formatCurrency(act.amount)}
                                     </span>
                                   </div>
 
@@ -816,11 +776,10 @@ export default function ChatbotTab({
                                       {formatDateVietnamese(act.date)}
                                     </span>
                                     <span className="font-mono text-[10px] text-stone-500 block">
-                                      ({act.date})
                                     </span>
                                   </div>
 
-                                  <div className="bg-white p-2 rounded-lg border border-stone-200 space-y-0.5 shadow-2xs col-span-2 sm:col-span-1">
+                                  <div className="min-w-0 bg-white p-2 rounded-lg border border-stone-200 space-y-0.5 shadow-2xs col-span-2 sm:col-span-1">
                                     <span className="text-[10px] font-bold text-stone-400 uppercase block">Ghi chú</span>
                                     <span className="text-stone-800 text-xs font-medium block truncate">
                                       "{act.note}"
@@ -852,16 +811,10 @@ export default function ChatbotTab({
                                       <label className="text-[10px] font-bold text-stone-500 block mb-1">
                                         Số tiền (VNĐ)
                                       </label>
-                                      <input
-                                        type="number"
-                                        value={act.amount || ''}
-                                        onChange={(e) =>
-                                          handleUpdateSingleActionField(
-                                            msg.id,
-                                            act.id,
-                                            'amount',
-                                            Number(e.target.value)
-                                          )
+                                      <MoneyInput
+                                        value={act.amount}
+                                        onChange={(value) =>
+                                          handleUpdateSingleActionField(msg.id, act.id, 'amount', value)
                                         }
                                         className="w-full bg-stone-50 border border-stone-300 rounded-lg p-1.5 text-xs text-stone-800 font-mono focus:outline-none"
                                         placeholder="15000"
@@ -983,7 +936,7 @@ export default function ChatbotTab({
                                   <CheckCircle2 size={15} className="text-emerald-700 shrink-0" />
                                   <span>
                                     {act.type === 'CREATE_EXPENSE'
-                                      ? `Đã lưu thành công (${act.note} - ${formatCurrency(act.amount)})!`
+                                      ? `Đã lưu thành công (${act.note} - ${formatCurrency(act.amount ?? 0)})!`
                                       : act.type === 'UPDATE_EXPENSE'
                                       ? 'Đã cập nhật giao dịch thành công!'
                                       : 'Đã xóa giao dịch khỏi Sổ Tay!'}
@@ -1000,6 +953,12 @@ export default function ChatbotTab({
                             </div>
                           </div>
                         ))}
+
+                        {msg.saveError && hasPending && (
+                          <div role="alert" className="bg-red-50 border border-red-300 text-red-800 p-2 rounded-lg text-xs font-medium">
+                            {msg.saveError}
+                          </div>
+                        )}
 
                         {/* Batch Action Buttons (Confirm All / Cancel All) */}
                         {actionList.length > 1 && hasPending && (

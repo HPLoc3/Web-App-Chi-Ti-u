@@ -23,6 +23,8 @@ export const envSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   TRUST_PROXY_HOPS: z.string().optional(),
   DEBUG_CLIENT_IP: z.string().optional(),
+  // Chỉ dùng cho dev không có DB; bị bỏ qua khi NODE_ENV=production
+  DEV_FALLBACK_STORE: z.string().optional(),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;
@@ -76,6 +78,7 @@ export function validateEnvironment(): EnvConfig {
     LOG_LEVEL: process.env.LOG_LEVEL,
     TRUST_PROXY_HOPS: process.env.TRUST_PROXY_HOPS,
     DEBUG_CLIENT_IP: process.env.DEBUG_CLIENT_IP,
+    DEV_FALLBACK_STORE: process.env.DEV_FALLBACK_STORE,
   };
 
   const parsed = envSchema.safeParse(rawEnv);

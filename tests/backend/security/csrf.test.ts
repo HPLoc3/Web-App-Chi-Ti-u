@@ -17,7 +17,8 @@ describe('CSRF + CORS trên mount /api thật (production)', () => {
     vi.resetModules();
     app = (await import('../../../server')).default;
     cookieHelpers = await import('../../../src/middleware/auth.middleware');
-  });
+    // Import lại cả server: ~1s khi chạy riêng, nhưng vượt hookTimeout mặc định 10s khi máy tải nặng
+  }, 60_000);
 
   afterAll(() => {
     vi.unstubAllEnvs();

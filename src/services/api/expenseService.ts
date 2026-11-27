@@ -1,35 +1,51 @@
 import { apiClient } from '../../lib/apiClient';
 import { Expense } from '../../types';
 
+/** Bằng pageSize tối đa của server */
+const PAGE_SIZE = 500;
+/** Chốt chống lặp vô hạn (100.000 giao dịch). Chạm chốt thì báo lỗi, không cắt bớt âm thầm. */
+const MAX_PAGES = 200;
+
 export const expenseService = {
   /**
-   * Lấy danh sách giao dịch từ PostgreSQL qua Express API
+   * Lấy toàn bộ khoản chi từ PostgreSQL qua Express API (đi hết các trang).
+   * Một trang lỗi thì ném lỗi, không trả danh sách thiếu.
    */
   async getExpenses(params?: {
     month?: number;
     year?: number;
     categoryId?: string;
     search?: string;
-    limit?: number;
-    all?: boolean;
   }): Promise<Expense[]> {
-    const response = await apiClient.get('/api/transactions', {
-      params: {
-        all: true,
-        ...params,
-      },
-    });
+    // Theo id: giao dịch mới chen vào giữa hai trang không làm bản ghi bị lặp
+    const byId = new Map<string, Expense>();
 
-    if (response.data && response.data.success && Array.isArray(response.data.data)) {
-      return response.data.data.map((item: any) => ({
-        id: item.id,
-        amount: Number(item.amount) || 0,
-        categoryId: item.categoryId || 'khac',
-        note: item.note || '',
-        date: item.date || new Date().toISOString().slice(0, 10),
-      }));
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const response = await apiClient.get('/api/transactions', {
+        params: { ...params, type: 'EXPENSE', page, pageSize: PAGE_SIZE },
+      });
+      const body = response.data;
+      if (!body?.success || !Array.isArray(body.data)) {
+        throw new Error('Phản hồi danh sách giao dịch không hợp lệ.');
+      }
+
+      for (const item of body.data) {
+        byId.set(item.id, {
+          id: item.id,
+          amount: Number(item.amount) || 0,
+          categoryId: item.categoryId || 'khac',
+          note: item.note || '',
+          date: item.date || new Date().toISOString().slice(0, 10),
+        });
+      }
+
+      if (!body.meta?.hasNextPage) return Array.from(byId.values());
+      if (body.data.length === 0) {
+        throw new Error('Phản hồi phân trang giao dịch không hợp lệ.');
+      }
     }
-    return [];
+
+    throw new Error('Có quá nhiều giao dịch để tải một lần.');
   },
 
   /**

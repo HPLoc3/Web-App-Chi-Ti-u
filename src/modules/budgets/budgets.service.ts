@@ -37,7 +37,7 @@ export class BudgetsService {
 
     return {
       id: budget.id,
-      income: Number(budget.income || 25000000),
+      income: Number(budget.income ?? 0),
       budgetTemplate: template,
       needsPercent,
       wantsPercent,
@@ -59,7 +59,7 @@ export class BudgetsService {
   static async updateBudget(userId: string, input: UpdateBudgetInput): Promise<BudgetDTO> {
     const updateData: Prisma.BudgetUpdateInput = {};
     const createData: Prisma.BudgetCreateInput = {
-      income: new Prisma.Decimal(25000000),
+      income: new Prisma.Decimal(0),
       budgetTemplate: '50_30_20',
       user: { connect: { id: userId } },
     };

@@ -23,21 +23,21 @@ export default function ProductShowcaseSection() {
       label: 'Tổng quan (Dashboard)',
       icon: <LayoutDashboard size={16} />,
       title: 'Bảng Điều Khiển Tổng Thể Dòng Tiền',
-      description: 'Tổng hợp số dư các ví, doanh thu, chi tiêu thực tế và chỉ số sức khỏe tài chính tổng thể trong một khung nhìn duy nhất.'
+      description: 'Thu nhập khai báo, chi tiêu, ngân sách, mục tiêu và điểm sức khỏe tài chính trên một màn hình.'
     },
     {
       id: 'transactions',
       label: 'Sổ Giao Dịch',
       icon: <Receipt size={16} />,
-      title: 'Lịch Sử Giao Dịch Đa Chiều & Bộ Lọc Nhanh',
-      description: 'Dễ dàng tra cứu mọi khoản thu chi, lọc theo danh mục, ví tiền, ngày phát sinh và xem tổng kết chi tiết tức thì.'
+      title: 'Lịch Sử Giao Dịch & Bộ Lọc Nhanh',
+      description: 'Tìm khoản chi, lọc theo danh mục và ngày, sắp xếp theo ngày hoặc số tiền.'
     },
     {
       id: 'budget',
       label: 'Kế Hoạch Ngân Sách',
       icon: <SlidersHorizontal size={16} />,
       title: 'Phân Bổ 50/30/20 & Hạn Mức Từng Nhóm',
-      description: 'Tự động tính toán hạn mức tối đa cho từng nhóm nhu cầu, ngăn ngừa tình trạng chi tiêu vượt quỹ vào cuối tháng.'
+      description: 'Tính mức phân bổ gợi ý từ thu nhập; bạn đặt hạn mức theo danh mục và được cảnh báo khi vượt.'
     },
     {
       id: 'reports',
@@ -50,7 +50,7 @@ export default function ProductShowcaseSection() {
       id: 'ai-copilot',
       label: 'Trợ Lý AI Copilot',
       icon: <Bot size={16} />,
-      title: 'Ghi Nhận Thu Chi Bằng Ngôn Ngữ Tự Nhiên',
+      title: 'Ghi Khoản Chi Bằng Ngôn Ngữ Tự Nhiên',
       description: 'Bóc tách dữ liệu phức tạp từ câu nói tiếng Việt và tự động gợi ý cách tối ưu hóa kế hoạch tài chính cá nhân.'
     }
   ];
@@ -110,7 +110,7 @@ export default function ProductShowcaseSection() {
               </p>
             </div>
             <span className="text-[11px] font-mono font-bold bg-amber-50 text-amber-800 px-3 py-1 rounded-full border border-amber-200 shrink-0 self-start md:self-auto">
-              Chế độ xem thực tế
+              Hình minh họa
             </span>
           </div>
 
@@ -129,7 +129,7 @@ export default function ProductShowcaseSection() {
                   <div className="bg-white border border-stone-200 p-4 rounded-xl">
                     <div className="text-[10px] text-stone-500 uppercase font-mono">Thu Nhập Tháng Này</div>
                     <div className="text-xl font-mono font-bold text-emerald-800 mt-1">25.000.000 ₫</div>
-                    <div className="text-[10px] text-emerald-600 mt-1 font-semibold">100% mục tiêu thu nhập</div>
+                    <div className="text-[10px] text-emerald-600 mt-1 font-semibold">Do bạn khai báo</div>
                   </div>
                   <div className="bg-white border border-stone-200 p-4 rounded-xl">
                     <div className="text-[10px] text-stone-500 uppercase font-mono">Tổng Tiền Đã Chi</div>
@@ -141,18 +141,18 @@ export default function ProductShowcaseSection() {
                 {/* 50/30/20 visual in dashboard */}
                 <div className="bg-white border border-stone-200 p-4 rounded-xl space-y-2">
                   <div className="flex justify-between text-xs font-serif font-bold text-stone-900">
-                    <span>Tiến độ ngân sách 50/30/20</span>
-                    <span className="text-emerald-700 font-mono">Đạt tiêu chuẩn an toàn</span>
+                    <span>Gợi ý phân bổ 50/30/20</span>
+                    <span className="text-emerald-700 font-mono">Số liệu ví dụ</span>
                   </div>
                   <div className="h-3 w-full bg-stone-100 rounded-full flex overflow-hidden">
-                    <div className="bg-emerald-600 h-full" style={{ width: '45%' }} />
-                    <div className="bg-amber-500 h-full" style={{ width: '22%' }} />
-                    <div className="bg-blue-600 h-full" style={{ width: '33%' }} />
+                    <div className="bg-emerald-600 h-full" style={{ width: '50%' }} />
+                    <div className="bg-amber-500 h-full" style={{ width: '30%' }} />
+                    <div className="bg-blue-600 h-full" style={{ width: '20%' }} />
                   </div>
                   <div className="flex justify-between text-[10px] font-mono text-stone-500">
-                    <span>Thiết yếu: 45% / 50%</span>
-                    <span>Sở thích: 22% / 30%</span>
-                    <span>Tiết kiệm: 33% / 20% ✓</span>
+                    <span>Thiết yếu: 50%</span>
+                    <span>Sở thích: 30%</span>
+                    <span>Tiết kiệm: 20%</span>
                   </div>
                 </div>
               </div>
@@ -164,7 +164,7 @@ export default function ProductShowcaseSection() {
                 <div className="flex items-center justify-between gap-2 pb-2">
                   <div className="flex items-center gap-2 text-xs">
                     <span className="font-bold text-stone-800">Bộ lọc:</span>
-                    <span className="bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded font-mono text-[11px]">Tất cả ví</span>
+                    <span className="bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded font-mono text-[11px]">Mọi danh mục</span>
                     <span className="bg-stone-200 text-stone-700 px-2 py-0.5 rounded font-mono text-[11px]">Tháng này</span>
                   </div>
                   <span className="text-xs font-mono text-stone-500">Hiển thị 24 giao dịch</span>
@@ -173,7 +173,7 @@ export default function ProductShowcaseSection() {
                 <div className="space-y-2">
                   {[
                     { icon: '🍜', title: 'Ăn trưa & Cà phê sáng', cat: 'Ăn uống', wallet: 'Ví Tiền Mặt', amount: '-75.000 ₫', type: 'expense' },
-                    { icon: '💼', title: 'Nhận lương tháng 8/2026', cat: 'Lương & Thưởng', wallet: 'Vietcombank', amount: '+25.000.000 ₫', type: 'income' },
+                    { icon: '📚', title: 'Mua giáo trình', cat: 'Giáo dục', wallet: 'Vietcombank', amount: '-120.000 ₫', type: 'expense' },
                     { icon: '🚗', title: 'Grab Car đi làm việc', cat: 'Di chuyển', wallet: 'Thẻ Tín Dụng', amount: '-85.000 ₫', type: 'expense' },
                     { icon: '🛍️', title: 'Mua sắm đồ gia dụng', cat: 'Mua sắm', wallet: 'Vietcombank', amount: '-320.000 ₫', type: 'expense' }
                   ].map((item, idx) => (
@@ -200,34 +200,25 @@ export default function ProductShowcaseSection() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="bg-white border-2 border-emerald-500/40 rounded-xl p-3.5 space-y-2">
                     <div className="text-xs font-serif font-bold text-emerald-950">50% Nhu Cầu Thiết Yếu</div>
-                    <div className="text-base font-mono font-bold text-emerald-900">5.600.000 / 12.500.000 ₫</div>
-                    <div className="w-full bg-stone-100 rounded-full h-2">
-                      <div className="bg-emerald-600 h-2 rounded-full" style={{ width: '45%' }} />
-                    </div>
-                    <div className="text-[10px] text-emerald-700 font-mono">Đã dùng 45% • An toàn</div>
+                    <div className="text-base font-mono font-bold text-emerald-900">12.500.000 ₫</div>
+                    <div className="text-[10px] text-emerald-700 font-mono">Mức gợi ý theo thu nhập</div>
                   </div>
 
                   <div className="bg-white border-2 border-amber-500/40 rounded-xl p-3.5 space-y-2">
                     <div className="text-xs font-serif font-bold text-amber-950">30% Chi Tiêu Linh Hoạt</div>
-                    <div className="text-base font-mono font-bold text-amber-900">2.850.000 / 7.500.000 ₫</div>
-                    <div className="w-full bg-stone-100 rounded-full h-2">
-                      <div className="bg-amber-500 h-2 rounded-full" style={{ width: '38%' }} />
-                    </div>
-                    <div className="text-[10px] text-amber-700 font-mono">Đã dùng 38% • An toàn</div>
+                    <div className="text-base font-mono font-bold text-amber-900">7.500.000 ₫</div>
+                    <div className="text-[10px] text-amber-700 font-mono">Mức gợi ý theo thu nhập</div>
                   </div>
 
                   <div className="bg-white border-2 border-blue-500/40 rounded-xl p-3.5 space-y-2">
                     <div className="text-xs font-serif font-bold text-blue-950">20% Tích Lũy & Đầu Tư</div>
-                    <div className="text-base font-mono font-bold text-blue-900">5.000.000 / 5.000.000 ₫</div>
-                    <div className="w-full bg-stone-100 rounded-full h-2">
-                      <div className="bg-blue-600 h-2 rounded-full" style={{ width: '100%' }} />
-                    </div>
-                    <div className="text-[10px] text-blue-700 font-mono">Đã đạt 100% mục tiêu ✓</div>
+                    <div className="text-base font-mono font-bold text-blue-900">5.000.000 ₫</div>
+                    <div className="text-[10px] text-blue-700 font-mono">Mức gợi ý theo thu nhập</div>
                   </div>
                 </div>
 
                 <div className="bg-white border border-stone-200 rounded-xl p-3 text-xs text-stone-600 flex items-center justify-between">
-                  <span>💡 Lời khuyên: Giữ tỷ lệ tiết kiệm trên 20% giúp bạn hoàn thành quỹ khẩn cấp sau 4 tháng.</span>
+                  <span>💡 Quy tắc 50/30/20 gợi ý dành khoảng 20% thu nhập cho tích lũy.</span>
                 </div>
               </div>
             )}
@@ -292,7 +283,7 @@ export default function ProductShowcaseSection() {
               <div className="bg-emerald-950 text-white rounded-xl p-4 sm:p-5 space-y-3 animate-in fade-in duration-300">
                 <div className="flex items-center gap-2 border-b border-emerald-800 pb-2">
                   <Bot size={18} className="text-amber-400" />
-                  <span className="font-serif font-bold text-sm text-amber-100">Giao diện tương tác trực tiếp</span>
+                  <span className="font-serif font-bold text-sm text-amber-100">Ví dụ minh họa</span>
                 </div>
                 <div className="bg-emerald-900/80 p-3 rounded-lg text-xs space-y-1">
                   <div className="text-amber-300 font-mono font-bold text-[10px]">CÂU NHẬP LIỆU CỦA BẠN:</div>
@@ -301,11 +292,11 @@ export default function ProductShowcaseSection() {
                 <div className="bg-emerald-900/40 p-3 rounded-lg border border-amber-400/30 text-xs space-y-1.5">
                   <div className="text-emerald-300 font-bold flex items-center gap-1 text-[11px]">
                     <CheckCircle2 size={13} className="text-emerald-400" />
-                    <span>AI đã bóc tách & cập nhật thành công:</span>
+                    <span>AI đề xuất, chờ bạn xác nhận:</span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
                     <div className="bg-emerald-950 p-2 rounded">🍲 Phở: 50.000 ₫ (Ăn uống)</div>
-                    <div className="bg-emerald-950 p-2 rounded">☕ Cafe: 40.000 ₫ (Sở thích)</div>
+                    <div className="bg-emerald-950 p-2 rounded">☕ Cafe: 40.000 ₫ (Ăn uống)</div>
                   </div>
                 </div>
               </div>

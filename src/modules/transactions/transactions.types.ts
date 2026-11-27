@@ -21,6 +21,8 @@ export interface GetTransactionsQuery {
   type?: string;
   categoryId?: string;
   walletId?: string;
+  month?: number;
+  year?: number;
   startDate?: string;
   endDate?: string;
   search?: string;

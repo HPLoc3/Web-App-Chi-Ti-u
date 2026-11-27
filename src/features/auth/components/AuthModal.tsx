@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../../hooks/useAuth';
 import { useToast } from '../../../context/ToastContext';
 import { GoogleAuthButton } from './GoogleAuthButton';
@@ -15,19 +15,8 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login', initi
   const { loginWithEmail, registerWithEmail, loginWithGoogle, resetPassword, resetPasswordWithToken } = useAuth();
   const { showToast } = useToast();
   
+  // Component chỉ được mount khi mở (xem App.tsx) nên giá trị khởi tạo đúng ngay lần vẽ đầu
   const [activeTab, setActiveTab] = useState<'login' | 'register' | 'forgot' | 'reset'>(defaultTab);
-
-  useEffect(() => {
-    if (isOpen) {
-      setActiveTab(defaultTab);
-      setErrorMsg(null);
-      setSuccessMsg(null);
-      setIsSubmitting(false);
-      if (initialToken) {
-        setResetToken(initialToken);
-      }
-    }
-  }, [isOpen, defaultTab, initialToken]);
   
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -54,7 +43,21 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login', initi
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   if (!isOpen) return null;
+
+  // Lỗi chỉ hiện trong form; toast chỉ dùng khi modal đã đóng trước lúc có kết quả
+  const reportError = (msg: string) => {
+    if (mountedRef.current) setErrorMsg(msg);
+    else showToast(msg, 'error');
+  };
 
   const resetFormFields = () => {
     setErrorMsg(null);
@@ -74,7 +77,6 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login', initi
     if (!loginEmail.trim() || !loginPassword.trim()) {
       const msg = 'Vui lòng nhập đầy đủ Email và Mật khẩu.';
       setErrorMsg(msg);
-      showToast(msg, 'error');
       return;
     }
 
@@ -85,8 +87,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login', initi
       onClose();
     } catch (err: any) {
       const msg = err.message || 'Đăng nhập thất bại. Vui lòng kiểm tra lại Email và Mật khẩu.';
-      setErrorMsg(msg);
-      showToast(msg, 'error');
+      reportError(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -130,7 +131,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login', initi
       }
     } catch (err: any) {
       const msg = err.response?.data?.error?.message || err.response?.data?.message || err.message || 'Đăng ký thất bại.';
-      setErrorMsg(msg);
+      reportError(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -151,7 +152,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login', initi
       setForgotSuccess(true);
       setSuccessMsg(res.message || 'Nếu địa chỉ email tồn tại, hệ thống đã gửi liên kết đặt lại mật khẩu.');
     } catch (err: any) {
-      setErrorMsg(err.message);
+      reportError(err.message);
     } finally {
       setIsSubmitting(false);
     }
@@ -187,7 +188,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login', initi
         handleTabChange('login');
       }, 1500);
     } catch (err: any) {
-      setErrorMsg(err.message);
+      reportError(err.message);
     } finally {
       setIsSubmitting(false);
     }
@@ -252,7 +253,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login', initi
 
         <div className="p-6 overflow-y-auto max-h-[80vh]">
           {errorMsg && (
-            <div className="mb-4 p-3.5 bg-red-100/90 border-2 border-red-300 rounded-xl flex items-start gap-2.5 text-xs text-red-950 shadow-sm animate-in fade-in slide-in-from-top-2">
+            <div role="alert" className="mb-4 p-3.5 bg-red-100/90 border-2 border-red-300 rounded-xl flex items-start gap-2.5 text-xs text-red-950 shadow-sm animate-in fade-in slide-in-from-top-2">
               <AlertCircle size={18} className="text-red-600 shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="font-bold text-red-900 text-[13px] mb-0.5">Xác thực không thành công</p>
@@ -275,10 +276,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login', initi
                   showToast('Đăng nhập thành công!', 'success');
                   onClose();
                 }}
-                onError={(err) => {
-                  setErrorMsg(err);
-                  showToast(err, 'error');
-                }}
+                onError={reportError}
                 enableOneTap={true}
               />
 
@@ -351,16 +349,6 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login', initi
                   </button>
                 </div>
               </div>
-
-              {errorMsg && (
-                <div className="p-3.5 bg-red-100 border-2 border-red-300 rounded-xl flex items-start gap-2.5 text-xs text-red-950 font-medium shadow-xs">
-                  <AlertCircle size={18} className="text-red-600 shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="font-bold text-red-900 text-xs mb-0.5">Xác thực không thành công</p>
-                    <p className="text-red-800 leading-relaxed font-medium">{errorMsg}</p>
-                  </div>
-                </div>
-              )}
 
               <button
                 type="submit"
@@ -573,14 +561,14 @@ export default function AuthModal({ isOpen, onClose, defaultTab = 'login', initi
 
                 <div>
                   <label className="block text-xs font-semibold text-stone-600 mb-1">
-                    Mật khẩu mới (tối thiểu 6 ký tự) <span className="text-red-500">*</span>
+                    Mật khẩu mới (tối thiểu 8 ký tự, gồm chữ & số) <span className="text-red-500">*</span>
                   </label>
                   <div className="relative">
                     <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
                     <input
                       type={showResetPassword ? 'text' : 'password'}
                       required
-                      minLength={6}
+                      minLength={8}
                       value={resetNewPassword}
                       onChange={(e) => setResetNewPassword(e.target.value)}
                       placeholder="••••••••"

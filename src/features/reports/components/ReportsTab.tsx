@@ -3,7 +3,10 @@ import { AppState, SeverityType, Expense } from '../../../types';
 import { calculateHealthScore } from '../../../utils/healthScore';
 import { generateFinancialInsights } from '../../../utils/insightsEngine';
 import { CATEGORIES } from '../../../constants/categories';
-import { formatCurrency } from '../../../utils/format';
+import { formatCurrency, formatPercent } from '../../../utils/format';
+import { FitText } from '../../../components/common/FitText';
+import { getBusinessDate } from '../../../utils/dateParser';
+import { computeMonthlySummary } from '../../../utils/monthlySummary';
 import { MonthlyReportModal } from '../../../components/common/MonthlyReportModal';
 import { StatCard } from '../../../components/common/StatCard';
 import { CategoryIcon } from '../../transactions/components/ExpensesTab';
@@ -48,7 +51,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({ state }) => {
   const [isMonthlyReportModalOpen, setIsMonthlyReportModalOpen] = useState(false);
 
   const now = new Date();
-  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const currentMonthKey = getBusinessDate().slice(0, 7);
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey);
 
   // Available months
@@ -68,12 +71,18 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({ state }) => {
     return state.expenses.filter((e) => e.date && e.date.startsWith(selectedMonth));
   }, [state.expenses, selectedMonth]);
 
-  const totalMonthlyExpense = useMemo(() => {
-    return monthlyExpenses.reduce((sum, e) => sum + e.amount, 0);
-  }, [monthlyExpenses]);
+  const summary = useMemo(
+    () => computeMonthlySummary(state.expenses, state.income, selectedMonth),
+    [state.expenses, state.income, selectedMonth]
+  );
+  const totalMonthlyExpense = summary.totalExpense;
 
-  const monthlySavings = state.income - totalMonthlyExpense;
-  const savingsRate = state.income > 0 ? (Math.max(0, monthlySavings) / state.income) * 100 : 0;
+  const hasIncome = state.income > 0;
+  const monthlySavings = summary.net;
+  const savingsRate = summary.savingsRatePct ?? 0;
+  const isDeficit = hasIncome && monthlySavings < 0;
+  // Phần chi vượt, tính theo % thu nhập khai báo (savingsRate bị kẹp 0 khi thâm hụt)
+  const deficitPct = isDeficit ? (-monthlySavings / state.income) * 100 : 0;
 
   // Category breakdown
   const categoryBreakdown = useMemo(() => {
@@ -99,6 +108,11 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({ state }) => {
       .filter((c) => c.spent > 0 || c.limit > 0)
       .sort((a, b) => b.spent - a.spent);
   }, [monthlyExpenses, totalMonthlyExpense, state.categoryLimits]);
+
+  const hasOverLimitCategories = useMemo(
+    () => categoryBreakdown.some((c) => c.limit > 0 && c.spent > c.limit),
+    [categoryBreakdown]
+  );
 
   // Pie chart data
   const pieData = useMemo(() => {
@@ -213,11 +227,11 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({ state }) => {
       {/* TAB 1: OVERVIEW */}
       {reportSubTab === 'overview' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             <StatCard
               title="Tổng Thu Nhập Tháng"
-              value={formatCurrency(state.income)}
-              subtitle="Nguồn thu cố định"
+              value={hasIncome ? formatCurrency(state.income) : 'Chưa nhập'}
+              subtitle={hasIncome ? 'Do bạn khai báo' : 'Nhập thu nhập ở tab Tổng quan'}
               icon={<ArrowDownRight size={18} />}
               variant="emerald"
             />
@@ -229,18 +243,22 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({ state }) => {
               variant="amber"
             />
             <StatCard
-              title="Tích Lũy / Dư Dòng Tiền"
-              value={formatCurrency(monthlySavings)}
-              subtitle={`Tỷ lệ tiết kiệm: ${savingsRate.toFixed(1)}%`}
+              title={isDeficit ? 'Thâm hụt' : 'Tích Lũy / Dư Dòng Tiền'}
+              value={hasIncome ? formatCurrency(monthlySavings) : '—'}
+              subtitle={hasIncome ? `Tỷ lệ tiết kiệm: ${formatPercent(savingsRate)}` : 'Tỷ lệ tiết kiệm: Chưa đánh giá'}
               icon={<TrendingUp size={18} />}
-              variant={monthlySavings >= 0 ? 'blue' : 'amber'}
+              variant={!hasIncome || monthlySavings >= 0 ? 'blue' : 'amber'}
             />
             <StatCard
               title="Chỉ Số Sức Khỏe Tài Chính"
-              value={`${health.totalScore}/100`}
-              subtitle={health.totalScore >= 80 ? 'Rất tốt • Đạt chuẩn' : 'Cần tối ưu chi phí'}
+              value={health.assessable ? `${health.totalScore}/100` : 'Chưa đánh giá'}
+              subtitle={
+                !health.assessable
+                  ? 'Hãy nhập thu nhập tháng'
+                  : health.totalScore >= 80 ? 'Rất tốt • Đạt chuẩn' : 'Cần tối ưu chi phí'
+              }
               icon={<Award size={18} />}
-              variant={health.totalScore >= 80 ? 'emerald' : 'default'}
+              variant={health.assessable && health.totalScore >= 80 ? 'emerald' : 'default'}
             />
           </div>
 
@@ -252,9 +270,9 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({ state }) => {
               </h3>
               <div className="space-y-3 pt-2">
                 <div>
-                  <div className="flex justify-between text-xs font-semibold text-stone-700 mb-1">
-                    <span>Đã chi tiêu ({state.income > 0 ? ((totalMonthlyExpense / state.income) * 100).toFixed(1) : 0}%)</span>
-                    <span className="font-mono text-amber-700">{formatCurrency(totalMonthlyExpense)}</span>
+                  <div className="flex flex-wrap justify-between gap-x-2 text-xs font-semibold text-stone-700 mb-1">
+                    <span>Đã chi tiêu{hasIncome ? ` (${formatPercent((totalMonthlyExpense / state.income) * 100)})` : ''}</span>
+                    <span className="font-mono text-amber-700 whitespace-nowrap">{formatCurrency(totalMonthlyExpense)}</span>
                   </div>
                   <div className="w-full bg-stone-100 rounded-full h-3 overflow-hidden">
                     <div
@@ -266,18 +284,26 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({ state }) => {
                   </div>
                 </div>
 
+                {!hasIncome ? (
+                  <p className="text-xs text-stone-500">Chưa đánh giá — hãy nhập thu nhập tháng</p>
+                ) : (
                 <div>
-                  <div className="flex justify-between text-xs font-semibold text-stone-700 mb-1">
-                    <span>Dư tích lũy ({savingsRate.toFixed(1)}%)</span>
-                    <span className="font-mono text-emerald-800">{formatCurrency(Math.max(0, monthlySavings))}</span>
+                  <div className="flex flex-wrap justify-between gap-x-2 text-xs font-semibold text-stone-700 mb-1">
+                    <span>
+                      {isDeficit
+                        ? `Thâm hụt (vượt ${formatPercent(deficitPct)})`
+                        : `Dư tích lũy (${formatPercent(savingsRate)})`}
+                    </span>
+                    <span className={`font-mono whitespace-nowrap ${isDeficit ? 'text-red-700' : 'text-emerald-800'}`}>{formatCurrency(monthlySavings)}</span>
                   </div>
                   <div className="w-full bg-stone-100 rounded-full h-3 overflow-hidden">
                     <div
-                      className="bg-emerald-600 h-3 rounded-full"
-                      style={{ width: `${Math.min(100, savingsRate)}%` }}
+                      className={`h-3 rounded-full ${isDeficit ? 'bg-red-600' : 'bg-emerald-600'}`}
+                      style={{ width: `${Math.min(100, isDeficit ? deficitPct : savingsRate)}%` }}
                     />
                   </div>
                 </div>
+                )}
               </div>
             </div>
 
@@ -288,12 +314,20 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({ state }) => {
                   Đánh Giá Tổng Quan
                 </span>
                 <h4 className="font-serif text-lg font-bold text-amber-100 mt-1 mb-3">
-                  Sức khỏe tài chính: {health.totalScore}/100
+                  Sức khỏe tài chính: {health.assessable ? `${health.totalScore}/100` : 'Chưa đánh giá'}
                 </h4>
                 <p className="text-xs text-emerald-200/90 leading-relaxed font-sans">
-                  {health.totalScore >= 80
+                  {!health.assessable
+                    ? 'Chưa đánh giá — hãy nhập thu nhập tháng'
+                    : isDeficit
+                    ? hasOverLimitCategories
+                      ? 'Chi tiêu tháng này đang vượt thu nhập. Hãy tạm dừng các khoản chi không thiết yếu và rà soát lại các danh mục vượt hạn mức.'
+                      : 'Chi tiêu tháng này đang vượt thu nhập. Hãy tạm dừng các khoản chi không thiết yếu cho đến hết tháng để cân đối lại dòng tiền.'
+                    : health.totalScore >= 80
                     ? 'Bạn đang kiểm soát chi tiêu rất xuất sắc. Tỷ lệ tích lũy duy trì ở ngưỡng an toàn trên 20% thu nhập.'
-                    : 'Hãy rà soát lại các danh mục chi tiêu vượt hạn mức và tăng tỷ lệ tích lũy để bảo vệ dòng tiền.'}
+                    : hasOverLimitCategories
+                    ? 'Hãy rà soát lại các danh mục chi tiêu vượt hạn mức và tăng tỷ lệ tích lũy để bảo vệ dòng tiền.'
+                    : 'Hãy kiểm soát các khoản chi linh hoạt và tăng tỷ lệ tích lũy để bảo vệ dòng tiền.'}
                 </p>
               </div>
 
@@ -364,13 +398,13 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({ state }) => {
                         </div>
                         <span className="font-bold text-emerald-950">{c.name}</span>
                       </td>
-                      <td className="py-2.5 text-right font-mono font-bold text-stone-800">
+                      <td className="py-2.5 text-right font-mono font-bold text-stone-800 whitespace-nowrap">
                         {formatCurrency(c.spent)}
                       </td>
                       <td className="py-2.5 text-right font-mono font-semibold text-emerald-900">
-                        {c.pctOfTotal.toFixed(1)}%
+                        {formatPercent(c.pctOfTotal)}
                       </td>
-                      <td className="py-2.5 text-right font-mono text-stone-500">
+                      <td className="py-2.5 text-right font-mono text-stone-500 whitespace-nowrap">
                         {c.limit > 0 ? formatCurrency(c.limit) : 'Chưa đặt'}
                       </td>
                     </tr>
@@ -453,7 +487,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({ state }) => {
             {insights.map((ins) => (
               <div
                 key={ins.id}
-                className="bg-white border border-[#E6DEC9] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-3"
+                className="min-w-0 [overflow-wrap:anywhere] bg-white border border-[#E6DEC9] rounded-2xl p-5 shadow-xs flex flex-col justify-between space-y-3"
               >
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">

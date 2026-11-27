@@ -19,7 +19,7 @@ export default function ProblemSection() {
     {
       icon: <Clock className="w-5 h-5 text-red-600" />,
       title: "Ghi chép chi tiêu mất thời gian?",
-      description: "Mở app, bấm chọn danh mục, gõ số tiền và ngày tháng cho từng khoản nhỏ lẻ khiến 70% người dùng bỏ dở sau 2 tuần.",
+      description: "Mở app, bấm chọn danh mục, gõ số tiền và ngày tháng cho từng khoản nhỏ lẻ khiến việc ghi chép dễ bị bỏ dở.",
       badge: "Ma sát cao"
     },
     {

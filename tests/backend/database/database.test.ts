@@ -99,7 +99,7 @@ describe('Database Tests: Schema, Atomicity & Entity Isolation', () => {
       );
 
       await expect(
-        TransactionsRepository.createWithWalletUpdate(mockTx, 'w-1', new Prisma.Decimal(-100000))
+        TransactionsRepository.createWithWalletUpdate(mockTx, 'w-1', new Prisma.Decimal(-100000), mockUserId)
       ).rejects.toThrow('DB_DEADLOCK_OR_CONSTRAINT_VIOLATION');
     });
 

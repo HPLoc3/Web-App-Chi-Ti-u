@@ -7,10 +7,12 @@ export class SyncRepository {
     try {
       return await prisma.wallet.findFirst({
         where: { userId },
+        orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
-        return devFallbackStore.getUserWallets(userId)[0] || null;
+      if (DevFallbackStore.shouldFallback(error)) {
+        const wallets = devFallbackStore.getUserWallets(userId);
+        return wallets.find((w) => w.isDefault) || wallets[0] || null;
       }
       throw error;
     }
@@ -24,11 +26,12 @@ export class SyncRepository {
           balance: new Prisma.Decimal(0),
           currency: 'VND',
           isDefault: true,
+          type: 'cash',
           userId,
         },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.createWallet({
           name: 'Ví Chính',
           isDefault: true,
@@ -49,14 +52,14 @@ export class SyncRepository {
           categoryLimits: categoryLimits ? JSON.stringify(categoryLimits) : undefined,
         },
         create: {
-          income: new Prisma.Decimal(Math.max(Number(income) || 25000000, 0)),
+          income: new Prisma.Decimal(Math.max(Number(income) || 0, 0)),
           budgetTemplate: budgetTemplate || '50_30_20',
           categoryLimits: categoryLimits ? JSON.stringify(categoryLimits) : '{}',
           userId,
         },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.upsertBudget(userId, income, budgetTemplate, categoryLimits);
       }
       throw error;
@@ -67,7 +70,7 @@ export class SyncRepository {
     try {
       return await prisma.transaction.create({ data });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.createTransaction(data);
       }
       throw error;
@@ -91,7 +94,7 @@ export class SyncRepository {
         });
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         const w = devFallbackStore.wallets.get(walletId);
         if (w) {
           w.balance = w.balance.add(netAdjustment);
@@ -118,7 +121,7 @@ export class SyncRepository {
     try {
       return await prisma.goal.create({ data });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.createGoal(data);
       }
       throw error;
@@ -129,7 +132,7 @@ export class SyncRepository {
     try {
       return await prisma.recurringTransaction.create({ data });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.createRecurring(data);
       }
       throw error;

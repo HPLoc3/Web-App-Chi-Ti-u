@@ -3,6 +3,7 @@ import { AiService } from './ai.service';
 import { AiQuotaManager } from './ai.quota';
 import { AiLogger } from './ai.logger';
 import { sendSuccess, sendError } from '../../utils/response';
+import { sendHttpError } from '../../utils/httpError';
 
 export class AiController {
   /**
@@ -36,7 +37,7 @@ export class AiController {
 
       sendSuccess(res, 200, result.data);
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'AI_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'AI_ERROR', req.id);
     }
   }
 
@@ -54,7 +55,7 @@ export class AiController {
       const quota = await AiQuotaManager.getQuota(userId);
       sendSuccess(res, 200, quota);
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'AI_QUOTA_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'AI_QUOTA_ERROR', req.id);
     }
   }
 
@@ -72,7 +73,7 @@ export class AiController {
       const logs = AiLogger.getLogs(userId, 20);
       sendSuccess(res, 200, logs);
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'AI_LOGS_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'AI_LOGS_ERROR', req.id);
     }
   }
 }

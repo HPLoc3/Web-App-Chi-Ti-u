@@ -6,6 +6,8 @@ import {
   getTransactionsQuerySchema,
   createTransactionSchema,
   updateTransactionSchema,
+  bulkCreateTransactionSchema,
+  bulkDeleteTransactionSchema,
 } from './transactions.schema';
 
 const router = Router();
@@ -19,6 +21,20 @@ router.get(
   TransactionsController.getTransactions
 );
 
+// POST /api/v1/transactions/bulk (các route /bulk phải khai báo trước /:id)
+router.post(
+  '/bulk',
+  validateRequest(bulkCreateTransactionSchema, 'body'),
+  TransactionsController.createBulkTransactions
+);
+
+// DELETE /api/v1/transactions/bulk
+router.delete(
+  '/bulk',
+  validateRequest(bulkDeleteTransactionSchema, 'body'),
+  TransactionsController.deleteBulkTransactions
+);
+
 // GET /api/v1/transactions/:id
 router.get('/:id', TransactionsController.getTransactionById);
 
@@ -29,9 +45,6 @@ router.post(
   TransactionsController.createTransaction
 );
 
-// POST /api/v1/transactions/bulk
-router.post('/bulk', TransactionsController.createBulkTransactions);
-
 // PUT /api/v1/transactions/:id
 router.put(
   '/:id',
@@ -41,8 +54,5 @@ router.put(
 
 // DELETE /api/v1/transactions/:id
 router.delete('/:id', TransactionsController.deleteTransaction);
-
-// DELETE /api/v1/transactions/bulk
-router.delete('/bulk', TransactionsController.deleteBulkTransactions);
 
 export default router;

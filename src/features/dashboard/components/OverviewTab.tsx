@@ -1,4 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
+import { useToast } from '../../../context/ToastContext';
+import { getBusinessDate } from '../../../utils/dateParser';
+import { getApiErrorMessage } from '../../../lib/apiClient';
 import { Expense, Goal, RecurringExpense } from '../../../types';
 import { calculateHealthScore } from '../../../utils/healthScore';
 import { generateFinancialInsights } from '../../../utils/insightsEngine';
@@ -23,7 +26,7 @@ interface OverviewTabProps {
   onQuickAdd?: () => void;
   onNavigateTab?: (tab: any) => void;
   onTriggerManualRecurringSync?: () => void;
-  onAddExpense?: (expense: Omit<Expense, 'id'>) => void;
+  onAddExpense?: (expense: Omit<Expense, 'id'>) => void | Promise<unknown>;
 }
 
 export const OverviewTab: React.FC<OverviewTabProps> = React.memo(({
@@ -45,6 +48,17 @@ export const OverviewTab: React.FC<OverviewTabProps> = React.memo(({
   const now = new Date();
   const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey);
+  const [showBalance, setShowBalance] = useState(() => {
+    return localStorage.getItem('so_tay_show_balance') !== 'false';
+  });
+
+  const handleToggleShowBalance = () => {
+    setShowBalance((prev) => {
+      const next = !prev;
+      localStorage.setItem('so_tay_show_balance', String(next));
+      return next;
+    });
+  };
 
   // Derive available months from expenses or current
   const availableMonths = useMemo(() => {
@@ -111,15 +125,25 @@ export const OverviewTab: React.FC<OverviewTabProps> = React.memo(({
     });
   }, [expenses, income, categoryLimits, goals, recurringExpenses]);
 
-  const handleQuickRecordRecurring = (rec: RecurringExpense) => {
-    if (onAddExpense) {
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      onAddExpense({
+  const { showToast } = useToast();
+  // Chống bấm đúp: khóa theo khoản đến khi lưu xong
+  const recordingRef = useRef(new Set<string>());
+
+  // Hộp xác nhận cảnh báo nằm ở nút "+" của UpcomingRecurringSection
+  const handleQuickRecordRecurring = async (rec: RecurringExpense) => {
+    if (!onAddExpense || recordingRef.current.has(rec.id)) return;
+    recordingRef.current.add(rec.id);
+    try {
+      await onAddExpense({
         amount: rec.amount,
         categoryId: rec.categoryId,
-        date: todayStr,
+        date: getBusinessDate(),
         note: `[Định kỳ] ${rec.note || 'Khoản chi cố định'}`,
       });
+    } catch (err) {
+      showToast(getApiErrorMessage(err, 'Không ghi được khoản định kỳ vào sổ.'), 'error');
+    } finally {
+      recordingRef.current.delete(rec.id);
     }
   };
 
@@ -135,6 +159,8 @@ export const OverviewTab: React.FC<OverviewTabProps> = React.memo(({
         dailyBurnRate={dailyBurnRate}
         selectedMonth={selectedMonth}
         availableMonths={availableMonths}
+        showBalance={showBalance}
+        onToggleShowBalance={handleToggleShowBalance}
         onChangeMonth={setSelectedMonth}
         onUpdateIncome={onUpdateIncome}
         onOpenQuickAdd={onQuickAdd || (() => onNavigateTab?.('expenses'))}
@@ -144,6 +170,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = React.memo(({
       {/* 2. Actionable AI Decision Making Section ("Vậy tôi nên làm gì?") */}
       <ActionableInsightSection
         insights={actionableInsights}
+        showBalance={showBalance}
         onNavigateTab={(tab) => onNavigateTab?.(tab)}
         onOpenChatbot={() => onNavigateTab?.('chatbot')}
       />
@@ -152,6 +179,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = React.memo(({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
         <FinancialHealthCard
           healthScore={healthScore}
+          showBalance={showBalance}
           onNavigateToInsights={() => onNavigateTab?.('insights')}
         />
 
@@ -160,6 +188,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = React.memo(({
           expensesThisMonth={monthlyExpenses}
           income={income}
           totalExpenseThisMonth={totalMonthlyExpense}
+          showBalance={showBalance}
           onNavigateToBudget={() => onNavigateTab?.('budget')}
         />
       </div>
@@ -169,6 +198,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = React.memo(({
         filteredExpenses={monthlyExpenses}
         allExpenses={expenses}
         totalExpenseThisMonth={totalMonthlyExpense}
+        showBalance={showBalance}
         onNavigateToExpenses={() => onNavigateTab?.('expenses')}
       />
 
@@ -176,6 +206,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = React.memo(({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
         <UpcomingRecurringSection
           recurringExpenses={recurringExpenses}
+          showBalance={showBalance}
           onTriggerSync={onTriggerManualRecurringSync}
           onNavigateToBudget={() => onNavigateTab?.('budget')}
           onQuickRecordRecurring={handleQuickRecordRecurring}
@@ -183,6 +214,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = React.memo(({
 
         <GoalsSummarySection
           goals={goals}
+          showBalance={showBalance}
           onAddGoal={onAddGoal}
           onUpdateGoalProgress={onUpdateGoalProgress}
           onNavigateToGoals={() => onNavigateTab?.('goals')}

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { GoalsService } from './goals.service';
 import { sendSuccess, sendError } from '../../utils/response';
+import { sendHttpError } from '../../utils/httpError';
 
 export class GoalsController {
   static async getGoals(req: Request, res: Response): Promise<void> {
@@ -14,7 +15,7 @@ export class GoalsController {
       const goals = await GoalsService.getGoals(userId);
       sendSuccess(res, 200, goals, undefined, { count: goals.length });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'GOAL_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'GOAL_ERROR', req.id);
     }
   }
 
@@ -29,7 +30,7 @@ export class GoalsController {
       const goal = await GoalsService.createGoal(userId, req.body);
       sendSuccess(res, 201, goal, undefined, { message: 'Tạo mục tiêu tiết kiệm thành công.' });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'CREATE_GOAL_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'CREATE_GOAL_ERROR', req.id);
     }
   }
 
@@ -44,7 +45,7 @@ export class GoalsController {
       const goal = await GoalsService.updateGoal(req.params.id, userId, req.body);
       sendSuccess(res, 200, goal, undefined, { message: 'Cập nhật mục tiêu thành công.' });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'UPDATE_GOAL_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'UPDATE_GOAL_ERROR', req.id);
     }
   }
 
@@ -59,7 +60,7 @@ export class GoalsController {
       await GoalsService.deleteGoal(req.params.id, userId);
       sendSuccess(res, 200, undefined, undefined, { message: 'Đã xóa mục tiêu thành công.' });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'DELETE_GOAL_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'DELETE_GOAL_ERROR', req.id);
     }
   }
 }

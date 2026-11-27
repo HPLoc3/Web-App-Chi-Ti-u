@@ -10,10 +10,13 @@ import {
 } from 'lucide-react';
 import { RecurringExpense } from '../../../types';
 import { CATEGORIES } from '../../../constants/categories';
-import { formatCurrency } from '../../../utils/format';
+import { formatMaskedCurrency } from '../../../utils/format';
+import { getBusinessDate } from '../../../utils/dateParser';
+import { diffDays, displayNextDue, totalMonthlyRecurring } from '../../../utils/recurringSchedule';
 
 interface UpcomingRecurringSectionProps {
   recurringExpenses: RecurringExpense[];
+  showBalance?: boolean;
   onTriggerSync?: () => void;
   onNavigateToBudget?: () => void;
   onQuickRecordRecurring?: (rec: RecurringExpense) => void;
@@ -21,21 +24,20 @@ interface UpcomingRecurringSectionProps {
 
 export const UpcomingRecurringSection: React.FC<UpcomingRecurringSectionProps> = ({
   recurringExpenses,
+  showBalance = true,
   onTriggerSync,
   onNavigateToBudget,
   onQuickRecordRecurring,
 }) => {
-  const today = new Date();
-  const currentDay = today.getDate();
+  const today = getBusinessDate();
 
-  // Sort by day of month approaching next
-  const sortedRecurring = [...recurringExpenses].sort((a, b) => {
-    const diffA = a.dayOfMonth >= currentDay ? a.dayOfMonth - currentDay : a.dayOfMonth + 30 - currentDay;
-    const diffB = b.dayOfMonth >= currentDay ? b.dayOfMonth - currentDay : b.dayOfMonth + 30 - currentDay;
-    return diffA - diffB;
-  });
+  // Khoản đang kích hoạt, xếp theo ngày đến hạn kế tiếp
+  const sortedRecurring = recurringExpenses
+    .filter((r) => r.isActive !== false)
+    .map((item) => ({ item, nextDue: displayNextDue(item, today) }))
+    .sort((a, b) => a.nextDue.localeCompare(b.nextDue));
 
-  const totalMonthlyRecurring = recurringExpenses.reduce((sum, r) => sum + r.amount, 0);
+  const monthlyTotal = totalMonthlyRecurring(recurringExpenses);
 
   return (
     <div className="bg-[#FAF7F0] border border-[#E6DEC9] rounded-2xl p-5 shadow-xs flex flex-col justify-between">
@@ -51,7 +53,7 @@ export const UpcomingRecurringSection: React.FC<UpcomingRecurringSectionProps> =
                 Khoản chi định kỳ & Hóa đơn sắp tới
               </h3>
               <p className="text-[11px] text-stone-500 font-sans">
-                Tổng định kỳ: <strong className="font-mono text-emerald-900">{formatCurrency(totalMonthlyRecurring)}/tháng</strong>
+                Tổng định kỳ: <strong className="font-mono text-emerald-900">{formatMaskedCurrency(monthlyTotal, showBalance)}/tháng</strong>
               </p>
             </div>
           </div>
@@ -71,34 +73,30 @@ export const UpcomingRecurringSection: React.FC<UpcomingRecurringSectionProps> =
         {/* List of upcoming recurring bills */}
         {sortedRecurring.length > 0 ? (
           <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1">
-            {sortedRecurring.map((item) => {
+            {sortedRecurring.map(({ item, nextDue }) => {
               const cat = CATEGORIES.find((c) => c.id === item.categoryId);
-              const daysDiff = item.dayOfMonth - currentDay;
-              
+              const daysDiff = diffDays(today, nextDue);
+              const dueLabel = `${nextDue.slice(8, 10)}/${nextDue.slice(5, 7)}`;
+
               let statusBadge = {
-                text: `Ngày ${item.dayOfMonth}`,
-                style: 'bg-stone-100 text-stone-700 border-stone-200',
+                text: `Ngày ${dueLabel} (còn ${daysDiff} ngày)`,
+                style: 'bg-emerald-50 text-emerald-800 border-emerald-200',
               };
 
-              if (daysDiff === 0) {
+              if (daysDiff < 0) {
+                statusBadge = {
+                  text: `Chờ ghi (${dueLabel})`,
+                  style: 'bg-rose-100 text-rose-800 border-rose-200 font-bold',
+                };
+              } else if (daysDiff === 0) {
                 statusBadge = {
                   text: 'Hôm nay',
                   style: 'bg-rose-100 text-rose-800 border-rose-200 font-bold',
                 };
-              } else if (daysDiff > 0 && daysDiff <= 3) {
+              } else if (daysDiff <= 3) {
                 statusBadge = {
                   text: `Còn ${daysDiff} ngày`,
                   style: 'bg-amber-100 text-amber-800 border-amber-200 font-semibold',
-                };
-              } else if (daysDiff > 0) {
-                statusBadge = {
-                  text: `Ngày ${item.dayOfMonth} (còn ${daysDiff} ngày)`,
-                  style: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-                };
-              } else {
-                statusBadge = {
-                  text: `Kỳ tiếp: Ngày ${item.dayOfMonth}`,
-                  style: 'bg-stone-100 text-stone-500 border-stone-200',
                 };
               }
 
@@ -125,7 +123,7 @@ export const UpcomingRecurringSection: React.FC<UpcomingRecurringSectionProps> =
                   <div className="flex items-center gap-2 shrink-0">
                     <div className="text-right">
                       <div className="font-mono font-bold text-emerald-950">
-                        {formatCurrency(item.amount)}
+                        {formatMaskedCurrency(item.amount, showBalance)}
                       </div>
                       <span className={`inline-block text-[9px] font-sans px-1.5 py-0.2 rounded border ${statusBadge.style}`}>
                         {statusBadge.text}
@@ -134,7 +132,11 @@ export const UpcomingRecurringSection: React.FC<UpcomingRecurringSectionProps> =
 
                     {onQuickRecordRecurring && (
                       <button
-                        onClick={() => onQuickRecordRecurring(item)}
+                        onClick={() => {
+                          // Giao dịch ghi tay không thay cho kỳ tự động: hỏi trước để tránh ghi hai lần
+                          const warning = `Khoản này vẫn được tự ghi vào ngày ${dueLabel}. Ghi thêm một giao dịch ngay bây giờ?`;
+                          if (window.confirm(warning)) onQuickRecordRecurring(item);
+                        }}
                         className="p-1 text-emerald-800 hover:text-emerald-950 hover:bg-emerald-50 rounded cursor-pointer transition"
                         title="Ghi nhận ngay vào sổ"
                       >

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { WalletsService } from './wallets.service';
 import { sendSuccess, sendError } from '../../utils/response';
+import { sendHttpError } from '../../utils/httpError';
 
 export class WalletsController {
   static async getWallets(req: Request, res: Response): Promise<void> {
@@ -14,7 +15,7 @@ export class WalletsController {
       const wallets = await WalletsService.getWallets(userId);
       sendSuccess(res, 200, wallets, undefined, { wallets });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'WALLET_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'WALLET_ERROR', req.id);
     }
   }
 
@@ -29,7 +30,7 @@ export class WalletsController {
       const wallet = await WalletsService.getWalletById(req.params.id, userId);
       sendSuccess(res, 200, wallet, undefined, { wallet });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'WALLET_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'WALLET_ERROR', req.id);
     }
   }
 
@@ -44,7 +45,7 @@ export class WalletsController {
       const wallet = await WalletsService.createWallet(userId, req.body);
       sendSuccess(res, 201, wallet, undefined, { wallet, message: 'Tạo ví mới thành công.' });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'CREATE_WALLET_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'CREATE_WALLET_ERROR', req.id);
     }
   }
 
@@ -59,7 +60,7 @@ export class WalletsController {
       const wallet = await WalletsService.updateWallet(req.params.id, userId, req.body);
       sendSuccess(res, 200, wallet, undefined, { wallet, message: 'Cập nhật ví thành công.' });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'UPDATE_WALLET_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'UPDATE_WALLET_ERROR', req.id);
     }
   }
 
@@ -74,7 +75,7 @@ export class WalletsController {
       await WalletsService.deleteWallet(req.params.id, userId);
       sendSuccess(res, 200, undefined, undefined, { message: 'Xóa ví thành công.' });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'DELETE_WALLET_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'DELETE_WALLET_ERROR', req.id);
     }
   }
 
@@ -94,7 +95,7 @@ export class WalletsController {
         toWallet: result.toWallet,
       });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'TRANSFER_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'TRANSFER_ERROR', req.id);
     }
   }
 }

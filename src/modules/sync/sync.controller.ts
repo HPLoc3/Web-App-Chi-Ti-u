@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { SyncService } from './sync.service';
 import { sendSuccess, sendError } from '../../utils/response';
+import { sendHttpError } from '../../utils/httpError';
 
 export class SyncController {
   static async syncClientState(req: Request, res: Response): Promise<void> {
@@ -17,7 +18,7 @@ export class SyncController {
         stats,
       });
     } catch (error: any) {
-      sendError(res, error.statusCode || 500, error.code || 'SYNC_ERROR', error.message, undefined, req.id);
+      sendHttpError(res, error, 'SYNC_ERROR', req.id);
     }
   }
 }

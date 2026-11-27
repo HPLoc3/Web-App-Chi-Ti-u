@@ -63,10 +63,10 @@ export default function CoreFeaturesSection({
                 Bảng điều khiển (Dashboard)
               </h3>
               <p className="text-stone-600 text-xs sm:text-sm leading-relaxed">
-                Nắm bắt ngay lập tức tổng số dư mọi nguồn tiền, tỷ lệ thu chi tháng, sức khỏe dòng tiền và các giao dịch gần nhất chỉ trên một màn hình.
+                Xem thu nhập khai báo, số đã chi, phần còn lại, tỷ lệ tiết kiệm, ngân sách và mục tiêu trên một màn hình.
               </p>
               <div className="pt-2 flex items-center gap-2 text-xs font-semibold text-emerald-800">
-                <span>Trực quan hóa thời gian thực</span>
+                <span>Cập nhật theo khoản bạn ghi</span>
               </div>
             </div>
 
@@ -84,7 +84,7 @@ export default function CoreFeaturesSection({
                 Sổ Quản Lý Giao Dịch
               </h3>
               <p className="text-stone-600 text-xs sm:text-sm leading-relaxed">
-                Lưu trữ lịch sử thu chi chi tiết, hỗ trợ tìm kiếm tức thì, phân loại theo ngày tháng, gắn nhãn danh mục và đính kèm ghi chú rõ ràng.
+                Lưu lịch sử chi tiêu, hỗ trợ tìm kiếm tức thì, phân loại theo ngày tháng, gắn nhãn danh mục và đính kèm ghi chú rõ ràng.
               </p>
               <div className="pt-2 flex items-center gap-2 text-xs font-semibold text-amber-800">
                 <span>Bộ lọc đa chiều & Tìm kiếm nhanh</span>
@@ -109,7 +109,7 @@ export default function CoreFeaturesSection({
               </p>
               <div className="pt-2 flex items-center gap-1.5 text-xs font-semibold text-amber-300">
                 <Sparkles size={14} />
-                <span>Hiểu tiếng Việt tự nhiên 100%</span>
+                <span>Nhập bằng tiếng Việt tự nhiên</span>
               </div>
             </div>
 
@@ -127,7 +127,7 @@ export default function CoreFeaturesSection({
                 Hệ Thống Đa Ví Tiền
               </h3>
               <p className="text-stone-600 text-xs sm:text-sm leading-relaxed">
-                Phân bổ linh hoạt giữa Ví Tiền Mặt, Thẻ Ngân Hàng, Thẻ Tín Dụng và Quỹ Khẩn Cấp để kiểm soát số dư chính xác từng tài khoản.
+                Quản lý Ví Tiền Mặt, Ngân hàng, Thẻ Tín Dụng, Ví Điện Tử; theo dõi số dư từng ví và chuyển tiền giữa các ví.
               </p>
             </div>
 
@@ -145,7 +145,7 @@ export default function CoreFeaturesSection({
                 Kế Hoạch Ngân Sách 50/30/20 & Hạn Mức Danh Mục
               </h3>
               <p className="text-stone-600 text-xs sm:text-sm leading-relaxed">
-                Tự động chia thu nhập theo công thức vàng: 50% Nhu cầu thiết yếu, 30% Chi tiêu linh hoạt, 20% Tích lũy. Thiết lập hạn mức trần cho từng nhóm chi tiêu để không bao giờ vượt quỹ.
+                Gợi ý chia thu nhập: 50% Nhu cầu thiết yếu, 30% Chi tiêu linh hoạt, 20% Tích lũy. Đặt hạn mức cho từng danh mục để theo dõi và được cảnh báo khi vượt.
               </p>
             </div>
 
@@ -179,7 +179,7 @@ export default function CoreFeaturesSection({
               </div>
               <h4 className="font-serif font-bold text-sm text-stone-900">Chi Tiêu Định Kỳ</h4>
               <p className="text-stone-600 text-xs leading-relaxed">
-                Tự động ghi nhận tiền nhà, hóa đơn điện nước, gói cước hàng tháng.
+                Ghi các khoản định kỳ đến hạn khi bạn mở ứng dụng.
               </p>
             </div>
 
@@ -201,7 +201,7 @@ export default function CoreFeaturesSection({
               </div>
               <h4 className="font-serif font-bold text-sm text-stone-900">Danh Mục Tùy Biến</h4>
               <p className="text-stone-600 text-xs leading-relaxed">
-                Bộ danh mục chuẩn phong phú, phân định rõ ràng Thiết yếu vs Sở thích.
+                Bộ danh mục có sẵn cho các khoản chi thường gặp.
               </p>
             </div>
 
@@ -212,7 +212,7 @@ export default function CoreFeaturesSection({
               </div>
               <h4 className="font-serif font-bold text-sm text-stone-900">Sao Lưu & JSON</h4>
               <p className="text-stone-600 text-xs leading-relaxed">
-                Xuất/nhập file dữ liệu toàn diện, bảo vệ quyền riêng tư người dùng.
+                Xuất dữ liệu ra JSON, giao dịch ra CSV; nhập sao kê CSV/TXT.
               </p>
             </div>
 

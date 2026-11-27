@@ -87,7 +87,7 @@ export default function HeroSection({
           <div className="pt-3 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs font-medium text-stone-600">
             <div className="flex items-center gap-1.5">
               <CheckCircle2 size={14} className="text-emerald-700" />
-              <span>Ghi chép bằng AI &lt; 10 giây</span>
+              <span>Ghi chép bằng câu tiếng Việt</span>
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 size={14} className="text-emerald-700" />
@@ -95,7 +95,7 @@ export default function HeroSection({
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 size={14} className="text-emerald-700" />
-              <span>Hoạt động Offline & Đồng bộ Cloud</span>
+              <span>Dùng thử không cần tài khoản</span>
             </div>
           </div>
         </div>
@@ -115,14 +115,14 @@ export default function HeroSection({
                   <div className="w-3 h-3 rounded-full bg-emerald-400/80" />
                 </div>
                 <span className="text-[11px] font-mono text-stone-400 ml-2 hidden sm:inline">
-                  sotaychitieuthongminh.app/dashboard
+                  Hình minh họa giao diện
                 </span>
               </div>
               
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1 text-[11px] font-mono bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-md font-semibold">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-                  Live Sync
+                  Số liệu ví dụ
                 </span>
                 <span className="text-xs font-serif font-bold text-stone-600 hidden sm:inline">
                   Kỳ tài chính: Tháng 8/2026
@@ -190,20 +190,20 @@ export default function HeroSection({
                     <div className="flex items-center gap-2">
                       <PieChart size={16} className="text-emerald-800" />
                       <h4 className="font-serif font-bold text-xs sm:text-sm text-emerald-950">
-                        Phân Bổ Ngân Sách Chuẩn 50/30/20
+                        Gợi Ý Phân Bổ 50/30/20
                       </h4>
                     </div>
                     <span className="text-[11px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                      An toàn 85/100
+                      Mức gợi ý
                     </span>
                   </div>
 
                   {/* Multi-segmented Progress Bar */}
                   <div className="space-y-1.5">
                     <div className="h-3.5 w-full bg-stone-100 rounded-full overflow-hidden flex shadow-inner">
-                      <div className="bg-emerald-600 h-full transition-all" style={{ width: '45%' }} title="Nhu cầu thiết yếu: 45%" />
-                      <div className="bg-amber-500 h-full transition-all" style={{ width: '22%' }} title="Chi tiêu linh hoạt: 22%" />
-                      <div className="bg-blue-600 h-full transition-all" style={{ width: '33%' }} title="Tích lũy & Tiết kiệm: 33%" />
+                      <div className="bg-emerald-600 h-full transition-all" style={{ width: '50%' }} title="Nhu cầu thiết yếu: 50%" />
+                      <div className="bg-amber-500 h-full transition-all" style={{ width: '30%' }} title="Chi tiêu linh hoạt: 30%" />
+                      <div className="bg-blue-600 h-full transition-all" style={{ width: '20%' }} title="Tích lũy & Tiết kiệm: 20%" />
                     </div>
 
                     <div className="grid grid-cols-3 text-[11px] pt-1">
@@ -211,7 +211,7 @@ export default function HeroSection({
                         <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 shrink-0" />
                         <div>
                           <span className="font-semibold text-stone-700 block">Thiết yếu (50%)</span>
-                          <span className="font-mono text-stone-500 text-[10px]">5.6M / 12.5M</span>
+                          <span className="font-mono text-stone-500 text-[10px]">12.5M</span>
                         </div>
                       </div>
 
@@ -219,7 +219,7 @@ export default function HeroSection({
                         <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
                         <div>
                           <span className="font-semibold text-stone-700 block">Sở thích (30%)</span>
-                          <span className="font-mono text-stone-500 text-[10px]">2.85M / 7.5M</span>
+                          <span className="font-mono text-stone-500 text-[10px]">7.5M</span>
                         </div>
                       </div>
 
@@ -227,7 +227,7 @@ export default function HeroSection({
                         <span className="w-2.5 h-2.5 rounded-full bg-blue-600 shrink-0" />
                         <div>
                           <span className="font-semibold text-stone-700 block">Tiết kiệm (20%)</span>
-                          <span className="font-mono text-stone-500 text-[10px]">5.0M / 5.0M ✓</span>
+                          <span className="font-mono text-stone-500 text-[10px]">5.0M</span>
                         </div>
                       </div>
                     </div>
@@ -283,7 +283,7 @@ export default function HeroSection({
                       </div>
                       <div>
                         <div className="font-serif font-bold text-xs text-amber-100">AI Copilot Tiếng Việt</div>
-                        <div className="text-[10px] text-emerald-300 font-mono">Bóc tách tự nhiên 100%</div>
+                        <div className="text-[10px] text-emerald-300 font-mono">Nhập bằng tiếng Việt tự nhiên</div>
                       </div>
                     </div>
                     <span className="text-[10px] bg-emerald-900 text-amber-300 px-2 py-0.5 rounded font-mono border border-emerald-700">
@@ -315,7 +315,7 @@ export default function HeroSection({
                       </div>
                       <div className="text-[10px] text-emerald-300 pt-0.5 flex items-center gap-1 font-sans">
                         <CheckCircle2 size={11} className="text-emerald-400" />
-                        <span>Đã lưu vào ví và trừ hạn mức 50/30/20!</span>
+                        <span>Bạn xác nhận trước khi lưu vào sổ</span>
                       </div>
                     </div>
                   </div>
@@ -339,12 +339,12 @@ export default function HeroSection({
           <div className="hidden sm:flex absolute -bottom-5 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur-sm border border-stone-200 shadow-lg px-4 py-2 rounded-full items-center gap-3 text-xs text-stone-700 font-semibold">
             <span className="flex items-center gap-1 text-emerald-800">
               <ShieldCheck size={15} className="text-emerald-600" />
-              <span>Bảo mật HttpOnly & Mã hóa Bcrypt</span>
+              <span>Mật khẩu được băm bằng Bcrypt</span>
             </span>
             <span className="text-stone-300">|</span>
             <span className="flex items-center gap-1 text-amber-800">
               <Zap size={14} className="text-amber-600" />
-              <span>Tốc độ phản hồi &lt; 0.1s</span>
+              <span>Xem demo không cần đăng ký</span>
             </span>
           </div>
 

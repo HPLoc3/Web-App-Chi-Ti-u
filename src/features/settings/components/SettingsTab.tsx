@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { AppUser } from '../../../context/AuthContext';
 import { useToast } from '../../../context/ToastContext';
 import { AppState } from '../../../types';
@@ -19,15 +19,18 @@ import {
   AlertTriangle,
   Bot,
   ExternalLink,
-  Save,
-  CheckCircle2
+  Save
 } from 'lucide-react';
 import { formatCurrency } from '../../../utils/format';
+import { apiClient, setStoredTokens, getApiErrorMessage } from '../../../lib/apiClient';
+import { validatePassword } from '../../../utils/passwordPolicy';
+import { ConfirmModal } from '../../../components/common/ConfirmModal';
 
 interface SettingsTabProps {
   currentUser: AppUser | null;
   state: AppState;
   onLogout: () => void;
+  onLogoutAll?: () => Promise<void>;
   onLoadSampleData?: () => void;
   onOpenAuth?: () => void;
 }
@@ -36,25 +39,26 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   currentUser,
   state,
   onLogout,
+  onLogoutAll,
   onLoadSampleData,
   onOpenAuth,
 }) => {
   const { showToast } = useToast();
   const [activeSection, setActiveSection] = useState<'account' | 'security' | 'preferences' | 'data' | 'integrations'>('account');
 
-  // Preferences State
-  const [currency, setCurrency] = useState('VND');
-  const [budgetAlertThreshold, setBudgetAlertThreshold] = useState('80');
-  const [autoSyncRecurring, setAutoSyncRecurring] = useState(true);
-  const [privacyModeDefault, setPrivacyModeDefault] = useState(() => {
-    return localStorage.getItem('so_tay_show_balance') !== 'false';
-  });
-
   // Password modal or inline state
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
+  const savingPasswordRef = useRef(false);
+
+  const [isConfirmingLogoutAll, setIsConfirmingLogoutAll] = useState(false);
+  const loggingOutAllRef = useRef(false);
+
+  const isGoogleAccount = currentUser?.provider === 'google' || currentUser?.provider === 'google.com';
 
   const handleExportData = () => {
     try {
@@ -79,40 +83,66 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       downloadAnchor.click();
       downloadAnchor.remove();
 
-      showToast('Đã xuất toàn bộ dữ liệu tài chính ra tệp JSON thành công!', 'success');
+      showToast('Đã xuất giao dịch, mục tiêu, khoản định kỳ, thu nhập và ngân sách ra tệp JSON (không gồm ví).', 'success');
     } catch (err) {
       showToast('Lỗi khi xuất dữ liệu', 'error');
     }
   };
 
-  const handleSavePreferences = () => {
-    localStorage.setItem('so_tay_show_balance', String(privacyModeDefault));
-    showToast('Đã lưu tùy chọn cài đặt thành công!', 'success');
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (savingPasswordRef.current) return;
+
+    const invalid =
+      validatePassword(newPassword) ||
+      (newPassword !== confirmNewPassword ? 'Mật khẩu xác nhận không khớp.' : null);
+    if (invalid) {
+      setPasswordError(invalid);
+      return;
+    }
+
+    setPasswordError(null);
+    savingPasswordRef.current = true;
+    setIsSavingPassword(true);
+    try {
+      const response = await apiClient.post('/api/v1/users/change-password', {
+        currentPassword: oldPassword,
+        newPassword,
+      });
+      // Server thu hồi phiên cũ và cấp token mới cho thiết bị này
+      setStoredTokens(response.data?.accessToken, response.data?.refreshToken);
+      showToast('Đổi mật khẩu thành công.', 'success');
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      setIsChangingPassword(false);
+    } catch (err) {
+      setPasswordError(getApiErrorMessage(err, 'Đổi mật khẩu thất bại. Vui lòng thử lại.'));
+    } finally {
+      savingPasswordRef.current = false;
+      setIsSavingPassword(false);
+    }
   };
 
-  const handleChangePassword = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newPassword.length < 6) {
-      showToast('Mật khẩu mới phải có ít nhất 6 ký tự.', 'warning');
-      return;
+  const handleConfirmLogoutAll = async () => {
+    setIsConfirmingLogoutAll(false);
+    if (!onLogoutAll || loggingOutAllRef.current) return;
+    loggingOutAllRef.current = true;
+    try {
+      await onLogoutAll();
+      showToast('Đã đăng xuất khỏi tất cả thiết bị.', 'info');
+    } catch (err) {
+      showToast(getApiErrorMessage(err, 'Không thể đăng xuất tất cả thiết bị.'), 'error');
+    } finally {
+      loggingOutAllRef.current = false;
     }
-    if (newPassword !== confirmNewPassword) {
-      showToast('Mật khẩu xác nhận không khớp.', 'warning');
-      return;
-    }
-
-    showToast('Đã gửi yêu cầu đổi mật khẩu thành công.', 'success');
-    setOldPassword('');
-    setNewPassword('');
-    setConfirmNewPassword('');
-    setIsChangingPassword(false);
   };
 
   const navItems = [
-    { key: 'account', label: 'Tài khoản & Hồ sơ', icon: User, desc: 'Thông tin cá nhân & định danh' },
+    { key: 'account', label: 'Tài khoản & Hồ sơ', icon: User, desc: 'Thông tin tài khoản' },
     { key: 'security', label: 'Bảo mật & Phiên', icon: ShieldCheck, desc: 'Mật khẩu & kiểm soát đăng nhập' },
-    { key: 'preferences', label: 'Tùy chọn ứng dụng', icon: Sliders, desc: 'Tiền tệ, cảnh báo & hiển thị' },
-    { key: 'data', label: 'Quản lý dữ liệu', icon: Database, desc: 'Sao lưu, xuất JSON & nạp mẫu' },
+    { key: 'preferences', label: 'Tùy chọn ứng dụng', icon: Sliders, desc: 'Tiền tệ & cảnh báo (sắp có)' },
+    { key: 'data', label: 'Quản lý dữ liệu', icon: Database, desc: onLoadSampleData ? 'Xuất JSON & nạp mẫu' : 'Xuất JSON' },
     { key: 'integrations', label: 'Tích hợp & AI', icon: Bot, desc: 'Google OAuth & Gemini AI' },
   ];
 
@@ -124,7 +154,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           Cài Đặt & Cấu Hình Hệ Thống
         </h2>
         <p className="text-xs text-stone-500 font-sans">
-          Quản lý tài khoản, chính sách bảo mật, dữ liệu sao lưu và trải nghiệm người dùng
+          Quản lý tài khoản, phiên đăng nhập và dữ liệu
         </p>
       </div>
 
@@ -167,7 +197,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   Thông Tin Tài Khoản
                 </h3>
                 <p className="text-xs text-stone-500 font-sans">
-                  Hồ sơ cá nhân và trạng thái xác thực
+                  Thông tin tài khoản đang dùng
                 </p>
               </div>
 
@@ -191,10 +221,6 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                         {currentUser.displayName || 'Người dùng Sổ Tay'}
                       </h4>
                       <p className="text-xs font-mono text-stone-500">{currentUser.email}</p>
-                      <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
-                        <CheckCircle2 size={11} />
-                        <span>Đã xác thực bảo mật</span>
-                      </span>
                     </div>
                   </div>
 
@@ -206,7 +232,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                       </span>
                     </div>
                     <div className="p-3 rounded-xl bg-stone-50 border border-stone-100">
-                      <span className="text-stone-400 block mb-1">Dung lượng giao dịch đã lưu</span>
+                      <span className="text-stone-400 block mb-1">Dữ liệu hiện có</span>
                       <span className="font-semibold text-stone-800">
                         {state.expenses.length} giao dịch • {state.goals.length} mục tiêu
                       </span>
@@ -216,7 +242,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               ) : (
                 <div className="p-5 rounded-2xl bg-amber-50 border border-amber-200 text-center space-y-3">
                   <p className="text-xs text-amber-900 font-medium">
-                    Bạn đang sử dụng ở chế độ Khách (Dữ liệu lưu tạm trên trình duyệt). Đăng nhập để đồng bộ an toàn lên Cloud.
+                    Dữ liệu đang lưu trên trình duyệt này. Đăng nhập để lưu trên máy chủ; dữ liệu dùng thử không tự chuyển sang tài khoản.
                   </p>
                   {onOpenAuth && (
                     <button
@@ -239,82 +265,108 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   Bảo Mật & Quản Lý Phiên
                 </h3>
                 <p className="text-xs text-stone-500 font-sans">
-                  Kiểm soát mật khẩu và bảo vệ an toàn tài sản dữ liệu
+                  Mật khẩu và phiên đăng nhập
                 </p>
               </div>
 
               <div className="space-y-4">
-                <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between">
-                  <div>
-                    <h4 className="text-xs font-bold text-stone-800">Đổi Mật Khẩu</h4>
-                    <p className="text-[11px] text-stone-500">Cập nhật mật khẩu định kỳ để nâng cao bảo mật</p>
-                  </div>
-                  <button
-                    onClick={() => setIsChangingPassword(!isChangingPassword)}
-                    className="px-3 py-1.5 border border-stone-300 bg-white hover:bg-stone-50 text-stone-700 rounded-lg text-xs font-semibold transition cursor-pointer"
-                  >
-                    {isChangingPassword ? 'Đóng' : 'Đổi mật khẩu'}
-                  </button>
-                </div>
+                {!currentUser ? (
+                  <p className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+                    Bạn đang dùng chế độ Khách. Đăng nhập để đổi mật khẩu và quản lý phiên đăng nhập.
+                  </p>
+                ) : isGoogleAccount ? (
+                  <p className="p-4 rounded-xl bg-stone-50 border border-stone-200 text-xs text-stone-600">
+                    Tài khoản đăng nhập bằng Google nên không có mật khẩu để đổi. Hãy quản lý mật khẩu trong tài khoản Google của bạn.
+                  </p>
+                ) : (
+                  <>
+                    <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between">
+                      <div>
+                        <h4 className="text-xs font-bold text-stone-800">Đổi Mật Khẩu</h4>
+                        <p className="text-[11px] text-stone-500">Cập nhật mật khẩu định kỳ để nâng cao bảo mật</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setPasswordError(null);
+                          setIsChangingPassword(!isChangingPassword);
+                        }}
+                        className="px-3 py-1.5 border border-stone-300 bg-white hover:bg-stone-50 text-stone-700 rounded-lg text-xs font-semibold transition cursor-pointer"
+                      >
+                        {isChangingPassword ? 'Đóng' : 'Đổi mật khẩu'}
+                      </button>
+                    </div>
 
-                {isChangingPassword && (
-                  <form onSubmit={handleChangePassword} className="p-4 rounded-xl bg-stone-50 border border-stone-200 space-y-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-stone-700 mb-1">Mật khẩu hiện tại</label>
-                      <input
-                        type="password"
-                        value={oldPassword}
-                        onChange={(e) => setOldPassword(e.target.value)}
-                        required
-                        className="w-full px-3 py-2 rounded-lg border border-stone-300 text-xs focus:outline-none focus:border-emerald-700"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-semibold text-stone-700 mb-1">Mật khẩu mới</label>
-                        <input
-                          type="password"
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          required
-                          className="w-full px-3 py-2 rounded-lg border border-stone-300 text-xs focus:outline-none focus:border-emerald-700"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-stone-700 mb-1">Xác nhận mật khẩu</label>
-                        <input
-                          type="password"
-                          value={confirmNewPassword}
-                          onChange={(e) => setConfirmNewPassword(e.target.value)}
-                          required
-                          className="w-full px-3 py-2 rounded-lg border border-stone-300 text-xs focus:outline-none focus:border-emerald-700"
-                        />
-                      </div>
-                    </div>
-                    <button
-                      type="submit"
-                      className="px-4 py-2 bg-emerald-950 text-amber-300 font-bold text-xs rounded-lg transition"
-                    >
-                      Cập nhật mật khẩu
-                    </button>
-                  </form>
+                    {isChangingPassword && (
+                      <form onSubmit={handleChangePassword} className="p-4 rounded-xl bg-stone-50 border border-stone-200 space-y-3">
+                        <div>
+                          <label htmlFor="current-password" className="block text-xs font-semibold text-stone-700 mb-1">Mật khẩu hiện tại</label>
+                          <input
+                            id="current-password"
+                            type="password"
+                            autoComplete="current-password"
+                            value={oldPassword}
+                            onChange={(e) => setOldPassword(e.target.value)}
+                            required
+                            className="w-full px-3 py-2 rounded-lg border border-stone-300 text-xs focus:outline-none focus:border-emerald-700"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label htmlFor="new-password" className="block text-xs font-semibold text-stone-700 mb-1">Mật khẩu mới</label>
+                            <input
+                              id="new-password"
+                              type="password"
+                              autoComplete="new-password"
+                              value={newPassword}
+                              onChange={(e) => setNewPassword(e.target.value)}
+                              required
+                              className="w-full px-3 py-2 rounded-lg border border-stone-300 text-xs focus:outline-none focus:border-emerald-700"
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor="confirm-new-password" className="block text-xs font-semibold text-stone-700 mb-1">Xác nhận mật khẩu</label>
+                            <input
+                              id="confirm-new-password"
+                              type="password"
+                              autoComplete="new-password"
+                              value={confirmNewPassword}
+                              onChange={(e) => setConfirmNewPassword(e.target.value)}
+                              required
+                              className="w-full px-3 py-2 rounded-lg border border-stone-300 text-xs focus:outline-none focus:border-emerald-700"
+                            />
+                          </div>
+                        </div>
+                        {passwordError && (
+                          <p role="alert" className="text-xs font-medium text-red-700">
+                            {passwordError}
+                          </p>
+                        )}
+                        <button
+                          type="submit"
+                          disabled={isSavingPassword}
+                          className="px-4 py-2 bg-emerald-950 text-amber-300 font-bold text-xs rounded-lg transition disabled:opacity-50"
+                        >
+                          {isSavingPassword ? 'Đang cập nhật...' : 'Cập nhật mật khẩu'}
+                        </button>
+                      </form>
+                    )}
+                  </>
                 )}
 
-                <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between">
-                  <div>
-                    <h4 className="text-xs font-bold text-stone-800">Đăng Xuất Mọi Thiết Bị</h4>
-                    <p className="text-[11px] text-stone-500">Hủy bỏ toàn bộ phiên làm việc trên các trình duyệt khác</p>
+                {currentUser && onLogoutAll && (
+                  <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-stone-800">Đăng Xuất Mọi Thiết Bị</h4>
+                      <p className="text-[11px] text-stone-500">Thu hồi các phiên đăng nhập, kể cả thiết bị này</p>
+                    </div>
+                    <button
+                      onClick={() => setIsConfirmingLogoutAll(true)}
+                      className="px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-bold hover:bg-red-100 transition cursor-pointer"
+                    >
+                      Đăng xuất tất cả
+                    </button>
                   </div>
-                  <button
-                    onClick={() => {
-                      onLogout();
-                      showToast('Đã đăng xuất khỏi tất cả thiết bị.', 'info');
-                    }}
-                    className="px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-xs font-bold hover:bg-red-100 transition cursor-pointer"
-                  >
-                    Đăng xuất tất cả
-                  </button>
-                </div>
+                )}
               </div>
             </div>
           )}
@@ -327,17 +379,22 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   Tùy Chọn Ứng Dụng
                 </h3>
                 <p className="text-xs text-stone-500 font-sans">
-                  Tùy biến hiển thị tiền tệ, ngưỡng cảnh báo và trải nghiệm cá nhân hóa
+                  Các tùy chọn dưới đây chưa dùng được
                 </p>
               </div>
 
               <div className="space-y-4 text-xs">
                 <div>
-                  <label className="block font-semibold text-stone-700 mb-1">Đơn vị tiền tệ chính</label>
+                  <label htmlFor="pref-currency" className="block font-semibold text-stone-700 mb-1">
+                    Đơn vị tiền tệ chính
+                    <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-stone-200 text-stone-600">Sắp có</span>
+                  </label>
                   <select
-                    value={currency}
-                    onChange={(e) => setCurrency(e.target.value)}
-                    className="w-full sm:w-64 px-3 py-2 rounded-xl border border-stone-300 text-stone-800 font-semibold"
+                    id="pref-currency"
+                    value="VND"
+                    disabled
+                    onChange={() => {}}
+                    className="w-full sm:w-64 px-3 py-2 rounded-xl border border-stone-300 text-stone-800 font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     <option value="VND">₫ Việt Nam Đồng (VND)</option>
                     <option value="USD">$ Đô la Mỹ (USD)</option>
@@ -345,30 +402,34 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-stone-700 mb-1">
-                    Ngưỡng cảnh báo ngân sách màu vàng ({budgetAlertThreshold}%)
+                  <label htmlFor="pref-threshold" className="block font-semibold text-stone-700 mb-1">
+                    Ngưỡng cảnh báo ngân sách màu vàng
+                    <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-stone-200 text-stone-600">Sắp có</span>
                   </label>
                   <input
+                    id="pref-threshold"
                     type="range"
                     min="50"
                     max="95"
                     step="5"
-                    value={budgetAlertThreshold}
-                    onChange={(e) => setBudgetAlertThreshold(e.target.value)}
-                    className="w-full sm:w-64 accent-amber-600"
+                    value="80"
+                    disabled
+                    onChange={() => {}}
+                    className="w-full sm:w-64 accent-amber-600 disabled:opacity-60 disabled:cursor-not-allowed"
                   />
                   <span className="text-[11px] text-stone-500 block mt-0.5">
-                    Hệ thống sẽ chuyển màu cảnh báo khi bạn tiêu đến {budgetAlertThreshold}% ngân sách
+                    Chưa chỉnh được ngưỡng cảnh báo.
                   </span>
                 </div>
 
                 <div className="pt-3 border-t border-stone-200">
                   <button
-                    onClick={handleSavePreferences}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-emerald-950 hover:bg-emerald-900 text-amber-300 font-bold rounded-xl transition cursor-pointer"
+                    disabled
+                    className="flex items-center gap-1.5 px-4 py-2 bg-emerald-950 text-amber-300 font-bold rounded-xl disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     <Save size={14} />
                     <span>Lưu tùy chọn</span>
+                    <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-stone-200 text-stone-600">Sắp có</span>
                   </button>
                 </div>
               </div>
@@ -380,19 +441,19 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             <div className="space-y-6">
               <div>
                 <h3 className="font-serif text-base font-bold text-emerald-950 mb-1">
-                  Quản Lý Dữ Liệu & Sao Lưu
+                  Quản Lý Dữ Liệu
                 </h3>
                 <p className="text-xs text-stone-500 font-sans">
-                  Xuất dữ liệu dự phòng chuẩn JSON, nạp dữ liệu mẫu hoặc thiết lập lại
+                  {onLoadSampleData ? 'Xuất dữ liệu ra tệp JSON hoặc nạp dữ liệu mẫu' : 'Xuất dữ liệu ra tệp JSON'}
                 </p>
               </div>
 
               <div className="space-y-4">
                 <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
-                    <h4 className="text-xs font-bold text-stone-800">Xuất Toàn Bộ Dữ Liệu (JSON)</h4>
+                    <h4 className="text-xs font-bold text-stone-800">Xuất Dữ Liệu (JSON)</h4>
                     <p className="text-[11px] text-stone-500">
-                      Tải về tệp sao lưu chứa tất cả {state.expenses.length} giao dịch và mục tiêu
+                      Tệp gồm {state.expenses.length} giao dịch cùng mục tiêu, khoản định kỳ, thu nhập và ngân sách; không gồm ví
                     </p>
                   </div>
                   <button
@@ -407,9 +468,9 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 {onLoadSampleData && (
                   <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
-                      <h4 className="text-xs font-bold text-stone-800">Nạp Dữ Liệu Mẫu Thực Tế (3 Tuần)</h4>
+                      <h4 className="text-xs font-bold text-stone-800">Nạp Dữ Liệu Mẫu (3 Tuần)</h4>
                       <p className="text-[11px] text-stone-500">
-                        Nạp nhanh các khoản ăn uống, grab, siêu thị, điện nước để trải nghiệm biểu đồ
+                        Thay dữ liệu dùng thử hiện tại bằng dữ liệu mẫu để xem thử biểu đồ
                       </p>
                     </div>
                     <button
@@ -433,7 +494,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   Tích Hợp & Trí Tuệ Nhân Tạo
                 </h3>
                 <p className="text-xs text-stone-500 font-sans">
-                  Quản lý kết nối Google OAuth và Mô hình AI Phân tích tài chính
+                  Dịch vụ bên ngoài mà ứng dụng dùng
                 </p>
               </div>
 
@@ -445,13 +506,9 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                     </div>
                     <div>
                       <h4 className="text-xs font-bold text-stone-800">Google OAuth 2.0</h4>
-                      <p className="text-[11px] text-stone-500">Đăng nhập nhanh không cần mật khẩu</p>
+                      <p className="text-[11px] text-stone-500">Đăng nhập bằng tài khoản Google</p>
                     </div>
                   </div>
-                  <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
-                    <CheckCircle2 size={13} />
-                    <span>Sẵn sàng</span>
-                  </span>
                 </div>
 
                 <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between">
@@ -461,19 +518,24 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                     </div>
                     <div>
                       <h4 className="text-xs font-bold text-stone-800">Gemini AI Financial Copilot</h4>
-                      <p className="text-[11px] text-stone-500">Tự động phân tích ngôn ngữ tự nhiên và đề xuất ngân sách</p>
+                      <p className="text-[11px] text-stone-500">Dùng khi bạn đăng nhập; nếu không gọi được Gemini, máy chủ trả lời bằng bộ quy tắc có sẵn</p>
                     </div>
                   </div>
-                  <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-1">
-                    <CheckCircle2 size={13} />
-                    <span>Đang hoạt động</span>
-                  </span>
                 </div>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={isConfirmingLogoutAll}
+        title="Đăng xuất mọi thiết bị?"
+        message="Tất cả phiên đăng nhập, kể cả thiết bị này, sẽ bị thu hồi. Thiết bị khác có thể còn truy cập tối đa 15 phút."
+        confirmText="Đăng xuất mọi thiết bị"
+        onConfirm={handleConfirmLogoutAll}
+        onCancel={() => setIsConfirmingLogoutAll(false)}
+      />
     </div>
   );
 };

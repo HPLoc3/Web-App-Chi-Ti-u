@@ -18,7 +18,7 @@ export const budgetService = {
     if (response.data && response.data.success && response.data.data) {
       const d = response.data.data;
       return {
-        income: typeof d.income === 'number' ? d.income : 25000000,
+        income: typeof d.income === 'number' ? d.income : 0,
         budgetTemplate: d.budgetTemplate || '50_30_20',
         categoryLimits: d.categoryLimits || {},
         needsPercent: d.needsPercent,
@@ -27,7 +27,7 @@ export const budgetService = {
       };
     }
     return {
-      income: 25000000,
+      income: 0,
       budgetTemplate: '50_30_20',
       categoryLimits: {},
     };

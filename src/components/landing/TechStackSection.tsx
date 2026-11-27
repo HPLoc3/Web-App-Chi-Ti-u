@@ -13,7 +13,7 @@ export default function TechStackSection() {
     {
       category: "Frontend & Giao diện",
       icon: <Layers size={16} className="text-emerald-700" />,
-      items: ["React 18", "TypeScript", "Tailwind CSS", "Lucide Icons", "Recharts D3"]
+      items: ["React 19", "TypeScript", "Tailwind CSS", "Lucide Icons", "Recharts"]
     },
     {
       category: "Backend & Dịch vụ",
@@ -23,7 +23,7 @@ export default function TechStackSection() {
     {
       category: "Cơ sở Dữ liệu & Lưu trữ",
       icon: <Database size={16} className="text-amber-700" />,
-      items: ["PostgreSQL", "Prisma ORM", "Firebase Firestore", "IndexedDB / LocalStorage"]
+      items: ["PostgreSQL", "Prisma ORM", "LocalStorage (chế độ dùng thử)"]
     },
     {
       category: "AI & Bảo mật Hệ thống",
@@ -42,10 +42,10 @@ export default function TechStackSection() {
             Nền tảng Công nghệ
           </span>
           <h2 className="font-serif text-xl sm:text-2xl font-bold text-emerald-950">
-            Kiến trúc Hiện đại, Vững chắc & Tối ưu Tốc độ
+            Công nghệ đang sử dụng
           </h2>
           <p className="text-xs sm:text-sm text-stone-600">
-            Hệ thống được phát triển theo tiêu chuẩn công nghệ SaaS cao cấp, đảm bảo hiệu năng và độ ổn định lâu dài.
+            Các công nghệ chính được dùng trong ứng dụng.
           </p>
         </div>
 

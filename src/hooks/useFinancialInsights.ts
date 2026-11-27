@@ -62,10 +62,10 @@ export function useFinancialInsights(state?: AppState, userId?: string | null) {
     const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
     const monthExpenses = state.expenses.filter((e) => e.date && e.date.startsWith(currentMonthStr));
     const totalSpent = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
-    const income = state.income || 15000000;
+    const income = state.income || 0;
 
     const spendingRate = income > 0 ? (totalSpent / income) * 100 : 0;
-    const savingsRate = Math.max(0, 100 - spendingRate);
+    const savingsRate = income > 0 ? Math.max(0, 100 - spendingRate) : 0;
 
     // Calculate top category
     const catTotals: Record<string, number> = {};
@@ -122,6 +122,11 @@ export function useFinancialInsights(state?: AppState, userId?: string | null) {
       status = 'CRITICAL';
       statusText = 'Nguy cơ cao';
       color = '#EF4444';
+    }
+
+    if (income <= 0) {
+      statusText = 'Chưa đánh giá';
+      color = '#78716C';
     }
 
     const finalScore = typeof insightsData?.healthScore === 'number' 

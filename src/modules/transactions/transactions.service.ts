@@ -1,5 +1,4 @@
 import { Prisma } from '@prisma/client';
-import { prisma } from '../../lib/prisma';
 import { TransactionsRepository } from './transactions.repository';
 import { WalletsRepository } from '../wallets/wallets.repository';
 import { TransactionDTO, GetTransactionsQuery, CreateTransactionInput, UpdateTransactionInput } from './transactions.types';
@@ -8,6 +7,19 @@ import { AppError } from '../../middleware/errorHandler.middleware';
 import { getBusinessDate, parseBusinessDate } from '../../utils/dateParser';
 import { FinancialMath } from '../../utils/financialMath';
 import { FinancialAuditLogger } from '../../utils/financialAudit';
+
+// Asia/Ho_Chi_Minh cố định UTC+7, không có giờ mùa hè
+const BUSINESS_UTC_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+/** Khoảng [đầu kỳ, đầu kỳ kế) của một tháng hoặc cả năm theo giờ Việt Nam */
+function businessPeriodRange(year: number, month?: number) {
+  const firstMonth = month ? month - 1 : 0;
+  const monthCount = month ? 1 : 12;
+  return {
+    gte: new Date(Date.UTC(year, firstMonth, 1) - BUSINESS_UTC_OFFSET_MS),
+    lt: new Date(Date.UTC(year, firstMonth + monthCount, 1) - BUSINESS_UTC_OFFSET_MS),
+  };
+}
 
 export class TransactionsService {
   private static formatTransaction(tx: any): TransactionDTO {
@@ -40,7 +52,7 @@ export class TransactionsService {
     };
   }
 
-  static async getTransactions(userId: string, query: GetTransactionsQuery & { month?: string; year?: string; limit?: string; page?: string; all?: string }) {
+  static async getTransactions(userId: string, query: GetTransactionsQuery) {
     const whereCondition: Prisma.TransactionWhereInput = { userId };
 
     if (query.type) {
@@ -62,19 +74,8 @@ export class TransactionsService {
       };
     }
 
-    if (query.month && query.year) {
-      const m = parseInt(String(query.month), 10);
-      const y = parseInt(String(query.year), 10);
-
-      if (!isNaN(m) && !isNaN(y) && m >= 1 && m <= 12) {
-        const startDate = new Date(y, m - 1, 1, 0, 0, 0, 0);
-        const endDate = new Date(y, m, 0, 23, 59, 59, 999);
-
-        whereCondition.date = {
-          gte: startDate,
-          lte: endDate,
-        };
-      }
+    if (query.year) {
+      whereCondition.date = businessPeriodRange(query.year, query.month);
     } else if (query.startDate || query.endDate) {
       whereCondition.date = {
         ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
@@ -82,10 +83,9 @@ export class TransactionsService {
       };
     }
 
-    const isAll = query.all === 'true' || query.all === '1';
-    const pageSize = isAll ? 5000 : query.pageSize || (query.limit ? Math.min(Math.max(parseInt(String(query.limit), 10), 1), 1000) : 20);
-    const pageNumber = query.page ? Math.max(parseInt(String(query.page), 10), 1) : 1;
-    const skipCount = isAll ? 0 : (pageNumber - 1) * pageSize;
+    const pageSize = query.pageSize || 20;
+    const pageNumber = query.page || 1;
+    const skipCount = (pageNumber - 1) * pageSize;
 
     const [transactions, totalCount] = await Promise.all([
       TransactionsRepository.findMany(whereCondition, skipCount, pageSize),
@@ -154,7 +154,8 @@ export class TransactionsService {
         user: { connect: { id: userId } },
       },
       targetWalletId,
-      balanceChange
+      balanceChange,
+      userId
     );
 
     FinancialAuditLogger.log({
@@ -174,46 +175,36 @@ export class TransactionsService {
     };
   }
 
-  static async createBulkTransactions(userId: string, items: any[]) {
-    if (!Array.isArray(items) || items.length === 0) {
-      throw new AppError('Danh sách giao dịch không hợp lệ.', 400, 'INVALID_ITEMS');
+  static async createBulkTransactions(userId: string, items: CreateTransactionInput[]) {
+    let defaultWalletId: string | undefined;
+    if (items.some((item) => !item.walletId)) {
+      const defaultWallet =
+        (await TransactionsRepository.findDefaultWallet(userId)) ||
+        (await TransactionsRepository.createDefaultWallet(userId));
+      defaultWalletId = defaultWallet.id;
     }
 
-    let defaultWallet = await TransactionsRepository.findDefaultWallet(userId);
-    if (!defaultWallet) {
-      defaultWallet = await TransactionsRepository.createDefaultWallet(userId);
-    }
-
-    const defaultWalletId = defaultWallet.id;
-    const validItems: {
-      userId: string;
-      walletId: string;
-      categoryId: string;
-      amount: Prisma.Decimal;
-      type: 'EXPENSE' | 'INCOME';
-      note: string;
-      date: Date;
-    }[] = [];
-
+    const rows: Prisma.TransactionCreateManyInput[] = [];
     const walletBalanceAdjustments = new Map<string, Prisma.Decimal>();
 
     for (const item of items) {
       const numAmount = FinancialMath.toDecimal(item.amount);
-      if (numAmount.lessThanOrEqualTo(0)) continue;
+      if (numAmount.lessThanOrEqualTo(0)) {
+        throw new AppError('Số tiền phải lớn hơn 0.', 400, 'INVALID_AMOUNT');
+      }
 
-      const transactionType = (item.type as 'EXPENSE' | 'INCOME') || 'EXPENSE';
-      const itemDate = item.date ? new Date(item.date) : new Date();
+      const transactionType = item.type || 'EXPENSE';
       const validCategoryId = await resolveCategoryId(item.categoryId, userId, transactionType);
-      const targetWalletId = item.walletId || defaultWalletId;
+      const targetWalletId = item.walletId || defaultWalletId!;
 
-      validItems.push({
+      rows.push({
         userId,
         walletId: targetWalletId,
         categoryId: validCategoryId,
         amount: numAmount,
         type: transactionType,
         note: item.note ? String(item.note).slice(0, 500) : '',
-        date: isNaN(itemDate.getTime()) ? new Date() : itemDate,
+        date: parseBusinessDate(item.date || getBusinessDate()),
       });
 
       const currentAdjustment = walletBalanceAdjustments.get(targetWalletId) || new Prisma.Decimal(0);
@@ -221,46 +212,17 @@ export class TransactionsService {
       walletBalanceAdjustments.set(targetWalletId, currentAdjustment.add(delta));
     }
 
-    if (validItems.length === 0) {
-      return [];
-    }
-
-    // Atomic execution in a single database transaction across all affected wallets
-    await prisma.$transaction(async (tx) => {
-      for (const [wId, adjustment] of walletBalanceAdjustments.entries()) {
-        if (!adjustment.isZero()) {
-          await tx.wallet.update({
-            where: { id: wId },
-            data: { balance: { increment: adjustment } },
-          });
-        }
-      }
-
-      await tx.transaction.createMany({
-        data: validItems,
-      });
-    });
+    const created = await TransactionsRepository.createBulkWithWalletUpdate(userId, rows, walletBalanceAdjustments);
 
     FinancialAuditLogger.log({
       userId,
       action: 'TRANSACTION_BULK_CREATE',
       entity: 'Transaction',
-      entityId: `bulk-${validItems.length}`,
-      metadata: { count: validItems.length },
+      entityId: `bulk-${rows.length}`,
+      metadata: { count: rows.length },
     });
 
-    // Return the newly created transactions
-    const latestCreated = await prisma.transaction.findMany({
-      where: { userId },
-      include: {
-        category: { select: { id: true, name: true, type: true, icon: true, color: true } },
-        wallet: { select: { id: true, name: true, balance: true, currency: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: validItems.length,
-    });
-
-    return latestCreated.map((t) => this.formatTransaction(t));
+    return created.map((t) => this.formatTransaction(t));
   }
 
   static async updateTransaction(id: string, userId: string, input: UpdateTransactionInput) {
@@ -339,7 +301,7 @@ export class TransactionsService {
       ? existingAmount.negated()
       : existingAmount;
 
-    await TransactionsRepository.deleteWithWalletAdjustment(id, existing.walletId, revertChange);
+    await TransactionsRepository.deleteWithWalletAdjustment(id, userId);
 
     FinancialAuditLogger.log({
       userId,

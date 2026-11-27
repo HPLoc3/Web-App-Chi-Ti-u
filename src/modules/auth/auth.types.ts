@@ -24,8 +24,4 @@ export interface GoogleAuthPayload {
   token?: string;
   accessToken?: string;
   access_token?: string;
-  email?: string;
-  name?: string;
-  picture?: string;
-  googleId?: string;
 }

@@ -12,7 +12,7 @@ export class CategoriesRepository {
         orderBy: [{ isSystem: 'desc' }, { name: 'asc' }],
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return Array.from(devFallbackStore.categories.values());
       }
       throw error;
@@ -25,7 +25,7 @@ export class CategoriesRepository {
         where: { userId, name, type },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         for (const cat of devFallbackStore.categories.values()) {
           if (cat.userId === userId && cat.name === name && cat.type === type) return cat;
         }
@@ -41,7 +41,7 @@ export class CategoriesRepository {
         where: { id, userId },
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         return devFallbackStore.categories.get(id) || null;
       }
       throw error;
@@ -54,7 +54,7 @@ export class CategoriesRepository {
         data,
       });
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         const id = `dev-cat-${Date.now()}`;
         const cat: Category = {
           id,
@@ -86,7 +86,7 @@ export class CategoriesRepository {
         }),
       ]);
     } catch (error) {
-      if (DevFallbackStore.isConnectionError(error)) {
+      if (DevFallbackStore.shouldFallback(error)) {
         devFallbackStore.categories.delete(id);
         return;
       }
