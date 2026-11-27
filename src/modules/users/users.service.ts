@@ -67,10 +67,13 @@ export class UsersService {
     }
 
     const newHash = await bcrypt.hash(input.newPassword, 10);
-    await UsersRepository.changePassword(userId, newHash);
+    const changed = await UsersRepository.changePassword(userId, newHash, user.password);
+    if (!changed) {
+      throw new AppError('Mật khẩu hiện tại không chính xác.', 400, 'INVALID_PASSWORD');
+    }
 
     // Thiết bị hiện tại nhận phiên mới; mọi phiên cũ đã bị thu hồi
-    const tokens = await AuthService.generateTokens(user);
+    const tokens = await AuthService.generateTokens(user, undefined, newHash);
     return { user: await this.getProfile(userId), tokens };
   }
 

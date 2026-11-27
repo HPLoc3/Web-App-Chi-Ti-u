@@ -145,18 +145,23 @@ export class AuthService {
 
   static async generateTokens(
     user: { id: string; email: string; name?: string | null },
-    meta?: { userAgent?: string; ipAddress?: string }
+    meta?: { userAgent?: string; ipAddress?: string },
+    expectedPasswordHash?: string
   ): Promise<AuthTokens> {
     const { tokens, hashedRefreshToken, expiresAt } = this.createTokenSet(user);
 
     // Không nuốt lỗi: refresh token không lưu được thì phiên này không hợp lệ
-    await AuthRepository.createTokensAndSession(
+    const issued = await AuthRepository.createTokensAndSession(
       user.id,
       hashedRefreshToken,
       expiresAt,
       meta?.userAgent,
-      meta?.ipAddress
+      meta?.ipAddress,
+      expectedPasswordHash
     );
+    if (issued === false) {
+      throw invalidCredentials('Thông tin đăng nhập vừa thay đổi. Vui lòng đăng nhập lại.');
+    }
 
     return tokens;
   }
@@ -213,7 +218,7 @@ export class AuthService {
       }
     }
 
-    const tokens = await this.generateTokens(user);
+    const tokens = await this.generateTokens(user, undefined, hashedPassword);
 
     return { user: this.toUserDTO(user), tokens };
   }
@@ -235,7 +240,7 @@ export class AuthService {
       throw invalidCredentials();
     }
 
-    const tokens = await this.generateTokens(user);
+    const tokens = await this.generateTokens(user, undefined, user.password);
 
     return { user: this.toUserDTO(user), tokens };
   }
@@ -284,6 +289,11 @@ export class AuthService {
         }
       }
     } else {
+      // Tài khoản mật khẩu chưa xác minh email: chủ email (Google đã xác minh) nhận lại tài khoản
+      if (user.provider === 'local') {
+        user = await AuthRepository.claimUnverifiedAccountForGoogle(user.id);
+      }
+
       // User exists: update missing avatar/name and link if appropriate
       const updateData: { avatar?: string; name?: string } = {};
       if (avatar && (!user.avatar || user.avatar.includes('googleusercontent.com'))) {

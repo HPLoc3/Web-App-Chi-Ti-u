@@ -35,7 +35,7 @@ function fakeTx() {
       calls.push('lockUser');
       return [];
     }),
-    user: { update: op('user.update', {}), delete: op('user.delete', {}) },
+    user: { update: op('user.update', {}), updateMany: op('user.updateMany'), delete: op('user.delete', {}) },
     refreshToken: {
       updateMany: op('refreshToken.updateMany'),
       deleteMany: op('refreshToken.deleteMany'),
@@ -76,7 +76,7 @@ describe('Đổi mật khẩu', () => {
 
     expect(res.status).toBe(200);
     expect(calls).toEqual([
-      'user.update',
+      'user.updateMany',
       'refreshToken.deleteMany',
       'session.deleteMany',
       'passwordResetToken.updateMany',
@@ -132,7 +132,9 @@ describe('Google login', () => {
       ok: true,
       json: async () => ({ email: 'real@gmail.com', email_verified: true, name: 'Real', picture: 'https://x/p.png' }),
     } as any);
-    find = vi.spyOn(AuthRepository, 'findUserByEmail').mockResolvedValue(userRow({ email: 'real@gmail.com' }) as any);
+    find = vi
+      .spyOn(AuthRepository, 'findUserByEmail')
+      .mockResolvedValue(userRow({ email: 'real@gmail.com', provider: 'google' }) as any);
     vi.spyOn(AuthRepository, 'createTokensAndSession').mockResolvedValue(undefined);
     vi.spyOn(prisma.user, 'update').mockResolvedValue(userRow({ email: 'real@gmail.com' }) as any);
   });

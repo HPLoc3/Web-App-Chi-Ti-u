@@ -40,6 +40,9 @@ const CATEGORIES_MAP: Record<string, string> = {
   khac: 'Chi tiêu khác',
 };
 
+/** Trần độ dài bảng số liệu đưa vào prompt Gemini; vượt thì dùng bộ quy tắc */
+export const MAX_FACTS_PROMPT_CHARS = 60_000;
+
 const getGeminiClient = () => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey.trim() === '') {
@@ -145,7 +148,9 @@ export class AiService {
       recurringExpenses,
     });
 
-    const ai = getGeminiClient();
+    // Bảng số liệu dựng từ dữ liệu client gửi lên; quá lớn thì không đưa vào prompt (tốn phí Gemini)
+    const factsJson = JSON.stringify(aggregatedFacts, null, 2);
+    const ai = factsJson.length <= MAX_FACTS_PROMPT_CHARS ? getGeminiClient() : null;
 
     // 3. If Gemini is not configured or unavailable, use Deterministic Copilot Engine
     if (!ai) {
@@ -226,7 +231,7 @@ KẾT QUẢ PHÂN TÍCH NGÀY CHUẨN XÁC ĐOÁN TRƯỚC:
 - Ngày nhận diện: ${deterministicDateResult.normalizedDate} (Loại: ${deterministicDateResult.dateType}, Biểu thức: "${deterministicDateResult.originalExpression || 'hôm nay'}")
 
 BẢNG SỐ LIỆU TÀI CHÍNH TẬP HỢP (AGGREGATED_FINANCIAL_FACTS):
-${JSON.stringify(aggregatedFacts, null, 2)}
+${factsJson}
 
 DANH MỤC HỢP LỆ:
 - an_uong (Ăn uống)

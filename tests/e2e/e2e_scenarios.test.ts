@@ -460,80 +460,21 @@ describe('E2E Full Scenarios (16 Key Workflows)', () => {
     expect(Number(res.body.wallet.balance)).toBe(4915000);
   });
 
-  // Scenario 13: Backup Data Flow
-  it('Scenario 13: Backup User Data Flow', async () => {
-    vi.spyOn(SyncRepository, 'findDefaultWallet').mockResolvedValue({
-      id: 'w-default',
-      name: 'Ví Chính',
-      balance: new Prisma.Decimal(5000000),
-      currency: 'VND',
-      isDefault: true,
-      userId: USER_A.id,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    vi.spyOn(SyncRepository, 'createTransaction').mockResolvedValue({} as any);
-    vi.spyOn(SyncRepository, 'upsertBudget').mockResolvedValue({
-      id: 'b-sync',
-      income: new Prisma.Decimal(25000000),
-      budgetTemplate: '50_30_20',
-      categoryLimits: '{}',
-      userId: USER_A.id,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    } as any);
+  // Scenario 13 & 14: endpoint đồng bộ hàng loạt đã tắt (client không dùng, chưa có giới hạn)
+  it.each(['/api/v1/sync/client-state', '/api/sync/client-state'])(
+    'Scenario 13-14: %s không còn được mở, không ghi gì',
+    async (url) => {
+      const write = vi.spyOn(SyncRepository, 'createTransaction');
 
-    const res = await request(app)
-      .post('/api/v1/sync/client-state')
-      .set('Authorization', `Bearer ${tokenA}`)
-      .send({
-        expenses: [{ id: 'tx-1', amount: 50000, categoryId: 'an_uong', note: 'Phở', date: '2026-08-16' }],
-        wallets: [{ id: 'w-1', name: 'Ví Chính', balance: 5000000, currency: 'VND' }],
-      });
+      const res = await request(app)
+        .post(url)
+        .set('Authorization', `Bearer ${tokenA}`)
+        .send({ expenses: [{ id: 'tx-1', amount: 50000, categoryId: 'an_uong', note: 'Phở', date: '2026-08-16' }] });
 
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(res.body.stats).toBeDefined();
-  });
-
-  // Scenario 14: Restore User Data Flow
-  it('Scenario 14: Restore User Data Flow', async () => {
-    vi.spyOn(SyncRepository, 'findDefaultWallet').mockResolvedValue({
-      id: 'w-default',
-      name: 'Ví Chính',
-      balance: new Prisma.Decimal(5000000),
-      currency: 'VND',
-      isDefault: true,
-      userId: USER_A.id,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    vi.spyOn(SyncRepository, 'createTransaction').mockResolvedValue({} as any);
-    vi.spyOn(SyncRepository, 'upsertBudget').mockResolvedValue({
-      id: 'b-sync',
-      income: new Prisma.Decimal(25000000),
-      budgetTemplate: '50_30_20',
-      categoryLimits: '{}',
-      userId: USER_A.id,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    } as any);
-
-    const res = await request(app)
-      .post('/api/v1/sync/client-state')
-      .set('Authorization', `Bearer ${tokenA}`)
-      .send({
-        expenses: [
-          { id: 'tx-restored-1', amount: 120000, categoryId: 'mua_sam', note: 'Áo thun', date: '2026-08-10' },
-          { id: 'tx-restored-2', amount: 45000, categoryId: 'an_uong', note: 'Bánh mì', date: '2026-08-11' },
-        ],
-        wallets: [{ id: 'w-restored-1', name: 'Ví Tiết Kiệm', balance: 10000000, currency: 'VND' }],
-      });
-
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
-    expect(res.body.stats).toBeDefined();
-  });
+      expect(res.status).toBe(404);
+      expect(write).not.toHaveBeenCalled();
+    }
+  );
 
   // Scenario 15: Refresh Page (State Persistence)
   it('Scenario 15: Refresh Page / Session Re-hydration Flow', async () => {

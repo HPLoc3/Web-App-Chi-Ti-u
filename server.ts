@@ -27,7 +27,6 @@ import budgetsRoutes from "./src/modules/budgets/budgets.routes";
 import goalsRoutes from "./src/modules/goals/goals.routes";
 import recurringRoutes from "./src/modules/recurring/recurring.routes";
 import reportsRoutes from "./src/modules/reports/reports.routes";
-import syncRoutes from "./src/modules/sync/sync.routes";
 import aiRoutes from "./src/modules/ai/ai.routes";
 import healthRoutes, { setDraining } from "./src/modules/health/health.routes";
 
@@ -174,8 +173,8 @@ app.use("/api/v1/budgets", budgetsRoutes);
 app.use("/api/v1/goals", goalsRoutes);
 app.use("/api/v1/recurring", recurringRoutes);
 app.use("/api/v1/reports", reportsRoutes);
-app.use("/api/v1/sync", syncRoutes);
 app.use("/api/v1/ai", aiRoutes);
+// /api/sync không được mount: client không dùng, endpoint ghi hàng loạt chưa có giới hạn
 
 // Legacy Aliases for backwards compatibility
 app.use("/api/auth", authRoutes);
@@ -188,7 +187,6 @@ app.use("/api/recurring", recurringRoutes);
 app.use("/api/budget", budgetsRoutes);
 app.use("/api/budgets", budgetsRoutes);
 app.use("/api/reports", reportsRoutes);
-app.use("/api/sync", syncRoutes);
 app.use("/api/ai", aiRoutes);
 
 // Xử lý 404 cho các đường dẫn /api/* không hợp lệ

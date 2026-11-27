@@ -31,25 +31,34 @@ export class UsersRepository {
     }
   }
 
-  /** Đổi mật khẩu và thu hồi mọi phiên, mã đặt lại mật khẩu trong cùng một transaction */
-  static async changePassword(userId: string, passwordHash: string): Promise<void> {
+  /**
+   * Đổi mật khẩu và thu hồi mọi phiên, mã đặt lại mật khẩu trong cùng một transaction.
+   * Chỉ ghi khi hash cũ vẫn còn; trả false nếu mật khẩu vừa bị đổi hoặc bị xóa.
+   */
+  static async changePassword(userId: string, passwordHash: string, expectedPasswordHash: string): Promise<boolean> {
     try {
-      await prisma.$transaction(async (tx) => {
+      return await prisma.$transaction(async (tx) => {
         const now = new Date();
         // Cập nhật user trước để giữ khóa dòng, chặn refresh token đang được xoay vòng
-        await tx.user.update({ where: { id: userId }, data: { password: passwordHash } });
+        const updated = await tx.user.updateMany({
+          where: { id: userId, password: expectedPasswordHash },
+          data: { password: passwordHash },
+        });
+        if (updated.count !== 1) return false;
         await tx.refreshToken.deleteMany({ where: { userId } });
         await tx.session.deleteMany({ where: { userId } });
         await tx.passwordResetToken.updateMany({
           where: { userId, usedAt: null, expiresAt: { gt: now } },
           data: { usedAt: now },
         });
+        return true;
       });
     } catch (error) {
       if (DevFallbackStore.shouldFallback(error)) {
+        if (devFallbackStore.findUserById(userId)?.password !== expectedPasswordHash) return false;
         devFallbackStore.updateUserPassword(userId, passwordHash);
         devFallbackStore.revokeAllUserTokensAndSessions(userId);
-        return;
+        return true;
       }
       throw error;
     }

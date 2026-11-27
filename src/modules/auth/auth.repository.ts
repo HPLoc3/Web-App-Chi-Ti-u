@@ -57,36 +57,83 @@ export class AuthRepository {
     }
   }
 
+  /**
+   * `expectedPasswordHash`: hash đã dùng để xác thực. Có truyền thì phiên chỉ được cấp khi hash đó
+   * vẫn còn (kiểm lại dưới khóa user), để đăng nhập đang chạy dở không sống sót qua việc đổi/xóa mật khẩu.
+   * Trả false nếu mật khẩu đã đổi; khi đó không cấp gì.
+   */
   static async createTokensAndSession(
     userId: string,
     hashedRefreshToken: string,
     expiresAt: Date,
     userAgent?: string,
-    ipAddress?: string
-  ): Promise<void> {
+    ipAddress?: string,
+    expectedPasswordHash?: string
+  ): Promise<boolean> {
+    const tokenData = { token: hashedRefreshToken, userId, expiresAt };
+    const sessionData = {
+      sessionToken: hashedRefreshToken,
+      userId,
+      userAgent: userAgent || null,
+      ipAddress: ipAddress || null,
+      expiresAt,
+    };
     try {
-      await prisma.$transaction([
-        prisma.refreshToken.create({
-          data: {
-            token: hashedRefreshToken,
-            userId,
-            expiresAt,
-          },
-        }),
-        prisma.session.create({
-          data: {
-            sessionToken: hashedRefreshToken,
-            userId,
-            userAgent: userAgent || null,
-            ipAddress: ipAddress || null,
-            expiresAt,
-          },
-        }),
-      ]);
+      if (expectedPasswordHash === undefined) {
+        await prisma.$transaction([
+          prisma.refreshToken.create({ data: tokenData }),
+          prisma.session.create({ data: sessionData }),
+        ]);
+        return true;
+      }
+      return await prisma.$transaction(async (tx) => {
+        await lockUserRow(tx, userId);
+        const current = await tx.user.findUnique({ where: { id: userId }, select: { password: true } });
+        if (current?.password !== expectedPasswordHash) return false;
+        await tx.refreshToken.create({ data: tokenData });
+        await tx.session.create({ data: sessionData });
+        return true;
+      });
     } catch (error) {
       if (DevFallbackStore.shouldFallback(error)) {
+        if (
+          expectedPasswordHash !== undefined &&
+          devFallbackStore.findUserById(userId)?.password !== expectedPasswordHash
+        ) {
+          return false;
+        }
         devFallbackStore.createTokensAndSession(userId, hashedRefreshToken, expiresAt, userAgent, ipAddress);
-        return;
+        return true;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Google đã xác minh email, còn tài khoản mật khẩu thì chưa (người khác có thể đã đăng ký trước
+   * bằng email này). Trong một transaction: bỏ mật khẩu, chuyển sang Google, thu hồi mọi phiên và
+   * mã đặt lại. Lỗi được ném ra để không cấp phiên khi chưa thu hồi xong.
+   */
+  static async claimUnverifiedAccountForGoogle(userId: string): Promise<User> {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        await lockUserRow(tx, userId);
+        const claimed = await tx.user.updateMany({
+          where: { id: userId, provider: 'local' },
+          data: { password: null, provider: 'google' },
+        });
+        if (claimed.count === 1) {
+          await tx.refreshToken.deleteMany({ where: { userId } });
+          await tx.session.deleteMany({ where: { userId } });
+          await tx.passwordResetToken.updateMany({ where: { userId, usedAt: null }, data: { usedAt: new Date() } });
+        }
+        return tx.user.findUniqueOrThrow({ where: { id: userId } });
+      });
+    } catch (error) {
+      if (DevFallbackStore.shouldFallback(error)) {
+        const user = devFallbackStore.updateUser(userId, { password: null, provider: 'google' });
+        devFallbackStore.revokeAllUserTokensAndSessions(userId);
+        return user;
       }
       throw error;
     }
